@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Ship, Anchor, Plus, X, Columns2 } from "lucide-react";
+import { Ship, Anchor, Plus, X, Columns2, StickyNote } from "lucide-react";
 import { T, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import { squadronsOf, craftInCarrier, craftInFleet, knownModels, knownCarrierModels } from "../lib/carriers.js";
 import { mergeNames } from "../lib/shipArt.js";
@@ -87,9 +87,10 @@ export default function FleetView({
 
   /* ------------------------------------------------ one carrier: hull on the left, hangar on the right */
   const carrierCard = (fleet, sh, facColor) => (
-    <div key={sh.id} style={{ display: "flex", gap: 10, alignItems: "stretch", background: T.panel2,
+    <div key={sh.id} style={{ display: "flex", flexDirection: "column", gap: 8, background: T.panel2,
       border: `1px solid ${T.line}`, borderRadius: 2, padding: 8 }}>
 
+     <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
       <div style={{ width: HULL_COL, flexShrink: 0, display: "flex", gap: 6 }}>
         <div style={{ width: 4, background: facColor, flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
@@ -143,6 +144,28 @@ export default function FleetView({
           </Btn>
         )}
       </div>
+     </div>
+
+      {/* free-form notes on this carrier — round-trips as ship.notes (see sectorSchema fleets codec).
+          Hidden entirely for read-only viewers when there's nothing written yet. */}
+      {(canEdit || sh.notes) && (
+        <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 8, display: "flex",
+          flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <StickyNote size={11} style={{ color: T.faint, flexShrink: 0 }} />
+            <span style={lbl}>Notes</span>
+          </div>
+          {canEdit ? (
+            <textarea value={sh.notes || ""} placeholder="Track anything about this ship…"
+              onChange={(e) => patchShip(fleet.id, sh.id, { notes: e.target.value })} rows={2}
+              style={{ ...inputStyle, padding: "5px 8px", resize: "vertical", minHeight: 44,
+                lineHeight: 1.5 }} />
+          ) : (
+            <div style={{ fontSize: 12, color: T.mut, whiteSpace: "pre-wrap", wordBreak: "break-word",
+              lineHeight: 1.5 }}>{sh.notes}</div>
+          )}
+        </div>
+      )}
     </div>
   );
 
