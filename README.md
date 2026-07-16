@@ -1,47 +1,55 @@
 # Sector Cartographer
 
-A self-hosted, collaborative sci-fi sector map: star systems, fleets and their
-carrier rosters, hyperlanes, freehand drawing, and a setting wiki/codex — with
-per-player roles for running asymmetric-information games (see below). Originally a single-file Claude
-artifact; this is the same app split into a normal React project with a real
-shared backend (Firebase Realtime Database) so it can be deployed anywhere and
-embedded in a Google Sites page.
+A self-hosted, collaborative sci-fi sector map for tabletop and play-by-post
+campaigns. One deployment gives your table a single shared map that everyone
+sees live — and, because each player can be given their own login code, each
+player sees only what their character is supposed to know.
 
-## Project layout
+It's a React single-page app with no server of its own. All shared state lives in
+a Firebase Realtime Database you own, and the build is a static `dist/` folder you
+can drop on any host or embed in a page you already have.
 
-```
-src/
-  theme.js            colors, panel/input styles, the chamfered-panel clip-path
-  constants.js         zoom limits, wiki categories, marker icon set, storage keys
-  lib/firebase.js       Firebase app/init (reads config from env vars)
-  lib/storage.js        get/set/delete adapter — shared data -> Firebase, personal -> localStorage
-  lib/carriers.js       fleet composition — squadron counts, craft totals, model autocomplete
-  lib/shipArt.js        the SVG ship-art library — name matching, upload validation, safety notes
-  lib/routing.js        which page a URL means, and vice versa — see "Linking to a page"
-  hooks/useMapInteractions.js   pan/zoom/drag/draw — all the map's DOM/pointer/canvas logic
-  hooks/useResponsive.js        mobile breakpoint tracking
-  hooks/useHashRoute.js         the current page, read from and written to the URL hash
-  components/            one file per UI piece (Toolbar, SidePanel, FleetView, WikiView, popups, ui/*)
-  App.jsx                 top-level state + composition
-```
+## What's in it
 
-## 1. Set up Firebase (one-time, ~5 minutes)
+Five views, switched from the toolbar and each with its own URL:
 
-The map's shared data (systems, fleets, wiki entries, drawings, the edit-lock
-code) lives in a Firebase Realtime Database so every visitor sees the same map.
+- **Map** — the sector itself. Place star systems, connect them with hyperlanes,
+  drop fleet markers, and draw freehand over the top for borders and staging
+  arrows. Pan, zoom, and drag anything; below 25% zoom systems collapse to plain
+  markers so a large sector stays readable.
+- **Fleets** — who commands what. A fleet's carriers, each carrier's hangar of
+  squadrons, and a compare mode for reading two fleets side by side. Also home to
+  the ship art library. See [Fleets, carriers & squadrons](#fleets-carriers--squadrons).
+- **Politics** — factions as nodes, their relationships as edges (alliance, trade
+  pact, neutral, rivalry, war). Zoom into a faction to open up the characters and
+  organizations inside it.
+- **Codex** — the setting wiki: factions, characters, locations, lore, rules and
+  misc. Entries are plain text, cross-link to each other, and support
+  [CSV tables](#tables-in-codex-entries) for rosters and stat blocks.
+- **Odds** — a standalone 2d6 mission-resolution table for settling an engagement
+  at the table. See [Mission odds](#mission-odds).
 
-1. Go to https://console.firebase.google.com and create a project (free tier is enough).
-2. In the left sidebar, go to **Build > Realtime Database** and click **Create Database**.
-   Choose a location, and start in **test mode** for now (we'll lock it down in step 4).
-3. Go to **Project settings** (gear icon) > **General** > scroll to **Your apps** > click
-   the **`</>`** (web) icon to register a new web app. Copy the `firebaseConfig` values shown.
-4. In this project, copy `.env.example` to `.env.local` and paste in those values:
-   ```
-   cp .env.example .env.local
-   ```
-   Fill in `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_DATABASE_URL`, etc.
-5. Lock down the database rules so strangers can't wipe your map. In the Realtime
-   Database console, go to the **Rules** tab and use:
+Editing is gated by a **GM code**, and content can be revealed per player — see
+[asymmetric-information play](#asymmetric-information-play-player-roles--visibility).
+Anyone with the link gets a read-only public view with no code at all.
+
+## Setup
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org) v18 or newer
+- A Google account, for the free-tier Firebase project the map saves into
+
+### 1. Create a Firebase project
+
+Shared data — systems, fleets, codex entries, drawings, access codes — lives in a
+Firebase Realtime Database so every visitor sees the same map.
+
+1. At https://console.firebase.google.com, create a project. The free Spark tier
+   is plenty for a campaign.
+2. **Build > Realtime Database > Create Database**. Pick a location and start in
+   **test mode**; step 3 replaces the rules.
+3. Still in Realtime Database, open the **Rules** tab and use:
    ```json
    {
      "rules": {
@@ -54,65 +62,89 @@ code) lives in a Firebase Realtime Database so every visitor sees the same map.
      }
    }
    ```
-   This keeps it open to anyone with the link (matching the app's own casual
-   edit-code lock) but scoped only to the `sectors/` path. If you want real
-   auth-gated writes instead of the in-app edit-code, that requires adding
-   Firebase Auth — out of scope here, but the rules are the place to add it.
+   This scopes access to the `sectors/` path and leaves it open to anyone with the
+   link, which matches the app's own casual edit-code lock. If you want real
+   auth-gated writes instead, that means adding Firebase Auth — out of scope here,
+   but these rules are where it would go.
+4. **Project settings > General > Your apps**, click the **`</>`** (web) icon to
+   register a web app, and copy the `firebaseConfig` values it shows you.
 
-## 2. Run it locally
+### 2. Configure and run
 
-Requires [Node.js](https://nodejs.org) (v18+).
-
-```
+```sh
+git clone <your-fork-url>
+cd sector-cartographer
 npm install
+cp .env.example .env.local   # then paste in your firebaseConfig values
 npm run dev
 ```
 
-Open the printed `localhost` URL. The app loads your saved sector from Firebase
-(an empty sector on a brand-new project); edits save to your Firebase project
-within ~600ms (see the SAVED indicator top-right).
+`.env.local` holds the `VITE_FIREBASE_*` variables from step 1.4. It is
+gitignored — the values are per-deployment, not per-repo.
 
-## 3. Build & deploy
+Open the printed `localhost` URL and you'll get an empty sector. Edits save to
+your Firebase project within ~600ms; the indicator top-right shows SAVED.
 
-```
+### 3. Deploy
+
+```sh
 npm run build
 ```
 
-This produces a static `dist/` folder — plain HTML/CSS/JS, no server required.
-Deploy it to any static host. Two easy free options:
+That produces a static `dist/` folder — plain HTML, CSS and JS, no server
+required — deployable to any static host (Firebase Hosting, Netlify, Vercel,
+GitHub Pages, S3, or a directory on a box you already run).
 
-**Netlify** (drag-and-drop):
-1. Run `npm run build`.
-2. Go to https://app.netlify.com/drop and drag the `dist` folder in.
-3. You'll get a URL like `https://random-name.netlify.app`. Note: the *Firebase*
-   env vars need to be set at build time, so if you use Netlify's git-based
-   deploys instead of drag-and-drop, add the `VITE_FIREBASE_*` vars in
-   **Site settings > Environment variables** and let Netlify run `npm run build`.
+The one thing to get right: **Vite inlines env vars at build time**, not at run
+time. If your host builds from git, set the `VITE_FIREBASE_*` variables in that
+host's environment-variables settings, or the deployed app will have no database
+to talk to. If you build locally and upload `dist/`, your `.env.local` is already
+baked in.
 
-**Vercel**:
-1. `npm i -g vercel` then `vercel` in this folder, or connect the repo at
-   https://vercel.com/new.
-2. Add the `VITE_FIREBASE_*` variables in the project's **Settings > Environment Variables**.
+This repo ships a `firebase.json`, so Firebase Hosting works out of the box:
 
-Either way, once deployed you'll have a public URL serving the map.
+```sh
+npx firebase-tools login
+npx firebase-tools use --add     # select your own project
+npx firebase-tools deploy --only hosting
+```
 
-## 4. Embed in Google Sites
+Nothing depends on Firebase Hosting specifically — it's just the shortest path
+when you already made a Firebase project in step 1.
 
-1. Open your Google Site in edit mode.
-2. Insert > **Embed** > **By URL**, and paste your deployed URL
-   (e.g. `https://your-map.netlify.app`).
-3. Resize the embed block to a good size — the app is responsive down to phone
-   widths, but a large embed (most of the page width, 600px+ tall) works best
-   for a map.
-4. Publish the site.
+### 4. Embedding it elsewhere (optional)
 
-Google Sites embeds run in an iframe, which is why `vite.config.js` builds
-with relative asset paths (`base: "./"`) — it works regardless of the host path.
+The app is fine to iframe into a site you already have (Google Sites, Notion,
+WordPress, a static page of your own):
 
-If Google Sites' embed dialog rejects the URL, use **Insert > Embed > Embed code**
-instead with:
 ```html
-<iframe src="https://your-map.netlify.app" style="border:0" width="100%" height="700"></iframe>
+<iframe src="https://your-deployed-url" style="border:0" width="100%" height="700"></iframe>
+```
+
+Give it room — it's responsive down to phone widths, but a map wants most of the
+page width and 600px+ of height. Embeds are why `vite.config.js` sets
+`base: "./"`: relative asset URLs work no matter what host path serves the app.
+
+## Project layout
+
+```
+src/
+  theme.js            colors, panel/input styles, the chamfered-panel clip-path
+  constants.js         zoom limits, wiki categories, marker icon set, storage keys
+  lib/firebase.js       Firebase app/init (reads config from env vars)
+  lib/storage.js        get/set/delete adapter — shared data -> Firebase, personal -> localStorage
+  lib/carriers.js       fleet composition — squadron counts, craft totals, model autocomplete
+  lib/shipArt.js        the SVG ship-art library — name matching, upload validation, safety notes
+  lib/visibility.js     who may see a given entry or carrier — see "Asymmetric-information play"
+  lib/routing.js        which page a URL means, and vice versa — see "Linking to a page"
+  lib/codexBody.js      codex body text -> prose + ```csv table segments — see "Tables in codex entries"
+  lib/missionOdds.js    the mission odds table — E, success grades, casualties — see "Mission odds"
+  hooks/useMapInteractions.js       pan/zoom/drag/draw — all the map's DOM/pointer/canvas logic
+  hooks/usePoliticsInteractions.js  the same, for the politics graph
+  hooks/useResponsive.js            mobile breakpoint tracking
+  hooks/useHashRoute.js             the current page, read from and written to the URL hash
+  components/            one file per UI piece (Toolbar, SidePanel, FleetView, WikiView, popups, ui/*)
+  App.jsx                 top-level state + composition
 ```
 
 ## Fleets, carriers & squadrons
@@ -158,6 +190,71 @@ Two places, for two jobs:
 Fleets no longer link to codex entries — the Fleets tab replaced that. Systems,
 factions, characters and organizations still link to the codex as before.
 
+## Mission odds
+
+The **Odds** tab is a dice reference for resolving an engagement. It is
+deliberately **not wired to the sector**: no fleet, carrier or squadron feeds it,
+nothing it computes is saved, and bouncing to another tab and back resets it. You
+type the numbers in and read the result off, the way you would with a table in a
+rulebook — which is what lets it resolve the things the map doesn't model
+(a boarding action, a ground assault, a raid on something that isn't a fleet).
+
+Everything reduces to one number, **E**:
+
+```
+E = 2d6 + force-ratio shift + the relevant mission shift
+```
+
+E maps to a **success grade** (0–5) and to a **casualty percentage**. Outcome and
+casualties take *separate* mission shifts and so get separate Es — which is how a
+battle gets won badly, or lost cheaply.
+
+- **Your vessels / Enemy vessels** — type both and the **Force ratio** column snaps
+  to the nearest match. The snap is by ratio, not by difference, so 2:1 sits the
+  same distance from 1:1 as 1:2 does. A line under the controls shows what it
+  picked, and warns when the two forces are further apart than the table's end
+  columns can express.
+- **Force ratio** — or just pick the column yourself and ignore the vessel counts.
+  Picking by hand overrides the snap (the line says so); you rarely have a
+  headcount for an orbital bombardment, but you always have one for a fleet action.
+- **Outcome shift / Casualty shift** — whatever the mission is worth, −12 to +12.
+- **2d6 roll** — type the dice you rolled, or hit **Roll 2d6** to have it rolled for you.
+
+The readout answers the question; the table below is the whole grid, with your
+current row and column picked out. Grade colour runs worst → best, but it's only a
+scan aid: every cell prints its grade and casualty figure, so nothing is carried by
+colour alone.
+
+## Tables in codex entries
+
+A codex entry's body is plain text, with one exception: a fenced **```csv** block
+renders as a real table. Rosters and stat blocks stay readable instead of turning
+into hand-spaced columns that break the first time a name gets longer.
+
+````
+Crew figures are nominal complement, not current muster.
+
+```csv Capital Roster
+Ship,Class,Crew,Status
+Hand of Gorb,Flagship,"2,400",Active
+Vellum Sigh,Cruiser,880,Refit
+```
+````
+
+- Anything after `csv` on the opening line becomes the **caption** (optional).
+- The **first row is the header**.
+- Columns whose values are all numbers are **right-aligned** automatically.
+- Wrap a field in double quotes to keep a comma inside it (`"2,400"`), and double
+  the quote (`""`) for a literal one — the same rules Sheets and Excel export, so
+  a table copied out of a spreadsheet pastes in and just works.
+- Rows may be ragged; short ones are padded out.
+- Text outside a block is never touched — a comma in prose stays prose.
+
+Since the GM edits in a plain textarea, use **Preview** (above the body) to see
+the entry as players will read it, and **Insert table** to drop in a starter block
+at the cursor. A wide table scrolls inside its own box rather than stretching the
+entry — worth a preview check on a phone-width screen.
+
 ## Ship art
 
 Upload SVG drawings of your ships and they appear beside carriers and squadrons
@@ -179,7 +276,8 @@ Art is matched to ships **by name**, so one upload serves the whole sector:
 Art is stored under its own Firebase key (`sectors/<name>/galaxy-sector-art:v1`),
 separate from the sector itself — the sector blob is rewritten on every keystroke,
 and artwork shouldn't be re-uploaded with it. No extra Firebase setup is needed:
-the rules in step 5 above already cover the whole `sectors/<name>` path.
+the database rules in [setup](#1-create-a-firebase-project) already cover the whole
+`sectors/<name>` path.
 
 Files must be `.svg` and under 128KB. SVGs containing a `<script>` tag are rejected.
 
@@ -244,8 +342,9 @@ exactly what you're looking at:
 | `#/codex` | the codex |
 | `#/codex/lore` | a codex category |
 | `#/codex/lore/wk_193_iltz` | a single codex entry |
+| `#/odds` | the mission odds table |
 
-e.g. `https://your-map.netlify.app/#/codex/lore/wk_193_iltz`. The ids are the
+e.g. `https://your-deployed-url/#/codex/lore/wk_193_iltz`. The ids are the
 ones in the URL bar — open the thing you want to link to and copy the address.
 
 A link only shows what its reader is allowed to see: send a player a link to a
@@ -253,7 +352,10 @@ GM-only entry and they get the codex, not the entry (see
 [asymmetric-information play](#asymmetric-information-play-player-roles--visibility)).
 
 Map popups are deliberately *not* in the URL — clicking systems and fleets on the
-map would otherwise fill the Back button with a click-by-click history.
+map would otherwise fill the Back button with a click-by-click history. The odds
+tool's inputs stay out for the same reason: `#/odds` links to the tool, not to a
+particular calculation, and putting every keystroke in the hash would make Back
+useless.
 
 Routes live after a `#` rather than as real paths (`/codex/lore/...`) so that a
 deep link works on any static host, at any host path, with no SPA rewrite rule to
@@ -263,11 +365,11 @@ at the top of `src/lib/routing.js`.
 ## Multiple maps from one deployment
 
 Add `?sector=<name>` to the URL to get an independent map backed by its own
-Firebase path (`sectors/<name>/...`) — e.g. `https://your-map.netlify.app/?sector=campaign-two`.
+Firebase path (`sectors/<name>/...`) — e.g. `https://your-deployed-url/?sector=campaign-two`.
 Useful if you run several campaigns and don't want to redeploy per-campaign.
 
 It combines with the page links above — the sector goes before the `#`:
-`https://your-map.netlify.app/?sector=campaign-two#/codex/lore/wk_193_iltz`.
+`https://your-deployed-url/?sector=campaign-two#/codex/lore/wk_193_iltz`.
 
 ## Notes
 

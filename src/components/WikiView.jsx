@@ -1,17 +1,52 @@
-import { Plus, Trash2, ChevronLeft, FileText, EyeOff, Users } from "lucide-react";
+import { useRef, useState } from "react";
+import { Plus, Trash2, ChevronLeft, FileText, EyeOff, Users, Table, Eye, Pencil } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { WIKI_CATS } from "../constants.js";
 import { isRestricted } from "../lib/visibility.js";
+import { bodyExcerpt, CSV_TEMPLATE, CSV_TEMPLATE_CAPTION } from "../lib/codexBody.js";
 import Btn from "./ui/Btn.jsx";
+import CodexBody from "./CodexBody.jsx";
 import VisibilityRow from "./VisibilityRow.jsx";
 
 export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCat, setActiveCat, selectedId, setSelectedId, addEntry, patchEntry, deleteEntry }) {
   const catMeta = WIKI_CATS.find((c) => c.id === activeCat) || WIKI_CATS[0];
   const entries = wiki.filter((e) => e.category === activeCat);
   const selected = wiki.find((e) => e.id === selectedId);
+  // An editor only ever sees the raw textarea, so a ```csv block would be
+  // invisible to the person writing it — hence the preview toggle. Previewing is
+  // a transient look at the entry you're on: leaving for another entry ends it
+  // (selectEntry), and it's keyed to an id rather than a bare flag so that a
+  // brand-new entry — whose selection happens up in App, not through
+  // selectEntry — opens ready to type in, not read-only.
+  const [previewOf, setPreviewOf] = useState(null);
+  const preview = previewOf != null && previewOf === selectedId;
+  const bodyRef = useRef(null);
   // setActiveCat clears the open entry itself (see App.jsx) — clearing it here
   // too would be a second URL change, i.e. two Back presses for one click.
   const selectCat = (id) => setActiveCat(id);
+  const selectEntry = (id) => { setPreviewOf(null); setSelectedId(id); };
+
+  // Drops a starter CSV block in at the caret. Only reachable while the textarea
+  // is on screen (the button hides in preview), so bodyRef is live here.
+  function insertTable(entry) {
+    const el = bodyRef.current;
+    const body = entry.body || "";
+    const at = el ? el.selectionStart : body.length;
+    const before = body.slice(0, at);
+    const after = body.slice(at);
+    // A fence only opens at the start of its own line, and wants a blank line
+    // between it and any prose either side.
+    const lead = before === "" || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+    const tail = after === "" ? "\n" : after.startsWith("\n") ? "\n" : "\n\n";
+    patchEntry(entry.id, { body: before + lead + CSV_TEMPLATE + tail + after });
+    // Select the placeholder caption so the writer just types over it.
+    const start = before.length + lead.length + CSV_TEMPLATE.indexOf(CSV_TEMPLATE_CAPTION);
+    requestAnimationFrame(() => {
+      if (!bodyRef.current) return;
+      bodyRef.current.focus();
+      bodyRef.current.setSelectionRange(start, start + CSV_TEMPLATE_CAPTION.length);
+    });
+  }
 
   // NOTE: these are plain functions returning JSX (called, not mounted as <Components>),
   // so editing inputs/textarea don't lose focus on each keystroke from a remount.
@@ -51,7 +86,7 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
         const restricted = canEdit && roles.length > 0 && isRestricted(e);
         const gmOnly = restricted && e.visibility.length === 0;
         return (
-          <button key={e.id} onClick={() => setSelectedId(e.id)}
+          <button key={e.id} onClick={() => selectEntry(e.id)}
             style={{ textAlign: "left", cursor: "pointer", background: on ? "rgba(159,194,58,.1)" : T.panel2,
               border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 2, padding: "8px 10px", color: T.text,
               fontFamily: "inherit", display: "flex", flexDirection: "column", gap: 3 }}>
@@ -71,7 +106,7 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
             </span>
             <span style={{ fontSize: 10.5, color: T.faint, lineHeight: 1.4, overflow: "hidden",
               display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-              {(e.body || "").replace(/\n+/g, " ").slice(0, 90) || "—"}
+              {bodyExcerpt(e.body).slice(0, 90) || "—"}
             </span>
           </button>
         );
@@ -126,10 +161,27 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
                 {WIKI_CATS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
             </div>
-            <textarea value={selected.body} onChange={(e) => patchEntry(selected.id, { body: e.target.value })}
-              placeholder="Write anything here — lore, notes, stats, rules…"
-              style={{ ...inputStyle, minHeight: isMobile ? 220 : 340, resize: "vertical", lineHeight: 1.6,
-                fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace", fontSize: 12.5, padding: 12 }} />
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ ...lbl, flex: 1 }}>Body</span>
+              {!preview && (
+                <Btn onClick={() => insertTable(selected)} title="Insert a CSV table block at the cursor">
+                  <Table size={13} /> Insert table
+                </Btn>
+              )}
+              <Btn onClick={() => setPreviewOf(preview ? null : selected.id)} title={preview ? "Back to editing" : "See how this entry reads"}>
+                {preview ? <><Pencil size={13} /> Edit</> : <><Eye size={13} /> Preview</>}
+              </Btn>
+            </div>
+            {preview ? (
+              <div style={{ minHeight: isMobile ? 220 : 340, border: `1px dashed ${T.line}`, borderRadius: 2, padding: 12 }}>
+                <CodexBody body={selected.body} isMobile={isMobile} />
+              </div>
+            ) : (
+              <textarea ref={bodyRef} value={selected.body} onChange={(e) => patchEntry(selected.id, { body: e.target.value })}
+                placeholder="Write anything here — lore, notes, stats, rules…"
+                style={{ ...inputStyle, minHeight: isMobile ? 220 : 340, resize: "vertical", lineHeight: 1.6,
+                  fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace", fontSize: 12.5, padding: 12 }} />
+            )}
             <VisibilityRow roles={roles} value={selected.visibility}
               onChange={(v) => patchEntry(selected.id, { visibility: v })} />
             <Btn kind="danger" onClick={() => deleteEntry(selected.id)} style={{ alignSelf: "flex-start" }}>
@@ -141,10 +193,7 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
             <div className="stencil" style={{ fontSize: 24, fontWeight: 800, letterSpacing: ".03em", color: T.text }}>
               {selected.title || "Untitled"}
             </div>
-            <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.7, fontSize: 13.5,
-              color: T.text, fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace" }}>
-              {selected.body || <span style={{ color: T.faint }}>(This entry is empty.)</span>}
-            </div>
+            <CodexBody body={selected.body} isMobile={isMobile} />
           </>
         )}
       </div>
@@ -154,7 +203,7 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
   if (isMobile) {
     return (
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.void }}>
-        {selected ? detail(() => setSelectedId(null)) : (
+        {selected ? detail(() => selectEntry(null)) : (
           <>
             {categoryRail(false)}
             {entryList()}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Map as MapIcon, Library, Satellite, Network, Ship } from "lucide-react";
+import { Map as MapIcon, Library, Satellite, Network, Ship, Dices } from "lucide-react";
 import { T, panelStyle, cut } from "./theme.js";
 import { STORAGE_KEY, ACCESS_KEY, KNOWN_CODE_KEY, ART_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
 import { storage } from "./lib/storage.js";
@@ -18,6 +18,7 @@ import MapCanvas from "./components/MapCanvas.jsx";
 import FleetView from "./components/FleetView.jsx";
 import WikiView from "./components/WikiView.jsx";
 import PoliticsView from "./components/PoliticsView.jsx";
+import OddsView from "./components/OddsView.jsx";
 
 export default function GalaxySectorMap() {
   // Empty until the saved sector loads from storage; the loading gate below keeps
@@ -528,7 +529,7 @@ export default function GalaxySectorMap() {
       {/* ------------------------------------------------ GLOBAL TAB BAR (map / codex) — always visible */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
         background: `linear-gradient(180deg, #0a0906, ${T.panel})`, borderBottom: `1px solid ${T.line}`, zIndex: 41 }}>
-        {/* four tabs don't fit a phone with their labels, so below the breakpoint they go icon-only */}
+        {/* the tabs don't fit a phone with their labels, so below the breakpoint they go icon-only */}
         <div style={{ display: "flex", gap: 3, background: T.panel3, padding: 3, border: `1px solid ${T.line}` }}>
           <Btn active={activeTab === "map"} onClick={() => { setActiveTab("map"); setAccessOpen(false); }} title="Sector map"
             style={{ border: "none", borderRadius: 0, background: activeTab === "map" ? undefined : "transparent" }}>
@@ -545,6 +546,10 @@ export default function GalaxySectorMap() {
           <Btn active={activeTab === "codex"} onClick={() => { setActiveTab("codex"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Setting codex / wiki"
             style={{ border: "none", borderRadius: 0, background: activeTab === "codex" ? undefined : "transparent" }}>
             <Library size={14} /> {!isMobile && "Codex"}
+          </Btn>
+          <Btn active={activeTab === "odds"} onClick={() => { setActiveTab("odds"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Mission odds table"
+            style={{ border: "none", borderRadius: 0, background: activeTab === "odds" ? undefined : "transparent" }}>
+            <Dices size={14} /> {!isMobile && "Odds"}
           </Btn>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
@@ -637,6 +642,10 @@ export default function GalaxySectorMap() {
           addEntry={addWikiEntry} patchEntry={patchWikiEntry} deleteEntry={deleteWikiEntry}
         />
       )}
+
+      {/* A dice-reference tool, not a view of the sector — it takes no props but
+          the breakpoint, and deliberately reads nothing from the map. */}
+      {activeTab === "odds" && <OddsView isMobile={isMobile} />}
 
       {/* ship drag ghost */}
       {mapInt.shipDrag && (

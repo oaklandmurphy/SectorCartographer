@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Starship Mission Odds Lookup</title>
+<style>
+  :root{ --bg:#0f0f11; --panel:#1a1a1d; --border:#2a2a2e; --text:#e8e8e8; --accent:#ea580c; }
+  *{box-sizing:border-box}
+  body{ margin:0; background:var(--bg); color:var(--text); font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; padding:20px; }
+  h1{ font-size:16px; letter-spacing:.05em; text-transform:uppercase; margin:0 0 4px; }
+  .note{ font-size:12px; opacity:.55; margin:0 0 18px; }
+  .ctrls{ display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px; align-items:flex-end; }
+  .fld{ display:flex; flex-direction:column; gap:4px; }
+  label{ font-size:11px; text-transform:uppercase; letter-spacing:.08em; opacity:.6; }
+  select,input{ background:var(--panel); color:inherit; border:1px solid var(--border); border-radius:6px; padding:7px 9px; font:inherit; font-size:13px; }
+  .roll-btn{ background:var(--accent); color:#fff; border:none; border-radius:6px; padding:8px 16px; font:inherit; font-size:13px; cursor:pointer; font-weight:600; }
+  .roll-btn:hover{ filter:brightness(1.1); }
+  .result{ background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:18px; display:none; }
+  .result.on{ display:block; }
+  .rline{ display:flex; gap:28px; flex-wrap:wrap; align-items:baseline; }
+  .big{ font-size:28px; font-weight:700; }
+  .sub{ font-size:11px; opacity:.6; text-transform:uppercase; letter-spacing:.05em; }
+  .stack{ display:flex; flex-direction:column; gap:2px; }
+  table{ border-collapse:collapse; font-size:11px; width:100%; }
+  th,td{ border:1px solid var(--border); padding:4px 5px; text-align:center; white-space:nowrap; }
+  th{ background:var(--panel); font-weight:600; }
+  .rollcol{ background:var(--panel); font-weight:600; }
+  td.hi{ outline:2px solid var(--accent); outline-offset:-2px; }
+  .wrap{ overflow-x:auto; border:1px solid var(--border); border-radius:8px; }
+  .s0{color:#b91c1c}.s1{color:#c2670e}.s2{color:#b8860b}.s3{color:#65a30d}.s4{color:#16a34a}.s5{color:#22c55e;font-weight:700}
+</style>
+</head>
+<body>
+  <h1>Starship Mission Odds Lookup</h1>
+  <p class="note">E = 2d6 + ratio shift + relevant mission shift. Outcome and casualties shift independently.</p>
+
+  <div class="ctrls">
+    <div class="fld"><label>Your vessels</label><input id="atk" type="number" value="10" min="1" step="1" style="width:80px"></div>
+    <div class="fld"><label>Enemy vessels</label><input id="def" type="number" value="10" min="1" step="1" style="width:80px"></div>
+    <div class="fld"><label>Force ratio</label><select id="ratio"></select></div>
+    <div class="fld"><label>Outcome shift</label><input id="oshift" type="number" value="0" min="-12" max="12" step="1" style="width:80px"></div>
+    <div class="fld"><label>Casualty shift</label><input id="cshift" type="number" value="0" min="-12" max="12" step="1" style="width:80px"></div>
+    <div class="fld"><label>2d6 roll</label><input id="roll" type="number" value="7" min="2" max="12" step="1" style="width:80px"></div>
+    <button class="roll-btn" id="rollbtn">Roll 2d6</button>
+  </div>
+  <p class="note" id="snapnote" style="margin:-8px 0 16px"></p>
+
+  <div class="result" id="result">
+    <div class="rline">
+      <div class="stack"><span class="sub">E (out / cas)</span><span class="big" id="rE">–</span></div>
+      <div class="stack"><span class="sub">Success</span><span class="big" id="rS">–</span></div>
+      <div class="stack"><span class="sub">Casualties</span><span class="big" id="rC">–</span></div>
+    </div>
+  </div>
+
+  <div class="wrap"><div id="tbl"></div></div>
+
+<script>
+  const cols=[["1:4",-6,0.25],["1:3.5",-5,1/3.5],["1:3",-4,1/3],["1:2.5",-3,0.4],["1:2",-2,0.5],["1:1.5",-1,1/1.5],["1:1",0,1],["1.5:1",1,1.5],["2:1",2,2],["2.5:1",3,2.5],["3:1",4,3],["3.5:1",5,3.5],["4:1",6,4]];
+  function success(E){
+    if(E<=2)return 0; if(E<=5)return 1; if(E<=7)return 2;
+    if(E<=10)return 3; if(E<=13)return 4; return 5;
+  }
+  function casualties(E){
+    if(E<=0)return 100; if(E<=2)return 90; if(E==3)return 80;
+    if(E==4)return 70; if(E<=6)return 60; if(E==7)return 50;
+    if(E<=9)return 40; if(E<=11)return 30; if(E<=13)return 20;
+    if(E<=15)return 10; return 0;
+  }
+  const $=id=>document.getElementById(id);
+  const rsel=$("ratio");
+  cols.forEach((c,i)=>{const o=document.createElement("option");o.value=i;o.textContent=`${c[0]} (${c[1]>=0?"+":""}${c[1]})`;if(c[0]=="1:1")o.selected=true;rsel.appendChild(o);});
+  const oship=()=>parseInt($("oshift").value)||0;
+  const cship=()=>parseInt($("cshift").value)||0;
+  const rshift=()=>cols[+rsel.value][1];
+
+  function snapFromFleets(){
+    const a=parseFloat($("atk").value), d=parseFloat($("def").value);
+    const note=$("snapnote");
+    if(!(a>0)||!(d>0)){ note.textContent=""; return; }
+    const target=Math.log(a/d);
+    let best=0,bd=Infinity;
+    cols.forEach((c,i)=>{ const dist=Math.abs(Math.log(c[2])-target); if(dist<bd){bd=dist;best=i;} });
+    rsel.value=best;
+    const clamped = (a/d < cols[0][2]) || (a/d > cols[cols.length-1][2]);
+    note.textContent = `${a}:${d} \u2192 nearest column ${cols[best][0]} (${cols[best][1]>=0?"+":""}${cols[best][1]})` + (clamped?" \u2014 beyond table range, clamped to end":"");
+  }
+
+  function buildTable(){
+    const os=oship(), cs=cship();
+    let h="<table><thead><tr><th class='rollcol'>2d6</th>";
+    cols.forEach((c,i)=>{h+=`<th${i==+rsel.value?" style='color:var(--accent)'":""}>${c[0]}</th>`;});
+    h+="</tr></thead><tbody>";
+    for(let r=2;r<=12;r++){
+      h+=`<tr><td class='rollcol'>${r}</td>`;
+      cols.forEach((c,i)=>{
+        const s=success(r+c[1]+os), cas=casualties(r+c[1]+cs);
+        const hi=(i==+rsel.value&&r==(parseInt($("roll").value)||0))?" hi":"";
+        h+=`<td class='s${s}${hi}'>${s}/5<br>${cas}%</td>`;
+      });
+      h+="</tr>";
+    }
+    h+="</tbody></table>";
+    $("tbl").innerHTML=h;
+  }
+  function calc(){
+    const roll=parseInt($("roll").value)||0;
+    const Es=roll+rshift()+oship(), Ec=roll+rshift()+cship();
+    const s=success(Es), c=casualties(Ec);
+    $("rE").textContent=`${Es} / ${Ec}`;
+    $("rS").textContent=s+"/5"; $("rC").textContent=c+"%";
+    $("rS").className="big s"+s;
+    $("result").classList.add("on");
+    buildTable();
+  }
+  $("rollbtn").onclick=()=>{ $("roll").value=(1+Math.floor(Math.random()*6))+(1+Math.floor(Math.random()*6)); calc(); };
+  ["atk","def"].forEach(id=>$(id).oninput=()=>{ snapFromFleets(); calc(); });
+  ["ratio","oshift","cshift","roll"].forEach(id=>$(id).oninput=calc);
+  snapFromFleets();
+  buildTable();
+</script>
+</body>
+</html>

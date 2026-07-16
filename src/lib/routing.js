@@ -14,13 +14,16 @@
 //   #/fleet · #/fleet/<fleetId> · #/fleet/<fleetId>/vs/<fleetId>
 //   #/politics
 //   #/codex · #/codex/<category> · #/codex/<category>/<entryId>
+//   #/odds
 //
 // Map popups deliberately stay out of the URL: they're a click on a marker, not
-// a page, and pushing one per click would bury the Back button.
+// a page, and pushing one per click would bury the Back button. The odds tool's
+// inputs stay out for the same reason — they're a scratch calculation, not a
+// page worth linking to, and every keystroke would be a Back step.
 
 import { WIKI_CATS } from "../constants.js";
 
-export const TABS = ["map", "fleet", "politics", "codex"];
+export const TABS = ["map", "fleet", "politics", "codex", "odds"];
 
 export const DEFAULT_ROUTE = {
   tab: "map",
