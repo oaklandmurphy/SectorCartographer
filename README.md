@@ -130,9 +130,11 @@ page width and 600px+ of height. Embeds are why `vite.config.js` sets
 ```
 src/
   theme.js            colors, panel/input styles, the chamfered-panel clip-path
-  constants.js         zoom limits, wiki categories, marker icon set, storage keys
+  constants.js         zoom limits, wiki categories, marker icon set
   lib/firebase.js       Firebase app/init (reads config from env vars)
-  lib/storage.js        get/set/delete adapter — shared data -> Firebase, personal -> localStorage
+  lib/sectorSchema.js   how a sector maps to the database tree — codecs, ordering, diffing
+  lib/sectorRepo.js     reading and writing the shared sector; the v1 -> v2 fallback
+  lib/storage.js        personal per-device state (the edit code this browser knows)
   lib/carriers.js       fleet composition — squadron counts, craft totals, model autocomplete
   lib/shipArt.js        the SVG ship-art library — name matching, upload validation, safety notes
   lib/visibility.js     who may see a given entry or carrier — see "Asymmetric-information play"
@@ -273,11 +275,10 @@ Art is matched to ships **by name**, so one upload serves the whole sector:
    every sister ship of that class picks up the same drawing. Squadrons match on
    the model name they already have.
 
-Art is stored under its own Firebase key (`sectors/<name>/galaxy-sector-art:v1`),
-separate from the sector itself — the sector blob is rewritten on every keystroke,
-and artwork shouldn't be re-uploaded with it. No extra Firebase setup is needed:
-the database rules in [setup](#1-create-a-firebase-project) already cover the whole
-`sectors/<name>` path.
+Art lives at `sectors/<name>/art/<id>`, one node per drawing, so uploading a ship
+never re-sends the rest of the library — see [How a sector is stored](#how-a-sector-is-stored).
+No extra Firebase setup is needed: the database rules in
+[setup](#1-create-a-firebase-project) already cover the whole `sectors/<name>` path.
 
 Files must be `.svg` and under 128KB. SVGs containing a `<script>` tag are rejected.
 
@@ -361,6 +362,58 @@ Routes live after a `#` rather than as real paths (`/codex/lore/...`) so that a
 deep link works on any static host, at any host path, with no SPA rewrite rule to
 configure — the same reason the build uses relative asset paths. See the comment
 at the top of `src/lib/routing.js`.
+
+## How a sector is stored
+
+Each entity is its own node, keyed by its id:
+
+```
+sectors/<name>/
+  meta/       schema (2) and updatedAt
+  access/     lockCode — the GM code; absent or "" means editing is open
+  factions/   <id>: { name, color, px, py, members: [...] }
+  relations/  <id>: { a, b, type }
+  layers/     <id>: { name, color, visible }
+  systems/    <id>: { name, x, y, factionId, markers: [...] }
+  links/      <id>: { a, b }
+  fleets/     <id>: { name, factionId, systemId, x, y, ships: [...] }
+  strokes/    <id>: { color, width, pts: [...] }
+  wiki/       <id>: { category, title, body, visibility }
+  roles/      <id>: { name, password, color }
+  art/        <id>: { name, svg }
+```
+
+A save writes only the entities that changed, so typing in a codex entry sends a
+few hundred bytes rather than the whole sector. `src/lib/sectorSchema.js` owns the
+translation and `src/lib/sectorRepo.js` the reads and writes. Three details are
+worth knowing before you touch either:
+
+- **`_ord`** on each entity is its position in the list. The database returns
+  children in key order, which for ids like `fac_10` and `fac_2` is not the order
+  you added them in; `_ord` preserves it and is stripped before the UI sees it.
+- **Empty lists don't exist.** The database stores no node for `markers: []`, so
+  reads restore the empty list rather than handing the UI an `undefined`.
+- **`visibility` is not stored as a plain array.** `[]` means *GM-only* while an
+  absent field means *public* — and an empty array wouldn't survive the trip, so a
+  restricted item is stored as `{ restricted: true, roles: { <id>: true } }`.
+  Get this wrong and every GM-only secret quietly becomes public.
+
+### Upgrading from the old layout
+
+Sectors created before this used one JSON string per key
+(`galaxy-sector-state:v1`, `galaxy-sector-art:v1`, `galaxy-sector-access:v1`).
+The app reads that layout if it finds no `meta/schema`, and the first edit by a GM
+rewrites the sector in the new one. To do it up front instead:
+
+```bash
+node scripts/migrate-v2.mjs --dry-run      # show what would be written
+node scripts/migrate-v2.mjs                # migrate ?sector=default
+node scripts/migrate-v2.mjs --sector=campaign-two
+```
+
+It leaves the old keys alone, so it's safe to re-run and the old blob stays as a
+backup. Delete those keys by hand once every player's browser has the new build —
+until then an old cached tab is still reading them.
 
 ## Multiple maps from one deployment
 

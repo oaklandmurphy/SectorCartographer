@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Map as MapIcon, Library, Satellite, Network, Ship, Dices } from "lucide-react";
 import { T, panelStyle, cut } from "./theme.js";
-import { STORAGE_KEY, ACCESS_KEY, KNOWN_CODE_KEY, ART_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
+import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
 import { storage } from "./lib/storage.js";
+import { loadSector, saveSector, emptySector } from "./lib/sectorRepo.js";
+import { buildSectorUpdates } from "./lib/sectorSchema.js";
 import { resolveViewer, canSee } from "./lib/visibility.js";
 import { craftInCarrier, withSquadrons } from "./lib/carriers.js";
 import { uid } from "./utils/id.js";
@@ -31,7 +33,7 @@ export default function GalaxySectorMap() {
   const [fleets, setFleets] = useState([]);
   const [wiki, setWiki] = useState([]);
   const [roles, setRoles] = useState([]); // player roles for asymmetric-info games
-  const [art, setArt] = useState([]);     // ship-art library; saved under its own key, see ART_KEY
+  const [art, setArt] = useState([]);     // ship-art library
 
   const [mode, setMode] = useState("select"); // select | link | draw
   const [view, setView] = useState({ scale: 1, ox: 60, oy: 40 });
@@ -80,44 +82,46 @@ export default function GalaxySectorMap() {
 
   useEffect(() => { if (isMobile) setPanelOpen(false); }, [isMobile]); // avoid opening full-screen on first mobile load
 
+  // Everything that lives in the shared sector, in one object: what gets saved,
+  // and what the last save is diffed against. The lock code is in here too — it
+  // is shared state like any other, and giving it a write path of its own is how
+  // it once got left behind by a migration, silently unlocking the sector.
+  const sector = useMemo(
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, roles, art, lockCode }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, roles, art, lockCode],
+  );
+  // The sector as the database currently has it. Null until the load below fills
+  // it in, which is also what stops an autosave from firing against an empty
+  // sector before the real one has arrived and wiping it.
+  const savedRef = useRef(null);
+
   /* ------------------------------------------------ load saved sector on open */
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await storage.get(STORAGE_KEY, true); // shared game data
-        if (!cancelled && res && res.value) {
-          const d = JSON.parse(res.value);
-          if (Array.isArray(d.factions)) setFactions(d.factions);
-          if (Array.isArray(d.relations)) setRelations(d.relations);
-          if (Array.isArray(d.layers)) setLayers(d.layers);
-          if (Array.isArray(d.systems)) setSystems(d.systems);
-          if (Array.isArray(d.links)) setLinks(d.links);
-          if (Array.isArray(d.fleets)) setFleets(d.fleets);
-          if (Array.isArray(d.wiki)) setWiki(d.wiki);
-          if (Array.isArray(d.roles)) setRoles(d.roles);
-          if (Array.isArray(d.strokes)) setStrokes(d.strokes);
+        const { data, schema } = await loadSector();
+        if (!cancelled) {
+          setFactions(data.factions); setRelations(data.relations); setLayers(data.layers);
+          setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
+          setStrokes(data.strokes); setWiki(data.wiki); setRoles(data.roles); setArt(data.art);
+          setLockCode(data.lockCode);
+          // Diffing against what was loaded means opening a sector writes nothing.
+          // Except on a sector still in the v1 layout: diffing against an empty
+          // one makes the first edit write the whole tree, migrating it in place
+          // for anyone who never ran scripts/migrate-v2.mjs.
+          savedRef.current = schema === 1 ? emptySector() : data;
         }
       } catch (e) {
-        // nothing saved yet, or storage unavailable — keep the empty sector
+        // Storage unavailable, or Firebase not configured — keep the empty sector.
+        // savedRef stays null, so autosave holds off rather than writing this
+        // empty sector over the real one. Say so: edits will not be saved, and
+        // that has to be visible rather than looking like an idle, saved map.
+        console.warn("[sector] could not load the sector", e);
+        if (!cancelled) setSaveStatus("error");
       }
       try {
-        const res = await storage.get(ART_KEY, true); // shared ship-art library
-        if (!cancelled && res && res.value) {
-          const a = JSON.parse(res.value);
-          if (Array.isArray(a)) setArt(a);
-        }
-      } catch (e) {
-        // no art uploaded yet, or storage unavailable — ships just draw without pictures
-      }
-      try {
-        const res = await storage.get(ACCESS_KEY, true); // shared lock code
-        if (!cancelled && res && typeof res.value === "string") setLockCode(res.value);
-      } catch (e) {
-        // no lock has ever been set — sector defaults to open editing
-      }
-      try {
-        const res = await storage.get(KNOWN_CODE_KEY, false); // personal: what this user knows
+        const res = storage.get(KNOWN_CODE_KEY); // personal: what this user knows
         if (!cancelled && res && typeof res.value === "string") setKnownCode(res.value);
       } catch (e) {
         // this browser/account has never entered a code
@@ -127,55 +131,46 @@ export default function GalaxySectorMap() {
     return () => { cancelled = true; };
   }, []);
 
-  /* ------------------------------------------------ debounced autosave of game state (editors only) */
+  /* ------------------------------------------------ debounced autosave (editors only).
+     One save for the whole sector, but only the entities that actually changed
+     get written — see lib/sectorSchema.js buildSectorUpdates. That's what lets
+     art and game state share a save without art's SVGs riding along on every
+     keystroke, which under the old one-blob-per-key layout they had to. */
   useEffect(() => {
-    if (!loaded || !canEdit) return; // viewers never write to shared storage
+    if (!loaded || !canEdit || !savedRef.current) return; // viewers never write to shared storage
+    // Nothing changed (a re-render, or the load settling) — stay quiet rather
+    // than flashing the save indicator at an idle sector.
+    if (!Object.keys(buildSectorUpdates(savedRef.current, sector)).length) return;
     setSaveStatus("saving");
     const t = setTimeout(async () => {
+      const prev = savedRef.current;
       try {
-        const payload = JSON.stringify({ factions, relations, layers, systems, links, fleets, strokes, wiki, roles });
-        const ok = await storage.set(STORAGE_KEY, payload, true); // shared game data
+        const ok = await saveSector(prev, sector);
+        // Only once the write lands: if it throws, the next save still diffs
+        // against what the database really has and retries the whole change.
+        if (ok) savedRef.current = sector;
         setSaveStatus(ok ? "saved" : "error");
       } catch (e) {
         setSaveStatus("error");
       }
     }, 600);
     return () => clearTimeout(t);
-    // eslint-disable-next-line
-  }, [factions, relations, layers, systems, links, fleets, strokes, wiki, roles, loaded, canEdit]);
+  }, [sector, loaded, canEdit]);
 
-  /* ------------------------------------------------ debounced autosave of the art library (editors only).
-     Separate from the sector save above so that editing a squadron count doesn't
-     re-upload every SVG in the library, and vice versa. */
-  useEffect(() => {
-    if (!loaded || !canEdit) return;
-    setSaveStatus("saving");
-    const t = setTimeout(async () => {
-      try {
-        const ok = await storage.set(ART_KEY, JSON.stringify(art), true);
-        setSaveStatus(ok ? "saved" : "error");
-      } catch (e) {
-        setSaveStatus("error");
-      }
-    }, 600);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line
-  }, [art, loaded, canEdit]);
-
-  /* ------------------------------------------------ edit-lock management (frontend-only gate, not real security) */
-  async function setNewLockCode(code) {
+  /* ------------------------------------------------ edit-lock management (frontend-only gate, not real security).
+     The code is part of the sector snapshot, so the autosave above persists it
+     like any other change — there is no separate write to forget. */
+  function setNewLockCode(code) {
     if (!canEdit) return;
     const trimmed = code.trim();
     if (!trimmed) return;
-    try { await storage.set(ACCESS_KEY, trimmed, true); } catch (e) { /* ignore */ }
     setLockCode(trimmed);
-    try { await storage.set(KNOWN_CODE_KEY, trimmed, false); } catch (e) { /* ignore */ }
+    try { storage.set(KNOWN_CODE_KEY, trimmed); } catch (e) { /* ignore */ }
     setKnownCode(trimmed);
     setCodeInput(""); setCodeError("");
   }
-  async function removeLockCode() {
+  function removeLockCode() {
     if (!canEdit) return;
-    try { await storage.set(ACCESS_KEY, "", true); } catch (e) { /* ignore */ }
     setLockCode("");
     setCodeInput(""); setCodeError("");
   }
@@ -185,7 +180,7 @@ export default function GalaxySectorMap() {
     const matchesGM = trimmed && trimmed === lockCode;
     const matchesRole = trimmed && roles.some((r) => r.password && r.password === trimmed);
     if (matchesGM || matchesRole) {
-      try { await storage.set(KNOWN_CODE_KEY, trimmed, false); } catch (e) { /* ignore */ }
+      try { storage.set(KNOWN_CODE_KEY, trimmed); } catch (e) { /* ignore */ }
       setKnownCode(trimmed);
       setCodeInput(""); setCodeError(""); setAccessOpen(false);
     } else {
@@ -193,7 +188,7 @@ export default function GalaxySectorMap() {
     }
   }
   async function signOut() {
-    try { await storage.set(KNOWN_CODE_KEY, "", false); } catch (e) { /* ignore */ }
+    try { storage.set(KNOWN_CODE_KEY, ""); } catch (e) { /* ignore */ }
     setKnownCode(""); setCodeInput(""); setCodeError("");
   }
 

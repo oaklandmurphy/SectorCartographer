@@ -5,13 +5,10 @@ import {
   User, Building2, Handshake, Swords, Coins, Minus, Flame,
 } from "lucide-react";
 
-export const STORAGE_KEY = "galaxy-sector-state:v1";   // shared game data (factions, systems, fleets, drawings...)
-export const ACCESS_KEY = "galaxy-sector-access:v1";   // shared: the current edit-lock code (empty = open to everyone)
+// The only key still kept per-device: the code this browser/account has entered.
+// Everything shared lives in the Realtime Database under sectors/{id}/ — see
+// lib/sectorSchema.js for the layout and lib/sectorRepo.js for reads and writes.
 export const KNOWN_CODE_KEY = "galaxy-sector-known-code:v1"; // personal: the code this browser/account has entered
-// Ship art gets its own key rather than riding in STORAGE_KEY: that blob is
-// rewritten on every keystroke, and re-uploading artwork on each edit would be
-// slow and needlessly expensive. Art changes rarely, so it saves independently.
-export const ART_KEY = "galaxy-sector-art:v1";         // shared: the SVG ship-art library
 
 export const MIN_ZOOM = 0.1;   // 10% — far enough out to see a whole large sector at once
 export const MAX_ZOOM = 3;     // 300%

@@ -20,7 +20,7 @@ if (firebaseReady) {
   db = getDatabase(app);
 } else {
   // Missing env vars (e.g. running `npm run dev` before Firebase is configured) — the
-  // storage adapter checks firebaseReady and falls back to a clear error rather than
+  // sector repo checks firebaseReady and falls back to a clear error rather than
   // crashing on a null database handle.
   console.warn("[firebase] VITE_FIREBASE_DATABASE_URL is not set — shared sector data will not load or save. See README.md.");
 }
