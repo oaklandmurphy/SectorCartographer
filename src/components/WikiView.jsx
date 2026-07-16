@@ -1,9 +1,11 @@
 import { useRef, useState } from "react";
-import { Plus, Trash2, ChevronLeft, FileText, EyeOff, Users, Table, Eye, Pencil } from "lucide-react";
+import { Plus, Trash2, ChevronLeft, FileText, EyeOff, Users, Table, Eye, Pencil,
+  Image as ImageIcon, ImagePlus, X, AlertTriangle } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { WIKI_CATS } from "../constants.js";
 import { isRestricted } from "../lib/visibility.js";
 import { bodyExcerpt, CSV_TEMPLATE, CSV_TEMPLATE_CAPTION } from "../lib/codexBody.js";
+import { processImage } from "../lib/codexImage.js";
 import Btn from "./ui/Btn.jsx";
 import CodexBody from "./CodexBody.jsx";
 import VisibilityRow from "./VisibilityRow.jsx";
@@ -21,10 +23,26 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
   const [previewOf, setPreviewOf] = useState(null);
   const preview = previewOf != null && previewOf === selectedId;
   const bodyRef = useRef(null);
+  const imgRef = useRef(null);
+  // Upload errors are per-entry and transient; cleared on picking a fresh file
+  // and whenever the open entry changes.
+  const [imgError, setImgError] = useState(null);
   // setActiveCat clears the open entry itself (see App.jsx) — clearing it here
   // too would be a second URL change, i.e. two Back presses for one click.
   const selectCat = (id) => setActiveCat(id);
-  const selectEntry = (id) => { setPreviewOf(null); setSelectedId(id); };
+  const selectEntry = (id) => { setPreviewOf(null); setImgError(null); setSelectedId(id); };
+
+  // Downscale/re-encode a picked raster file, then store it on the entry as a
+  // data URI. Rejects (with a message) rather than pushing an oversized image.
+  async function onPickImage(entry, e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ""; // let the same file be re-picked after an error
+    if (!file) return;
+    setImgError(null);
+    const res = await processImage(file);
+    if (res.error) { setImgError(res.error); return; }
+    patchEntry(entry.id, { image: res.dataUri });
+  }
 
   // Drops a starter CSV block in at the caret. Only reachable while the textarea
   // is on screen (the button hides in preview), so bodyRef is live here.
@@ -47,6 +65,51 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
       bodyRef.current.setSelectionRange(start, start + CSV_TEMPLATE_CAPTION.length);
     });
   }
+
+  // A codex image is always a raster data URI shown through <img> — never inline
+  // markup — see the security note in lib/codexImage.js.
+  const imageFrame = (src, maxHeight, alt) => (
+    <div style={{ border: `1px solid ${T.line}`, background: T.panel3, padding: 6,
+      alignSelf: "flex-start", maxWidth: "100%", borderRadius: 2 }}>
+      <img src={src} alt={alt || ""} style={{ display: "block", maxWidth: "100%", maxHeight }} />
+    </div>
+  );
+
+  // GM-only image control: preview + add/replace/remove. Hidden entirely from
+  // players — they see the picture (via imageFrame) only when one is present.
+  const imageEditor = () => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ ...lbl, display: "flex", alignItems: "center", gap: 6 }}>
+        <ImageIcon size={12} /> Image
+        <span style={{ marginLeft: "auto", color: selected.image ? T.accent : T.faint,
+          textTransform: "none", letterSpacing: 0, fontWeight: 600 }}>
+          {selected.image ? "Shown on this page" : "None"}
+        </span>
+      </div>
+      {selected.image && imageFrame(selected.image, 260)}
+      <input ref={imgRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={(e) => onPickImage(selected, e)} style={{ display: "none" }} />
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <Btn onClick={() => imgRef.current && imgRef.current.click()}
+          title={selected.image ? "Choose a different picture" : "Upload a picture for this page"}>
+          <ImagePlus size={13} /> {selected.image ? "Replace image" : "Add image"}
+        </Btn>
+        {selected.image && (
+          <Btn kind="danger" onClick={() => patchEntry(selected.id, { image: undefined })} title="Remove this page's image">
+            <X size={13} /> Remove
+          </Btn>
+        )}
+      </div>
+      {imgError && (
+        <div style={{ fontSize: 10, color: "#e5988c", display: "flex", alignItems: "center", gap: 5, lineHeight: 1.5 }}>
+          <AlertTriangle size={11} style={{ flexShrink: 0 }} /> {imgError}
+        </div>
+      )}
+      <div style={{ ...lbl, fontSize: 9, color: T.faint, textTransform: "none", letterSpacing: 0, lineHeight: 1.5 }}>
+        Players see this picture on the page only when one is set. Large images are resized automatically.
+      </div>
+    </div>
+  );
 
   // NOTE: these are plain functions returning JSX (called, not mounted as <Components>),
   // so editing inputs/textarea don't lose focus on each keystroke from a remount.
@@ -173,7 +236,9 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
               </Btn>
             </div>
             {preview ? (
-              <div style={{ minHeight: isMobile ? 220 : 340, border: `1px dashed ${T.line}`, borderRadius: 2, padding: 12 }}>
+              <div style={{ minHeight: isMobile ? 220 : 340, border: `1px dashed ${T.line}`, borderRadius: 2, padding: 12,
+                display: "flex", flexDirection: "column", gap: 12 }}>
+                {selected.image && imageFrame(selected.image, isMobile ? 320 : 480, selected.title)}
                 <CodexBody body={selected.body} isMobile={isMobile} />
               </div>
             ) : (
@@ -182,6 +247,7 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
                 style={{ ...inputStyle, minHeight: isMobile ? 220 : 340, resize: "vertical", lineHeight: 1.6,
                   fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace", fontSize: 12.5, padding: 12 }} />
             )}
+            {imageEditor()}
             <VisibilityRow roles={roles} value={selected.visibility}
               onChange={(v) => patchEntry(selected.id, { visibility: v })} />
             <Btn kind="danger" onClick={() => deleteEntry(selected.id)} style={{ alignSelf: "flex-start" }}>
@@ -193,6 +259,8 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
             <div className="stencil" style={{ fontSize: 24, fontWeight: 800, letterSpacing: ".03em", color: T.text }}>
               {selected.title || "Untitled"}
             </div>
+            {/* Players see the image section only when a picture is present. */}
+            {selected.image && imageFrame(selected.image, isMobile ? 320 : 480, selected.title)}
             <CodexBody body={selected.body} isMobile={isMobile} />
           </>
         )}
