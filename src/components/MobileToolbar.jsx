@@ -1,7 +1,7 @@
 import {
   MousePointer2, Share2, Pencil, Undo2, Trash2, Plus, Rocket,
   ZoomIn, ZoomOut, Maximize, PanelLeftClose, PanelLeftOpen,
-  RotateCcw, Star, Menu, X,
+  Star, Menu, X,
 } from "lucide-react";
 import { T } from "../theme.js";
 import { MIN_ZOOM, MAX_ZOOM } from "../constants.js";
@@ -15,7 +15,6 @@ export default function MobileToolbar({
   addSystemCenter, addFleetCenter,
   drawColor, setDrawColor, drawWidth, setDrawWidth,
   strokes, undoStroke, clearStrokes,
-  confirmingReset, setConfirmingReset, resetSector,
   view, setView, panelOpen, setPanelOpen,
   saveStatus, mobileMenuOpen, setMobileMenuOpen,
 }) {
@@ -96,16 +95,6 @@ export default function MobileToolbar({
           {canEdit && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <SaveStatus saveStatus={saveStatus} isMobile={false} />
-              {!confirmingReset && (
-                <Btn onClick={() => setConfirmingReset(true)} title="Wipe saved data and restore the demo sector"><RotateCcw size={14} /> Reset</Btn>
-              )}
-              {confirmingReset && (
-                <>
-                  <span className="mono" style={{ fontSize: 10.5, color: T.danger }}>Erase saved sector?</span>
-                  <Btn kind="danger" onClick={resetSector}>Confirm</Btn>
-                  <Btn onClick={() => setConfirmingReset(false)}>Cancel</Btn>
-                </>
-              )}
             </div>
           )}
         </div>

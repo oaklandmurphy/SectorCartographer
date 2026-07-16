@@ -2,7 +2,7 @@ import { Eye, Users, EyeOff } from "lucide-react";
 import { T, lbl } from "../theme.js";
 import { visibilitySummary } from "../lib/visibility.js";
 
-// GM-only control for choosing who can see one codex entry or ship.
+// GM-only control for choosing who can see one codex entry or carrier.
 // `value` is the item's `visibility` field: undefined = Everyone (public),
 // an array of role ids = those players + GM, [] = GM only.
 // Renders nothing unless there is at least one player role to share with.

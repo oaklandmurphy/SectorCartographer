@@ -10,7 +10,8 @@
 // still lives in a world-readable Firebase path. It keeps honest players in
 // character; it won't stop someone who reads the database directly.
 //
-// An item's `visibility` field (used on codex/wiki entries and on ships):
+// An item's `visibility` field (used on codex/wiki entries and on carriers —
+// a carrier's squadrons have no visibility of their own, they follow their hull):
 //   undefined / null  -> public: visible to everyone, including anonymous viewers
 //   string[]          -> restricted: only these role ids (plus the GM) can see it
 //   []                -> GM-only: no player role can see it

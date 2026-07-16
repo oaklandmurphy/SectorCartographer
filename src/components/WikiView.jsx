@@ -9,7 +9,9 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
   const catMeta = WIKI_CATS.find((c) => c.id === activeCat) || WIKI_CATS[0];
   const entries = wiki.filter((e) => e.category === activeCat);
   const selected = wiki.find((e) => e.id === selectedId);
-  const selectCat = (id) => { setActiveCat(id); setSelectedId(null); };
+  // setActiveCat clears the open entry itself (see App.jsx) — clearing it here
+  // too would be a second URL change, i.e. two Back presses for one click.
+  const selectCat = (id) => setActiveCat(id);
 
   // NOTE: these are plain functions returning JSX (called, not mounted as <Components>),
   // so editing inputs/textarea don't lose focus on each keystroke from a remount.

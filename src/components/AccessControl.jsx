@@ -120,7 +120,7 @@ function RoleManager({ roles, addRole, patchRole, removeRole }) {
       {roles.length === 0 && (
         <div style={{ fontSize: 10.5, color: T.faint, lineHeight: 1.5, padding: "8px 6px", textAlign: "center",
           border: `1px dashed ${T.line}` }}>
-          No players yet. Add a role, give your player its code, then choose what each can see on codex entries and ships.
+          No players yet. Add a role, give your player its code, then choose what each can see on codex entries and carriers.
         </div>
       )}
       {roles.map((r) => (

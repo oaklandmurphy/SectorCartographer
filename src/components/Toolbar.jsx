@@ -1,7 +1,7 @@
 import {
   MousePointer2, Share2, Pencil, Undo2, Trash2, Plus, Rocket,
   ZoomIn, ZoomOut, Maximize, PanelLeftClose, PanelLeftOpen,
-  RotateCcw, AlertTriangle, Save, Star,
+  AlertTriangle, Save, Star,
 } from "lucide-react";
 import { T, cut } from "../theme.js";
 import { MIN_ZOOM, MAX_ZOOM } from "../constants.js";
@@ -14,7 +14,6 @@ export default function Toolbar({
   addSystemCenter, addFleetCenter,
   drawColor, setDrawColor, drawWidth, setDrawWidth,
   strokes, undoStroke, clearStrokes,
-  confirmingReset, setConfirmingReset, resetSector,
   view, setView, panelOpen, setPanelOpen,
 }) {
   return (
@@ -62,18 +61,6 @@ export default function Toolbar({
       <Btn kind="danger" onClick={clearStrokes} disabled={!strokes.length || !canEdit} title="Clear all drawing"><Trash2 size={14} /> Clear</Btn>
 
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-        {canEdit && confirmingReset && (
-          <span className="mono" style={{ fontSize: 10.5, color: T.danger, marginRight: 2 }}>Erase saved sector?</span>
-        )}
-        {canEdit && confirmingReset && <Btn kind="danger" onClick={resetSector}>Confirm</Btn>}
-        {canEdit && (
-          <Btn onClick={() => setConfirmingReset((c) => !c)} title="Wipe saved data and restore the demo sector">
-            <RotateCcw size={14} /> {confirmingReset ? "Cancel" : "Reset"}
-          </Btn>
-        )}
-
-        <div style={{ width: 1, height: 20, background: T.line, margin: "0 2px" }} />
-
         <Btn onClick={() => setView((v) => ({ ...v, scale: Math.max(MIN_ZOOM, v.scale / 1.15) }))} title="Zoom out"><ZoomOut size={14} /></Btn>
         <span className="mono" style={{ fontSize: 11, color: T.mut, width: 42, textAlign: "center" }}>{Math.round(view.scale * 100)}%</span>
         <Btn onClick={() => setView((v) => ({ ...v, scale: Math.min(MAX_ZOOM, v.scale * 1.15) }))} title="Zoom in"><ZoomIn size={14} /></Btn>

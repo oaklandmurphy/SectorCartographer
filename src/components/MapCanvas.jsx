@@ -1,21 +1,13 @@
 import { Star } from "lucide-react";
 import { T, cut } from "../theme.js";
 import { ICONS, OVERVIEW_ZOOM } from "../constants.js";
+import { craftInFleet } from "../lib/carriers.js";
 import TargetBrackets from "./ui/TargetBrackets.jsx";
 import SystemPopup from "./SystemPopup.jsx";
 import FleetPopup from "./FleetPopup.jsx";
 
-function popupPos(w2s, containerSize, wx, wy, cardW, cardH) {
-  const s = w2s(wx, wy);
-  let x = s.x + 30, y = s.y - 24;
-  if (x + cardW + 10 > containerSize.w) x = s.x - cardW - 30;
-  x = Math.min(Math.max(8, x), Math.max(8, containerSize.w - cardW - 8));
-  y = Math.min(Math.max(8, y), Math.max(8, containerSize.h - cardH - 8));
-  return { x, y };
-}
-
 export default function MapCanvas({
-  mapRef, canvasRef, containerSize,
+  mapRef, canvasRef, containerSize, isMobile,
   mode, canEdit, view, w2s,
   systems, fleets, links, fleetPos,
   factions, layers, factionById, layerById,
@@ -25,6 +17,7 @@ export default function MapCanvas({
   setSelSystem, setSelFleet,
   patchSystem, addMarker, patchMarker, removeMarker, deployFleetAt, deleteSystem,
   patchFleet, addShip, patchShip, removeShip, moveShip, deleteFleet, beginShipDrag,
+  addSquadron, patchSquadron, removeSquadron, goToFleet, art,
   wiki, roles, goToCodex, createEntry,
 }) {
   const overview = view.scale <= OVERVIEW_ZOOM; // zoomed out far enough — simplify systems to plain markers
@@ -134,8 +127,11 @@ export default function MapCanvas({
       {fleets.map((f) => {
         const pos = fleetPos[f.id]; const p = w2s(pos.x, pos.y); const fac = factionById(f.factionId);
         const isSel = f.id === selFleet; const isHover = f.id === hoverFleet;
+        // badge counts carriers (the named hulls); the craft they carry only fit in the tooltip
+        const nCarriers = f.ships.length;
+        const tip = `${f.name} · ${nCarriers} carrier${nCarriers === 1 ? "" : "s"} · ${craftInFleet(f)} craft`;
         return (
-          <div key={f.id} data-fleet-id={f.id} data-piece="1"
+          <div key={f.id} data-fleet-id={f.id} data-piece="1" title={tip}
             onPointerDown={(e) => startPieceDrag(e, "fleet", f.id, pos.x, pos.y)}
             onDoubleClick={(e) => e.stopPropagation()}
             style={{ position: "absolute", left: p.x, top: p.y, transform: "translate(-50%,-50%)", touchAction: "none",
@@ -152,7 +148,7 @@ export default function MapCanvas({
               <div className="mono" style={{ position: "absolute", right: -7, bottom: -6, minWidth: 15, height: 14,
                 padding: "0 3px", background: "#14110b", border: `1px solid ${fac.color}`,
                 color: fac.color, fontSize: 9.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {f.ships.length}
+                {nCarriers}
               </div>
             </div>
           </div>
@@ -179,8 +175,8 @@ export default function MapCanvas({
       {/* ---------------- system editor popup ---------------- */}
       {selSystemObj && (
         <SystemPopup
-          system={selSystemObj} pos={popupPos(w2s, containerSize, selSystemObj.x, selSystemObj.y, 300, 380)}
-          containerHeight={containerSize.h} canEdit={canEdit} factions={factions} layers={layers}
+          system={selSystemObj} anchor={w2s(selSystemObj.x, selSystemObj.y)}
+          containerSize={containerSize} isMobile={isMobile} canEdit={canEdit} factions={factions} layers={layers}
           factionById={factionById} layerById={layerById}
           patchSystem={patchSystem} addMarker={addMarker} patchMarker={patchMarker} removeMarker={removeMarker}
           deployFleetAt={deployFleetAt} deleteSystem={deleteSystem} onClose={() => setSelSystem(null)}
@@ -192,14 +188,15 @@ export default function MapCanvas({
       {selFleetObj && (
         <FleetPopup
           fleet={selFleetObj}
-          pos={popupPos(w2s, containerSize, fleetPos[selFleetObj.id].x, fleetPos[selFleetObj.id].y, 306, 420)}
-          containerHeight={containerSize.h} canEdit={canEdit} factions={factions} fleets={fleets}
+          anchor={w2s(fleetPos[selFleetObj.id].x, fleetPos[selFleetObj.id].y)}
+          containerSize={containerSize} isMobile={isMobile} canEdit={canEdit} factions={factions} fleets={fleets}
           factionColor={factionById(selFleetObj.factionId).color}
           home={selFleetObj.systemId ? systems.find((s) => s.id === selFleetObj.systemId) : null}
           patchFleet={patchFleet} addShip={addShip} patchShip={patchShip} removeShip={removeShip}
           moveShip={moveShip} deleteFleet={deleteFleet} onClose={() => setSelFleet(null)}
+          addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
           onShipDragStart={(ship, e) => beginShipDrag(ship, selFleetObj.id, e)}
-          wiki={wiki} roles={roles} goToCodex={goToCodex} createEntry={createEntry}
+          goToFleet={goToFleet} roles={roles} art={art}
         />
       )}
     </div>

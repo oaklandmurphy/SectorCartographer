@@ -1,32 +1,36 @@
 import { useEffect, useMemo, useState } from "react";
-import { Map as MapIcon, Library, Satellite, Network } from "lucide-react";
+import { Map as MapIcon, Library, Satellite, Network, Ship } from "lucide-react";
 import { T, panelStyle, cut } from "./theme.js";
-import { STORAGE_KEY, ACCESS_KEY, KNOWN_CODE_KEY, ROLE_COLORS } from "./constants.js";
-import { seed } from "./data/seed.js";
+import { STORAGE_KEY, ACCESS_KEY, KNOWN_CODE_KEY, ART_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
 import { storage } from "./lib/storage.js";
 import { resolveViewer, canSee } from "./lib/visibility.js";
+import { craftInCarrier, withSquadrons } from "./lib/carriers.js";
 import { uid } from "./utils/id.js";
 import { useResponsive } from "./hooks/useResponsive.js";
 import { useMapInteractions } from "./hooks/useMapInteractions.js";
+import { useHashRoute } from "./hooks/useHashRoute.js";
 import Btn from "./components/ui/Btn.jsx";
 import AccessControl from "./components/AccessControl.jsx";
 import Toolbar, { SaveStatus } from "./components/Toolbar.jsx";
 import MobileToolbar from "./components/MobileToolbar.jsx";
 import SidePanel from "./components/SidePanel.jsx";
 import MapCanvas from "./components/MapCanvas.jsx";
+import FleetView from "./components/FleetView.jsx";
 import WikiView from "./components/WikiView.jsx";
 import PoliticsView from "./components/PoliticsView.jsx";
 
 export default function GalaxySectorMap() {
-  const initial = useMemo(seed, []);
-  const [factions, setFactions] = useState(initial.factions);
-  const [relations, setRelations] = useState(initial.relations);
-  const [layers, setLayers] = useState(initial.layers);
-  const [systems, setSystems] = useState(initial.systems);
-  const [links, setLinks] = useState(initial.links);
-  const [fleets, setFleets] = useState(initial.fleets);
-  const [wiki, setWiki] = useState(initial.wiki);
-  const [roles, setRoles] = useState(initial.roles); // player roles for asymmetric-info games
+  // Empty until the saved sector loads from storage; the loading gate below keeps
+  // the UI hidden until then, so these never render as a bare demo.
+  const [factions, setFactions] = useState([]);
+  const [relations, setRelations] = useState([]);
+  const [layers, setLayers] = useState([]);
+  const [systems, setSystems] = useState([]);
+  const [links, setLinks] = useState([]);
+  const [fleets, setFleets] = useState([]);
+  const [wiki, setWiki] = useState([]);
+  const [roles, setRoles] = useState([]); // player roles for asymmetric-info games
+  const [art, setArt] = useState([]);     // ship-art library; saved under its own key, see ART_KEY
 
   const [mode, setMode] = useState("select"); // select | link | draw
   const [view, setView] = useState({ scale: 1, ox: 60, oy: 40 });
@@ -38,7 +42,6 @@ export default function GalaxySectorMap() {
   const [panelOpen, setPanelOpen] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved | error
-  const [confirmingReset, setConfirmingReset] = useState(false);
 
   const [lockCode, setLockCode] = useState("");   // shared: "" means editing is open to everyone; else the GM code
   const [knownCode, setKnownCode] = useState(""); // personal: the GM/player code this browser has entered
@@ -53,9 +56,26 @@ export default function GalaxySectorMap() {
   const isMobile = useResponsive();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const [activeTab, setActiveTab] = useState("map"); // map | codex
-  const [activeCat, setActiveCat] = useState("factions");
-  const [selectedWikiId, setSelectedWikiId] = useState(null);
+  /* ------------------------------------------------ which page we're on — lives in the URL, not in state.
+     See lib/routing.js: the tab, the codex category + open entry, and the fleet
+     being read (plus any fleet pinned beside it to compare) are all in the hash,
+     so pages are shareable and Back works. */
+  const [route, navigate] = useHashRoute();
+  const { tab: activeTab, cat: activeCat, wikiId: selectedWikiId,
+    fleetId: fleetPrimaryId, compareId: fleetCompareId } = route;
+
+  // Setters keeping the useState signature (a value or an updater) that the
+  // views below already call them with, so only their plumbing changed.
+  const fromSetter = (v, cur) => (typeof v === "function" ? v(cur) : v);
+  const setActiveTab = (v) => navigate((r) => ({ tab: fromSetter(v, r.tab) }));
+  // Changing category drops the open entry — it belongs to the category you left.
+  const setActiveCat = (v) => navigate((r) => ({ cat: fromSetter(v, r.cat), wikiId: null }));
+  const setSelectedWikiId = (v, opts) => navigate((r) => ({ wikiId: fromSetter(v, r.wikiId) }), opts);
+  const setFleetPrimaryId = (v) => navigate((r) => {
+    const fleetId = fromSetter(v, r.fleetId);
+    return { fleetId, compareId: r.compareId === fleetId ? null : r.compareId }; // never compare a fleet with itself
+  });
+  const setFleetCompareId = (v) => navigate((r) => ({ compareId: fromSetter(v, r.compareId) }));
 
   useEffect(() => { if (isMobile) setPanelOpen(false); }, [isMobile]); // avoid opening full-screen on first mobile load
 
@@ -78,7 +98,16 @@ export default function GalaxySectorMap() {
           if (Array.isArray(d.strokes)) setStrokes(d.strokes);
         }
       } catch (e) {
-        // nothing saved yet, or storage unavailable — keep the seeded demo sector
+        // nothing saved yet, or storage unavailable — keep the empty sector
+      }
+      try {
+        const res = await storage.get(ART_KEY, true); // shared ship-art library
+        if (!cancelled && res && res.value) {
+          const a = JSON.parse(res.value);
+          if (Array.isArray(a)) setArt(a);
+        }
+      } catch (e) {
+        // no art uploaded yet, or storage unavailable — ships just draw without pictures
       }
       try {
         const res = await storage.get(ACCESS_KEY, true); // shared lock code
@@ -114,15 +143,23 @@ export default function GalaxySectorMap() {
     // eslint-disable-next-line
   }, [factions, relations, layers, systems, links, fleets, strokes, wiki, roles, loaded, canEdit]);
 
-  async function resetSector() {
-    if (!canEdit) return;
-    try { await storage.delete(STORAGE_KEY, true); } catch (e) { /* ignore */ }
-    const fresh = seed();
-    setFactions(fresh.factions); setRelations(fresh.relations); setLayers(fresh.layers); setSystems(fresh.systems);
-    setLinks(fresh.links); setFleets(fresh.fleets); setStrokes([]); setWiki(fresh.wiki);
-    setSelSystem(null); setSelFleet(null); setLinkSource(null); setSelectedWikiId(null);
-    setConfirmingReset(false);
-  }
+  /* ------------------------------------------------ debounced autosave of the art library (editors only).
+     Separate from the sector save above so that editing a squadron count doesn't
+     re-upload every SVG in the library, and vice versa. */
+  useEffect(() => {
+    if (!loaded || !canEdit) return;
+    setSaveStatus("saving");
+    const t = setTimeout(async () => {
+      try {
+        const ok = await storage.set(ART_KEY, JSON.stringify(art), true);
+        setSaveStatus(ok ? "saved" : "error");
+      } catch (e) {
+        setSaveStatus("error");
+      }
+    }, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [art, loaded, canEdit]);
 
   /* ------------------------------------------------ edit-lock management (frontend-only gate, not real security) */
   async function setNewLockCode(code) {
@@ -238,7 +275,7 @@ export default function GalaxySectorMap() {
   }
   function addShip(fleetId) {
     if (!canEdit) return;
-    const ship = { id: uid("shp"), name: "New Ship", cls: "Frigate" };
+    const ship = { id: uid("shp"), name: "New Carrier", squadrons: [] };
     setFleets((fs) => fs.map((f) => (f.id === fleetId ? { ...f, ships: [...f.ships, ship] } : f)));
   }
   function patchShip(fleetId, shipId, p) {
@@ -262,6 +299,29 @@ export default function GalaxySectorMap() {
       return stripped.map((f) => (f.id === toId ? { ...f, ships: [...f.ships, ship] } : f));
     });
   }
+
+  /* ---- squadrons (the craft in a carrier's hangar: a count of one model) ---- */
+  function updateSquadrons(fleetId, shipId, fn) {
+    if (!canEdit) return;
+    setFleets((fs) => withSquadrons(fs, fleetId, shipId, fn));
+  }
+  function addSquadron(fleetId, shipId) {
+    updateSquadrons(fleetId, shipId, (qs) => [...qs, { id: uid("sqn"), count: DEFAULT_SQUADRON_SIZE, model: "" }]);
+  }
+  function patchSquadron(fleetId, shipId, sqId, p) {
+    updateSquadrons(fleetId, shipId, (qs) => qs.map((q) => (q.id === sqId ? { ...q, ...p } : q)));
+  }
+  function removeSquadron(fleetId, shipId, sqId) {
+    updateSquadrons(fleetId, shipId, (qs) => qs.filter((q) => q.id !== sqId));
+  }
+
+  /* ---- ship art (SVG drawings matched to carriers/squadrons by model name) ---- */
+  function addArt(name, svg) {
+    if (!canEdit) return;
+    setArt((as) => [...as, { id: uid("art"), name, svg }]);
+  }
+  function patchArt(id, p) { if (canEdit) setArt((as) => as.map((a) => (a.id === id ? { ...a, ...p } : a))); }
+  function removeArt(id) { if (!canEdit) return; setArt((as) => as.filter((a) => a.id !== id)); }
   function addFaction() {
     if (!canEdit) return;
     const palette = ["#a06840", "#5f9098", "#8a9a4a", "#b3763e", "#6b6a9e", "#9a7a2e"];
@@ -327,13 +387,19 @@ export default function GalaxySectorMap() {
     setWiki((w) => [...w, entry]);
     return entry.id;
   }
+  // jump from a fleet's map marker straight to its full roster in the Fleet tab.
+  // One navigate() per jump, not one per field — the whole jump is a single Back.
+  function goToFleet(fleetId) {
+    navigate((r) => ({ tab: "fleet", fleetId, compareId: r.compareId === fleetId ? null : r.compareId }));
+    setAccessOpen(false);
+    setMobileMenuOpen(false);
+  }
   // jump from any linked element straight to its codex page
   function goToCodex(wikiId) {
     const entry = wiki.find((e) => e.id === wikiId);
-    setActiveTab("codex");
+    navigate(entry ? { tab: "codex", cat: entry.category, wikiId: entry.id } : { tab: "codex" });
     setAccessOpen(false);
     setMobileMenuOpen(false);
-    if (entry) { setActiveCat(entry.category); setSelectedWikiId(entry.id); }
   }
   function patchWikiEntry(id, p) {
     if (!canEdit) return;
@@ -342,7 +408,8 @@ export default function GalaxySectorMap() {
   function deleteWikiEntry(id) {
     if (!canEdit) return;
     setWiki((w) => w.filter((e) => e.id !== id));
-    setSelectedWikiId((cur) => (cur === id ? null : cur));
+    // replace, not push: Back should not offer to reopen an entry that's gone
+    setSelectedWikiId((cur) => (cur === id ? null : cur), { replace: true });
   }
 
   /* ------------------------------------------------ map gesture handlers (mode-aware click/tap/drop routing) */
@@ -426,7 +493,7 @@ export default function GalaxySectorMap() {
     const out = [];
     for (const f of fleets) {
       const ships = f.ships.filter((sh) => canSee(sh, viewer));
-      // if a fleet had ships but this viewer can see none of them, hide the whole fleet
+      // if a fleet had carriers but this viewer can see none of them, hide the whole fleet
       if (f.ships.length > 0 && ships.length === 0) continue;
       out.push({ ...f, ships });
     }
@@ -442,7 +509,7 @@ export default function GalaxySectorMap() {
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.void,
       color: T.text, fontFamily: "'Oswald', ui-sans-serif, system-ui, sans-serif", overflow: "hidden" }}>
 
-      {/* loading gate — avoids flashing seeded demo data before the saved sector loads */}
+      {/* loading gate — avoids flashing an empty sector before the saved sector loads */}
       {!loaded && (
         <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: T.void,
           display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -461,18 +528,23 @@ export default function GalaxySectorMap() {
       {/* ------------------------------------------------ GLOBAL TAB BAR (map / codex) — always visible */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
         background: `linear-gradient(180deg, #0a0906, ${T.panel})`, borderBottom: `1px solid ${T.line}`, zIndex: 41 }}>
+        {/* four tabs don't fit a phone with their labels, so below the breakpoint they go icon-only */}
         <div style={{ display: "flex", gap: 3, background: T.panel3, padding: 3, border: `1px solid ${T.line}` }}>
           <Btn active={activeTab === "map"} onClick={() => { setActiveTab("map"); setAccessOpen(false); }} title="Sector map"
             style={{ border: "none", borderRadius: 0, background: activeTab === "map" ? undefined : "transparent" }}>
-            <MapIcon size={14} /> Map
+            <MapIcon size={14} /> {!isMobile && "Map"}
+          </Btn>
+          <Btn active={activeTab === "fleet"} onClick={() => { setActiveTab("fleet"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Fleet rosters"
+            style={{ border: "none", borderRadius: 0, background: activeTab === "fleet" ? undefined : "transparent" }}>
+            <Ship size={14} /> {!isMobile && "Fleets"}
           </Btn>
           <Btn active={activeTab === "politics"} onClick={() => { setActiveTab("politics"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Faction politics"
             style={{ border: "none", borderRadius: 0, background: activeTab === "politics" ? undefined : "transparent" }}>
-            <Network size={14} /> Politics
+            <Network size={14} /> {!isMobile && "Politics"}
           </Btn>
           <Btn active={activeTab === "codex"} onClick={() => { setActiveTab("codex"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Setting codex / wiki"
             style={{ border: "none", borderRadius: 0, background: activeTab === "codex" ? undefined : "transparent" }}>
-            <Library size={14} /> Codex
+            <Library size={14} /> {!isMobile && "Codex"}
           </Btn>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
@@ -490,7 +562,6 @@ export default function GalaxySectorMap() {
               drawColor={mapInt.drawColor} setDrawColor={mapInt.setDrawColor}
               drawWidth={mapInt.drawWidth} setDrawWidth={mapInt.setDrawWidth}
               strokes={strokes} undoStroke={mapInt.undoStroke} clearStrokes={mapInt.clearStrokes}
-              confirmingReset={confirmingReset} setConfirmingReset={setConfirmingReset} resetSector={resetSector}
               view={view} setView={setView} panelOpen={panelOpen} setPanelOpen={setPanelOpen}
             />
           )}
@@ -501,7 +572,6 @@ export default function GalaxySectorMap() {
               drawColor={mapInt.drawColor} setDrawColor={mapInt.setDrawColor}
               drawWidth={mapInt.drawWidth} setDrawWidth={mapInt.setDrawWidth}
               strokes={strokes} undoStroke={mapInt.undoStroke} clearStrokes={mapInt.clearStrokes}
-              confirmingReset={confirmingReset} setConfirmingReset={setConfirmingReset} resetSector={resetSector}
               view={view} setView={setView} panelOpen={panelOpen} setPanelOpen={setPanelOpen}
               saveStatus={saveStatus} mobileMenuOpen={mobileMenuOpen} setMobileMenuOpen={setMobileMenuOpen}
             />
@@ -519,7 +589,7 @@ export default function GalaxySectorMap() {
 
             <MapCanvas
               mapRef={mapInt.mapRef} canvasRef={mapInt.canvasRef} containerSize={mapInt.containerSize}
-              mode={mode} canEdit={canEdit} view={view} w2s={w2s}
+              isMobile={isMobile} mode={mode} canEdit={canEdit} view={view} w2s={w2s}
               systems={systems} fleets={displayFleets} links={links} fleetPos={fleetPos}
               factions={factions} layers={layers} factionById={factionById} layerById={layerById}
               selSystem={selSystem} selFleet={selFleet} linkSource={linkSource} hoverFleet={mapInt.hoverFleet}
@@ -530,10 +600,24 @@ export default function GalaxySectorMap() {
               deployFleetAt={deployFleetAt} deleteSystem={deleteSystem}
               patchFleet={patchFleet} addShip={addShip} patchShip={patchShip} removeShip={removeShip}
               moveShip={moveShip} deleteFleet={deleteFleet} beginShipDrag={mapInt.beginShipDrag}
+              addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
+              goToFleet={goToFleet} art={art}
               wiki={displayWiki} roles={roles} goToCodex={goToCodex} createEntry={createEntry}
             />
           </div>
         </>
+      )}
+
+      {activeTab === "fleet" && (
+        <FleetView
+          fleets={displayFleets} systems={systems} canEdit={canEdit} isMobile={isMobile}
+          factionById={factionById}
+          primaryId={fleetPrimaryId} setPrimaryId={setFleetPrimaryId}
+          compareId={fleetCompareId} setCompareId={setFleetCompareId}
+          addShip={addShip} patchShip={patchShip} removeShip={removeShip}
+          addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
+          art={art} addArt={addArt} patchArt={patchArt} removeArt={removeArt}
+        />
       )}
 
       {activeTab === "politics" && (
@@ -559,7 +643,7 @@ export default function GalaxySectorMap() {
         <div style={{ position: "fixed", left: mapInt.shipDrag.x + 12, top: mapInt.shipDrag.y + 10, zIndex: 999, pointerEvents: "none",
           background: T.panel, border: `1px solid ${T.accent}`, borderRadius: 2, padding: "5px 9px",
           fontSize: 11, color: T.text, boxShadow: `0 8px 20px rgba(0,0,0,.6)` }} className="mono">
-          {mapInt.shipDrag.ship.name} · {mapInt.shipDrag.ship.cls}
+          {mapInt.shipDrag.ship.name} · {craftInCarrier(mapInt.shipDrag.ship)} craft
           {mapInt.hoverFleet && mapInt.hoverFleet !== mapInt.shipDrag.fromFleetId && (
             <span style={{ color: T.accent }}> → drop</span>
           )}

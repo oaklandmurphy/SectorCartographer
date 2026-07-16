@@ -1,24 +1,19 @@
 import { Star, Plus, Trash2, X, Rocket } from "lucide-react";
-import { T, panelStyle, inputStyle, selStyle, lbl } from "../theme.js";
+import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { ICONS, ICON_KEYS } from "../constants.js";
 import Btn from "./ui/Btn.jsx";
-import Rivet from "./ui/Rivet.jsx";
-import PopupHeader from "./ui/PopupHeader.jsx";
+import MapPopup from "./ui/MapPopup.jsx";
 import CodexLink from "./CodexLink.jsx";
 
 export default function SystemPopup({
-  system, pos, containerHeight, canEdit, factions, layers, factionById, layerById,
+  system, anchor, containerSize, isMobile, canEdit, factions, layers, factionById, layerById,
   patchSystem, addMarker, patchMarker, removeMarker, deployFleetAt, deleteSystem, onClose,
   wiki, goToCodex, createEntry,
 }) {
   return (
-    <div className="pop" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
-      style={{ position: "absolute", left: pos.x, top: pos.y, width: 300, zIndex: 50,
-      maxHeight: containerHeight - 20, display: "flex", flexDirection: "column", ...panelStyle }}>
-      <Rivet corner="tr" /><Rivet corner="bl" />
-      <PopupHeader color={factionById(system.factionId).color} icon={<Star size={13} />}
-        title="STAR SYSTEM" onClose={onClose} />
-      <div className="scroll" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, overflowY: "auto", minHeight: 0, flex: "1 1 auto" }}>
+    <MapPopup anchor={anchor} containerSize={containerSize} isMobile={isMobile} width={300}
+      color={factionById(system.factionId).color} icon={<Star size={13} />}
+      title="STAR SYSTEM" onClose={onClose}>
         <div>
           <div style={lbl}>Name</div>
           <input style={{ ...inputStyle, marginTop: 4 }} value={system.name} disabled={!canEdit}
@@ -87,7 +82,6 @@ export default function SystemPopup({
             </Btn>
           </div>
         )}
-      </div>
-    </div>
+    </MapPopup>
   );
 }
