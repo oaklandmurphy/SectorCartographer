@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Ship } from "lucide-react";
 import { T } from "../../theme.js";
 import { findArt, artDataUri } from "../../lib/shipArt.js";
@@ -18,9 +19,14 @@ import { findArt, artDataUri } from "../../lib/shipArt.js";
 // the image shifts right by half of it. Tune here — it applies at every size.
 const ART_NUDGE = 0.05;
 
+// How strongly the faction-color wash reads over the art, 0 (invisible) to 1
+// (fully replaces the hull's hue/saturation). Tune here.
+const TINT_STRENGTH = 0.1;
+
 export default function ShipArt({
-  art, model, size = 34, height, placeholder = true, plate = false, title,
+  art, model, size = 34, height, placeholder = true, plate = false, title, color,
 }) {
+  const filterId = useId();
   const w = size;
   const h = height == null ? size : height;
   const found = findArt(art, model);
@@ -43,12 +49,31 @@ export default function ShipArt({
   // Padding rather than a transform: the box clips, and shifting a hull that
   // already spans the full width would cut its nose off. Padding narrows the
   // area the image fits into instead, so it stays whole.
+  const nudge = Math.max(2, Math.round(w * ART_NUDGE));
   return (
     <div title={title || found.name}
-      style={{ ...box, paddingLeft: Math.max(2, Math.round(w * ART_NUDGE)),
-        ...(plate ? { background: T.panel3, border: `1px solid ${T.line}` } : null) }}>
+      style={{ ...box, paddingLeft: nudge,
+        ...(plate ? { background: T.panel3, border: `1px solid ${T.line}` } : null),
+        ...(color ? { "--ship-tint": color } : null) }}>
       <img src={uri} alt={found.name}
-        style={{ maxWidth: "100%", maxHeight: "100%", display: "block" }} />
+        style={{ maxWidth: "100%", maxHeight: "100%", display: "block",
+          ...(color ? { filter: `url(#${filterId})` } : null) }} />
+      {/* Faction-color wash. An SVG filter clips the flood color to the img's
+          own rendered alpha channel (SourceAlpha), so it always tints exactly
+          the drawn hull — unlike a CSS mask, this doesn't depend on the
+          uploaded SVG exposing a clean intrinsic size for "contain" sizing. */}
+      {color && (
+        <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
+          <filter id={filterId}>
+            <feFlood style={{ floodColor: "var(--ship-tint)" }} result="flood" />
+            <feComposite in="flood" in2="SourceAlpha" operator="in" result="tintShape" />
+            <feComponentTransfer in="tintShape" result="tintShapeSoft">
+              <feFuncA type="linear" slope={TINT_STRENGTH} />
+            </feComponentTransfer>
+            <feBlend in="tintShapeSoft" in2="SourceGraphic" mode="color" />
+          </filter>
+        </svg>
+      )}
     </div>
   );
 }

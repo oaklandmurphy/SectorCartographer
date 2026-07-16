@@ -78,7 +78,7 @@ export default function FleetPopup({
                     cursor: canEdit ? "grab" : "default" }}>
                   <GripVertical size={13} style={{ color: T.faint, flexShrink: 0, opacity: canEdit ? 1 : 0.35 }} />
                   <div style={{ width: 4, alignSelf: "stretch", background: factionColor, flexShrink: 0 }} />
-                  <ShipArt art={art} model={sh.model} size={26} placeholder={false} />
+                  <ShipArt art={art} model={sh.model} size={26} placeholder={false} color={factionColor} />
                   <input value={sh.name} disabled={!canEdit} onPointerDown={(e) => e.stopPropagation()}
                     onChange={(e) => patchShip(fleet.id, sh.id, { name: e.target.value })}
                     style={{ ...inputStyle, padding: "3px 6px", flex: 1 }} />
@@ -120,7 +120,7 @@ export default function FleetPopup({
                   )}
                   {squadronsOf(sh).map((sq) => (
                     <div key={sq.id} style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                      <ShipArt art={art} model={sq.model} size={18} placeholder={false} />
+                      <ShipArt art={art} model={sq.model} size={18} placeholder={false} color={factionColor} />
                       <input className="mono" type="number" min="0" step="1" value={sq.count} disabled={!canEdit}
                         onPointerDown={(e) => e.stopPropagation()}
                         onChange={(e) => patchSquadron(fleet.id, sh.id, sq.id,

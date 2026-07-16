@@ -55,7 +55,7 @@ export default function FleetView({
   const squadronRow = (fleet, sh, sq) => (
     <div key={sq.id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
       <ShipArt art={art} model={sq.model} size={SQ_ART_W} height={SQ_ART_H} plate
-        placeholder={showSlots} />
+        placeholder={showSlots} color={fleetColor(fleet)} />
       {canEdit ? (
         <>
           <input className="mono" type="number" min="0" step="1" value={sq.count}
@@ -95,7 +95,7 @@ export default function FleetView({
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
           {/* the hull, big enough to actually look at */}
           <ShipArt art={art} model={sh.model} size={ART_W} height={ART_H} plate
-            placeholder={showSlots} title={sh.model || undefined} />
+            placeholder={showSlots} title={sh.model || undefined} color={facColor} />
           <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
             {canEdit ? (
               <input value={sh.name} onChange={(e) => patchShip(fleet.id, sh.id, { name: e.target.value })}
