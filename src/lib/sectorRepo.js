@@ -7,7 +7,7 @@
 //
 // The app above this layer still deals in plain arrays; the array/tree translation
 // (and everything RTDB mangles on the way) lives in sectorSchema.js.
-import { ref, get as dbGet, update as dbUpdate } from "firebase/database";
+import { ref, get as dbGet, onValue, update as dbUpdate } from "firebase/database";
 import { db, firebaseReady } from "./firebase.js";
 import {
   SCHEMA_VERSION, COLLECTIONS, V1_STATE_KEY, V1_ART_KEY, V1_ACCESS_KEY,
@@ -53,16 +53,37 @@ function fromV2(raw) {
   return { data, schema: SCHEMA_VERSION };
 }
 
-// Reads the sector, preferring the v2 tree and falling back to the v1 blob so a
-// sector nobody has migrated still opens. Returns the schema actually read: the
-// caller saves in v2 either way, which migrates the sector on its first write.
-export async function loadSector() {
-  if (!firebaseReady) throw new Error("Firebase is not configured");
-  const snap = await dbGet(ref(db, root()));
-  const raw = snap.val();
+// Turns a raw database snapshot into { data, schema }, preferring the v2 tree and
+// falling back to the v1 blob so a sector nobody has migrated still opens. The
+// schema is reported back so the caller can save in v2 either way, migrating the
+// sector on its first write.
+function decode(raw) {
   if (!raw) return { data: emptySector(), schema: null };
   const isV2 = raw.meta && Number(raw.meta.schema) >= SCHEMA_VERSION;
   return isV2 ? fromV2(raw) : fromV1(raw);
+}
+
+// One-shot read, still used where a single snapshot is enough.
+export async function loadSector() {
+  if (!firebaseReady) throw new Error("Firebase is not configured");
+  const snap = await dbGet(ref(db, root()));
+  return decode(snap.val());
+}
+
+// Live subscription: onData fires with { data, schema } on open and again every
+// time the sector changes in the database — another GM's edit, or this browser's
+// own save echoing back — so viewers see updates without reloading. Returns an
+// unsubscribe function; call it to detach the listener.
+export function subscribeSector(onData, onError) {
+  if (!firebaseReady) {
+    onError?.(new Error("Firebase is not configured"));
+    return () => {};
+  }
+  return onValue(
+    ref(db, root()),
+    (snap) => onData(decode(snap.val())),
+    (err) => onError?.(err),
+  );
 }
 
 /* ------------------------------------------------ writing */

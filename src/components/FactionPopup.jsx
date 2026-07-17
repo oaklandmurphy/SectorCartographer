@@ -1,4 +1,5 @@
-import { Users, Trash2, Plus, X, Share2 } from "lucide-react";
+import { useState } from "react";
+import { Users, Trash2, Plus, X, Share2, ChevronRight } from "lucide-react";
 import { T, panelStyle, inputStyle, selStyle, lbl } from "../theme.js";
 import { RELATION_TYPES, MEMBER_KINDS, relationType } from "../constants.js";
 import Btn from "./ui/Btn.jsx";
@@ -20,6 +21,39 @@ export default function FactionPopup({
     return r ? r.type : "";
   };
   const members = faction.members || [];
+  const relCount = others.reduce((n, o) => (relOf(o.id) ? n + 1 : n), 0);
+
+  // Sections start collapsed and expand on click; the popup grew with the roster
+  // and ran off the edge of small screens otherwise.
+  const [open, setOpen] = useState({ rel: false, mem: false });
+  const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
+
+  // A collapsible section: header toggles it; when open, the body is a
+  // fixed-height, internally-scrolling box so a long list can't push the popup
+  // off-screen. An optional footer (e.g. Add buttons) is pinned below the scroll.
+  // Written as a called function, not a mounted <Component>, so the inputs it
+  // renders keep focus across the parent's re-renders.
+  const section = (key, title, count, body, footer = null) => (
+    <div style={{ border: `1px solid ${T.line}`, borderRadius: 2 }}>
+      <button type="button" onClick={() => toggle(key)}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, background: T.panel2,
+          border: "none", cursor: "pointer", padding: "8px 8px" }}>
+        <ChevronRight size={13} style={{ color: T.faint, flexShrink: 0,
+          transform: open[key] ? "rotate(90deg)" : "none", transition: "transform .12s" }} />
+        <span style={{ ...lbl, flex: 1, textAlign: "left" }}>{title}</span>
+        <span className="mono" style={{ fontSize: 10, color: T.faint }}>{count}</span>
+      </button>
+      {open[key] && (
+        <>
+          <div className="scroll" style={{ maxHeight: 210, overflowY: "auto", padding: 8,
+            borderTop: `1px solid ${T.line}` }}>
+            {body}
+          </div>
+          {footer && <div style={{ padding: 8, borderTop: `1px solid ${T.line}` }}>{footer}</div>}
+        </>
+      )}
+    </div>
+  );
 
   return (
     <div className="pop" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
@@ -49,10 +83,9 @@ export default function FactionPopup({
           createTitle={faction.name} createCategory="factions" />
 
         {/* relationships to other factions */}
-        <div>
-          <div style={{ ...lbl, marginBottom: 5, display: "flex", alignItems: "center", gap: 5 }}>
-            <Share2 size={12} /> <span style={{ flex: 1 }}>Relationships</span>
-          </div>
+        {section("rel",
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}><Share2 size={12} /> Relationships</span>,
+          `${relCount}/${others.length}`,
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
             {others.map((o) => {
               const cur = relOf(o.id);
@@ -83,13 +116,10 @@ export default function FactionPopup({
               </div>
             )}
           </div>
-        </div>
+        )}
 
         {/* members: characters & organizations */}
-        <div>
-          <div style={{ ...lbl, marginBottom: 5, display: "flex", justifyContent: "space-between" }}>
-            <span>Characters &amp; Organizations</span><span style={{ color: T.faint }}>{members.length}</span>
-          </div>
+        {section("mem", "Characters & Organizations", members.length,
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {members.length === 0 && (
               <div style={{ fontSize: 11, color: T.faint, padding: "10px 6px", textAlign: "center", border: `1px dashed ${T.line}` }}>
@@ -132,9 +162,9 @@ export default function FactionPopup({
                 </div>
               );
             })}
-          </div>
-          {canEdit && (
-            <div style={{ display: "flex", gap: 6, marginTop: 7 }}>
+          </div>,
+          canEdit && (
+            <div style={{ display: "flex", gap: 6 }}>
               <Btn kind="primary" onClick={() => addMember(faction.id, "character")} style={{ flex: 1, justifyContent: "center" }}>
                 <Plus size={13} /> Character
               </Btn>
@@ -142,8 +172,8 @@ export default function FactionPopup({
                 <Plus size={13} /> Org
               </Btn>
             </div>
-          )}
-        </div>
+          )
+        )}
 
         {canEdit && (
           <Btn kind="danger" onClick={() => deleteFaction(faction.id)} disabled={factions.length <= 1}

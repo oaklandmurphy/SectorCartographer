@@ -2,7 +2,7 @@ import {
   Gem, Fuel, Hammer, Factory, Landmark, Satellite, Radiation, Skull,
   ShieldAlert, Atom, Sparkles, Orbit, Crown, Flag, Star,
   Users, MapPin, ScrollText, Scale, Boxes,
-  User, Building2, Handshake, Swords, Coins, Minus, Flame,
+  User, Building2, Handshake, Swords, Minus, Flame,
 } from "lucide-react";
 
 // The only key still kept per-device: the code this browser/account has entered.
@@ -37,11 +37,13 @@ export const MEMBER_KINDS = [
 // SVG stroke-dasharray ("" = solid); `width` scales the edge thickness.
 export const RELATION_TYPES = [
   { id: "alliance", label: "Alliance", color: "#6f9f3f", dash: "", width: 2.4, icon: Handshake },
-  { id: "pact", label: "Trade Pact", color: "#5f9098", dash: "7 5", width: 1.8, icon: Coins },
+  { id: "vassal", label: "Vassal", color: "#7d6bb0", dash: "2 5", width: 2.0, icon: Crown },
   { id: "neutral", label: "Neutral", color: "#8c8672", dash: "3 6", width: 1.5, icon: Minus },
   { id: "rivalry", label: "Rivalry", color: "#d98f2b", dash: "8 6", width: 1.8, icon: Flame },
   { id: "war", label: "At War", color: "#b23a2e", dash: "", width: 2.8, icon: Swords },
 ];
+// Neutral stays at index 2 so it remains the fallback — any legacy "pact"
+// (Trade Pact) relations still on record render as Neutral until re-set.
 export const relationType = (id) => RELATION_TYPES.find((r) => r.id === id) || RELATION_TYPES[2];
 
 export const ICONS = {

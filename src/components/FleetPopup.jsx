@@ -121,22 +121,38 @@ export default function FleetPopup({
                   {squadronsOf(sh).map((sq) => (
                     <div key={sq.id} style={{ display: "flex", gap: 4, alignItems: "center" }}>
                       <ShipArt art={art} model={sq.model} size={18} placeholder={false} color={factionColor} />
-                      <input className="mono" type="number" min="0" step="1" value={sq.count} disabled={!canEdit}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onChange={(e) => patchSquadron(fleet.id, sh.id, sq.id,
-                          { count: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
-                        style={{ ...inputStyle, padding: "3px 4px", width: 48, textAlign: "right" }} />
-                      <span style={{ color: T.faint, fontSize: 11, flexShrink: 0 }}>×</span>
-                      <input className="mono" list={modelsId} value={sq.model || ""} disabled={!canEdit}
-                        placeholder="model" onPointerDown={(e) => e.stopPropagation()}
-                        onChange={(e) => patchSquadron(fleet.id, sh.id, sq.id, { model: e.target.value })}
-                        style={{ ...inputStyle, padding: "3px 6px", flex: 1, minWidth: 0 }} />
-                      {canEdit && (
-                        <button onClick={() => removeSquadron(fleet.id, sh.id, sq.id)}
-                          onPointerDown={(e) => e.stopPropagation()} title="Remove squadron"
-                          style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", padding: 2, flexShrink: 0 }}>
-                          <X size={12} />
-                        </button>
+                      {canEdit ? (
+                        <>
+                          <input className="mono" type="number" min="0" step="1" value={sq.count}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onChange={(e) => patchSquadron(fleet.id, sh.id, sq.id,
+                              { count: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
+                            style={{ ...inputStyle, padding: "3px 4px", width: 48, textAlign: "right" }} />
+                          <span style={{ color: T.faint, fontSize: 11, flexShrink: 0 }}>×</span>
+                          <input className="mono" list={modelsId} value={sq.model || ""}
+                            placeholder="model" onPointerDown={(e) => e.stopPropagation()}
+                            onChange={(e) => patchSquadron(fleet.id, sh.id, sq.id, { model: e.target.value })}
+                            style={{ ...inputStyle, padding: "3px 6px", flex: 1, minWidth: 0 }} />
+                          <button onClick={() => removeSquadron(fleet.id, sh.id, sq.id)}
+                            onPointerDown={(e) => e.stopPropagation()} title="Remove squadron"
+                            style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", padding: 2, flexShrink: 0 }}>
+                            <X size={12} />
+                          </button>
+                        </>
+                      ) : (
+                        // read-only: plain text, not a disabled number input — the spinner
+                        // arrows on <input type=number> stay visible when disabled and crowd
+                        // out the value in this narrow box.
+                        <div className="mono" style={{ display: "flex", gap: 5, alignItems: "baseline",
+                          fontSize: 11.5, flex: 1, minWidth: 0 }}>
+                          <span style={{ color: T.accent, fontWeight: 700, minWidth: 26, textAlign: "right",
+                            flexShrink: 0 }}>{Number(sq.count) || 0}</span>
+                          <span style={{ color: T.faint, flexShrink: 0 }}>×</span>
+                          <span style={{ color: T.text, overflow: "hidden", textOverflow: "ellipsis",
+                            whiteSpace: "nowrap" }}>
+                            {sq.model || <span style={{ color: T.faint, fontStyle: "italic" }}>unnamed model</span>}
+                          </span>
+                        </div>
                       )}
                     </div>
                   ))}

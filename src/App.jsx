@@ -3,7 +3,7 @@ import { Map as MapIcon, Library, Satellite, Network, Ship, Dices } from "lucide
 import { T, panelStyle, cut } from "./theme.js";
 import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
 import { storage } from "./lib/storage.js";
-import { loadSector, saveSector, emptySector } from "./lib/sectorRepo.js";
+import { subscribeSector, saveSector, emptySector } from "./lib/sectorRepo.js";
 import { buildSectorUpdates } from "./lib/sectorSchema.js";
 import { resolveViewer, canSee } from "./lib/visibility.js";
 import { craftInCarrier, withSquadrons } from "./lib/carriers.js";
@@ -94,41 +94,72 @@ export default function GalaxySectorMap() {
   // it in, which is also what stops an autosave from firing against an empty
   // sector before the real one has arrived and wiping it.
   const savedRef = useRef(null);
+  // The live local sector, mirrored into a ref so the subscription callback below
+  // can read the latest edits without going stale inside its closure.
+  const sectorRef = useRef(sector);
+  sectorRef.current = sector;
 
-  /* ------------------------------------------------ load saved sector on open */
+  /* ------------------------------------------------ personal code this browser knows (local, one-time) */
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data, schema } = await loadSector();
-        if (!cancelled) {
-          setFactions(data.factions); setRelations(data.relations); setLayers(data.layers);
-          setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
-          setStrokes(data.strokes); setWiki(data.wiki); setRoles(data.roles); setArt(data.art);
-          setLockCode(data.lockCode);
-          // Diffing against what was loaded means opening a sector writes nothing.
-          // Except on a sector still in the v1 layout: diffing against an empty
-          // one makes the first edit write the whole tree, migrating it in place
-          // for anyone who never ran scripts/migrate-v2.mjs.
-          savedRef.current = schema === 1 ? emptySector() : data;
+    try {
+      const res = storage.get(KNOWN_CODE_KEY); // personal: what this user knows
+      if (res && typeof res.value === "string") setKnownCode(res.value);
+    } catch (e) {
+      // this browser/account has never entered a code
+    }
+  }, []);
+
+  /* ------------------------------------------------ live sector subscription.
+     The whole point: players (and a second GM) see edits as they land, without
+     reloading. onData fires once on open, then again on every database change —
+     another editor's save, or this browser's own save echoing back. */
+  useEffect(() => {
+    let opened = false;
+    const applyData = (data) => {
+      setFactions(data.factions); setRelations(data.relations); setLayers(data.layers);
+      setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
+      setStrokes(data.strokes); setWiki(data.wiki); setRoles(data.roles); setArt(data.art);
+      setLockCode(data.lockCode);
+    };
+    const unsub = subscribeSector(
+      ({ data, schema }) => {
+        // Diffing against what was loaded means opening a sector writes nothing.
+        // Except on a sector still in the v1 layout: diffing against an empty one
+        // makes the first edit write the whole tree, migrating it in place for
+        // anyone who never ran scripts/migrate-v2.mjs.
+        const asSaved = schema === 1 ? emptySector() : data;
+        if (!opened) {
+          opened = true;
+          applyData(data);
+          savedRef.current = asSaved;
+          setLoaded(true);
+          return;
         }
-      } catch (e) {
+        // A later push from the database.
+        // Our own save echoing back, or any push that changes nothing we don't
+        // already have — adopt nothing, and skip the re-render.
+        if (savedRef.current && !Object.keys(buildSectorUpdates(savedRef.current, data)).length) return;
+        // A real remote change, but this browser is mid-edit with unsaved changes:
+        // its own debounced autosave owns the write (last write wins, as it always
+        // has here) — don't yank the remote copy in over what the GM is still
+        // typing. When idle, local state equals savedRef, so adopting the remote
+        // copy wholesale is safe and is what shows other editors' changes.
+        if (savedRef.current &&
+            Object.keys(buildSectorUpdates(savedRef.current, sectorRef.current)).length) return;
+        savedRef.current = asSaved;
+        applyData(data);
+      },
+      (e) => {
         // Storage unavailable, or Firebase not configured — keep the empty sector.
-        // savedRef stays null, so autosave holds off rather than writing this
-        // empty sector over the real one. Say so: edits will not be saved, and
-        // that has to be visible rather than looking like an idle, saved map.
-        console.warn("[sector] could not load the sector", e);
-        if (!cancelled) setSaveStatus("error");
-      }
-      try {
-        const res = storage.get(KNOWN_CODE_KEY); // personal: what this user knows
-        if (!cancelled && res && typeof res.value === "string") setKnownCode(res.value);
-      } catch (e) {
-        // this browser/account has never entered a code
-      }
-      if (!cancelled) setLoaded(true);
-    })();
-    return () => { cancelled = true; };
+        // savedRef stays null, so autosave holds off rather than writing this empty
+        // sector over the real one. Say so: edits will not be saved, and that has to
+        // be visible rather than looking like an idle, saved map.
+        console.warn("[sector] live subscription error", e);
+        setSaveStatus("error");
+        setLoaded(true);
+      },
+    );
+    return unsub;
   }, []);
 
   /* ------------------------------------------------ debounced autosave (editors only).
