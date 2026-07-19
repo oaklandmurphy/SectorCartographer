@@ -65,15 +65,12 @@ export function casualtyPct(E) {
   return 0;
 }
 
-// The grade ramp, worst to best, in the app's own danger→amber→accent tokens.
-//
-// Two constraints shaped these rather than taste. Every step clears 4.5:1
-// against the panel behind it, so a grade is legible rather than merely tinted
-// (the ramp this was ported from bottomed out at 2.6:1 — a dark red on a dark
-// panel). And adjacent steps are close enough under deuteranopia that colour
-// alone cannot carry the value, so the numeral is printed in every cell and
-// beside every legend swatch. The colour is a scan aid for finding the good
-// region of the table; the numeral is the answer.
+// The grade ramp, worst to best, in the app's danger→amber→accent tokens. Two
+// constraints, not taste: every step clears 4.5:1 against its panel so a grade is
+// legible, not merely tinted; and adjacent steps sit close enough under
+// deuteranopia that colour can't carry the value alone — so the numeral is printed
+// in every cell and legend swatch. Colour finds the good region; the numeral is
+// the answer.
 export const GRADE_COLORS = ["#e5776a", "#e0904f", "#d9a83f", "#b9bf4a", "#9fc23a", "#c3e05a"];
 
 export const gradeColor = (g) => GRADE_COLORS[g] || GRADE_COLORS[0];

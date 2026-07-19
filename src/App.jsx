@@ -5,7 +5,7 @@ import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.
 import { storage } from "./lib/storage.js";
 import { subscribeSector, saveSector, emptySector } from "./lib/sectorRepo.js";
 import { buildSectorUpdates } from "./lib/sectorSchema.js";
-import { resolveViewer, canSee } from "./lib/visibility.js";
+import { resolveViewer, canSee, visibleFleets } from "./lib/visibility.js";
 import { craftInCarrier, withSquadrons } from "./lib/carriers.js";
 import { uid } from "./utils/id.js";
 import { useResponsive } from "./hooks/useResponsive.js";
@@ -47,6 +47,7 @@ export default function GalaxySectorMap() {
   const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved | error
 
   const [lockCode, setLockCode] = useState("");   // shared: "" means editing is open to everyone; else the GM code
+  const [fleetsPublic, setFleetsPublic] = useState(true); // shared: false hides fleet positions from anyone without a matching login
   const [knownCode, setKnownCode] = useState(""); // personal: the GM/player code this browser has entered
   const [accessOpen, setAccessOpen] = useState(false);
   const [codeInput, setCodeInput] = useState("");
@@ -82,13 +83,13 @@ export default function GalaxySectorMap() {
 
   useEffect(() => { if (isMobile) setPanelOpen(false); }, [isMobile]); // avoid opening full-screen on first mobile load
 
-  // Everything that lives in the shared sector, in one object: what gets saved,
-  // and what the last save is diffed against. The lock code is in here too — it
-  // is shared state like any other, and giving it a write path of its own is how
-  // it once got left behind by a migration, silently unlocking the sector.
+  // Everything in the shared sector, in one object: what gets saved, and what the
+  // last save is diffed against. The lock code lives here too — it's shared state
+  // like any other, and once, when it had its own write path, a migration left it
+  // behind and silently unlocked the sector.
   const sector = useMemo(
-    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, roles, art, lockCode }),
-    [factions, relations, layers, systems, links, fleets, strokes, wiki, roles, art, lockCode],
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, roles, art, lockCode, fleetsPublic }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, roles, art, lockCode, fleetsPublic],
   );
   // The sector as the database currently has it. Null until the load below fills
   // it in, which is also what stops an autosave from firing against an empty
@@ -110,23 +111,22 @@ export default function GalaxySectorMap() {
   }, []);
 
   /* ------------------------------------------------ live sector subscription.
-     The whole point: players (and a second GM) see edits as they land, without
-     reloading. onData fires once on open, then again on every database change —
-     another editor's save, or this browser's own save echoing back. */
+     Players (and a second GM) see edits as they land: onData fires once on open,
+     then on every database change — another editor's save, or our own echoing back. */
   useEffect(() => {
     let opened = false;
     const applyData = (data) => {
       setFactions(data.factions); setRelations(data.relations); setLayers(data.layers);
       setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
       setStrokes(data.strokes); setWiki(data.wiki); setRoles(data.roles); setArt(data.art);
-      setLockCode(data.lockCode);
+      setLockCode(data.lockCode); setFleetsPublic(data.fleetsPublic !== false);
     };
     const unsub = subscribeSector(
       ({ data, schema }) => {
-        // Diffing against what was loaded means opening a sector writes nothing.
-        // Except on a sector still in the v1 layout: diffing against an empty one
-        // makes the first edit write the whole tree, migrating it in place for
-        // anyone who never ran scripts/migrate-v2.mjs.
+        // Diffing against what was loaded means opening a sector writes nothing —
+        // except a v1-layout sector, where diffing against an empty one makes the
+        // first edit rewrite the whole tree, migrating it in place for anyone who
+        // never ran scripts/migrate-v2.mjs.
         const asSaved = schema === 1 ? emptySector() : data;
         if (!opened) {
           opened = true;
@@ -135,25 +135,24 @@ export default function GalaxySectorMap() {
           setLoaded(true);
           return;
         }
-        // A later push from the database.
-        // Our own save echoing back, or any push that changes nothing we don't
-        // already have — adopt nothing, and skip the re-render.
+        // A later push: our own save echoing back, or one that changes nothing we
+        // don't already have — adopt nothing, skip the re-render.
         if (savedRef.current && !Object.keys(buildSectorUpdates(savedRef.current, data)).length) return;
-        // A real remote change, but this browser is mid-edit with unsaved changes:
-        // its own debounced autosave owns the write (last write wins, as it always
-        // has here) — don't yank the remote copy in over what the GM is still
-        // typing. When idle, local state equals savedRef, so adopting the remote
-        // copy wholesale is safe and is what shows other editors' changes.
+        // A real remote change while this browser is mid-edit: its own debounced
+        // autosave owns the write (last write wins), so don't yank the remote copy
+        // in over what the GM is still typing. When idle, local state equals
+        // savedRef, so adopting the remote copy wholesale is safe — and is what
+        // surfaces other editors' changes.
         if (savedRef.current &&
             Object.keys(buildSectorUpdates(savedRef.current, sectorRef.current)).length) return;
         savedRef.current = asSaved;
         applyData(data);
       },
       (e) => {
-        // Storage unavailable, or Firebase not configured — keep the empty sector.
-        // savedRef stays null, so autosave holds off rather than writing this empty
-        // sector over the real one. Say so: edits will not be saved, and that has to
-        // be visible rather than looking like an idle, saved map.
+        // Storage unavailable or Firebase not configured — keep the empty sector.
+        // savedRef stays null so autosave holds off rather than overwriting the real
+        // sector with this empty one, and we surface the error: unsaved edits must
+        // look unsaved, not like an idle, saved map.
         console.warn("[sector] live subscription error", e);
         setSaveStatus("error");
         setLoaded(true);
@@ -163,10 +162,9 @@ export default function GalaxySectorMap() {
   }, []);
 
   /* ------------------------------------------------ debounced autosave (editors only).
-     One save for the whole sector, but only the entities that actually changed
-     get written — see lib/sectorSchema.js buildSectorUpdates. That's what lets
-     art and game state share a save without art's SVGs riding along on every
-     keystroke, which under the old one-blob-per-key layout they had to. */
+     One save for the whole sector, but only the entities that actually changed get
+     written (see lib/sectorSchema.js buildSectorUpdates) — so art's SVGs don't ride
+     along on every keystroke the way the old one-blob-per-key layout forced. */
   useEffect(() => {
     if (!loaded || !canEdit || !savedRef.current) return; // viewers never write to shared storage
     // Nothing changed (a re-render, or the load settling) — stay quiet rather
@@ -204,6 +202,11 @@ export default function GalaxySectorMap() {
     if (!canEdit) return;
     setLockCode("");
     setCodeInput(""); setCodeError("");
+  }
+  // GM switch: false hides fleet positions from anyone without a matching login.
+  function toggleFleetsPublic(next) {
+    if (!canEdit) return;
+    setFleetsPublic(next);
   }
   // Accepts either the GM code or any player role's code.
   async function tryUnlock(code) {
@@ -364,6 +367,9 @@ export default function GalaxySectorMap() {
     setSystems((ss) => ss.map((s) => (s.factionId === id ? { ...s, factionId: fallback } : s)));
     setFleets((fs) => fs.map((f) => (f.factionId === id ? { ...f, factionId: fallback } : f)));
     setRelations((rs) => rs.filter((r) => r.a !== id && r.b !== id));
+    // Drop the deleted faction from any player login tied to it, so its fleet
+    // gate doesn't silently dangle on a faction that no longer exists.
+    setRoles((rs) => rs.map((r) => (r.factionId === id ? { ...r, factionId: undefined } : r)));
     setFactions((fx) => fx.filter((f) => f.id !== id));
   }
 
@@ -515,20 +521,16 @@ export default function GalaxySectorMap() {
     () => (viewer.seesAll ? wiki : wiki.filter((e) => canSee(e, viewer))),
     [wiki, viewer]
   );
-  const displayFleets = useMemo(() => {
-    if (viewer.seesAll) return fleets;
-    const out = [];
-    for (const f of fleets) {
-      const ships = f.ships.filter((sh) => canSee(sh, viewer));
-      // if a fleet had carriers but this viewer can see none of them, hide the whole fleet
-      if (f.ships.length > 0 && ships.length === 0) continue;
-      out.push({ ...f, ships });
-    }
-    return out;
-  }, [fleets, viewer]);
+  // Fleet positions are gated both by faction (a player sees their own faction's
+  // fleets plus allies'/vassals') and by the GM's public switch — see visibleFleets.
+  const displayFleets = useMemo(
+    () => visibleFleets(fleets, viewer, { relations, fleetsPublic }),
+    [fleets, viewer, relations, fleetsPublic]
+  );
 
   const accessProps = {
-    viewer, roles, canEdit, lockCode, accessOpen, setAccessOpen, codeInput, setCodeInput, codeError, setCodeError,
+    viewer, roles, factions, canEdit, lockCode, fleetsPublic, toggleFleetsPublic,
+    accessOpen, setAccessOpen, codeInput, setCodeInput, codeError, setCodeError,
     setNewLockCode, removeLockCode, tryUnlock, signOut, addRole, patchRole, removeRole,
   };
 

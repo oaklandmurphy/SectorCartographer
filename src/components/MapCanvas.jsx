@@ -1,8 +1,9 @@
 import { Star } from "lucide-react";
-import { T, cut } from "../theme.js";
+import { T, cut, sceneBackdrop, floatingPanel } from "../theme.js";
 import { ICONS, OVERVIEW_ZOOM } from "../constants.js";
 import { craftInFleet } from "../lib/carriers.js";
 import TargetBrackets from "./ui/TargetBrackets.jsx";
+import Starfield from "./ui/Starfield.jsx";
 import SystemPopup from "./SystemPopup.jsx";
 import FleetPopup from "./FleetPopup.jsx";
 
@@ -25,28 +26,13 @@ export default function MapCanvas({
   const selFleetObj = fleets.find((f) => f.id === selFleet);
 
   return (
-    <div ref={mapRef}
-      style={{ position: "relative", flex: 1, overflow: "hidden", cursor: mode === "select" ? "grab" : "crosshair",
-        backgroundImage: `radial-gradient(ellipse at 50% 42%, rgba(0,0,0,0) 0%, rgba(0,0,0,.6) 100%),
-          repeating-linear-gradient(0deg, rgba(90,78,56,.12) 0px, rgba(90,78,56,.12) 1px, transparent 1px, transparent 64px),
-          repeating-linear-gradient(90deg, rgba(90,78,56,.12) 0px, rgba(90,78,56,.12) 1px, transparent 1px, transparent 64px)`,
-        backgroundColor: T.void, userSelect: "none" }}>
+    <div ref={mapRef} style={{ ...sceneBackdrop, cursor: mode === "select" ? "grab" : "crosshair" }}>
       {/* gesture surface — captures empty-space pan/draw. touch-action:none stops the
           browser from stealing the drag as a scroll gesture partway through (mobile fix) */}
       <div onPointerDown={onMapPointerDown} onDoubleClick={onMapDoubleClick}
         style={{ position: "absolute", inset: 0, zIndex: 1, touchAction: "none",
           cursor: mode === "select" ? "grab" : "default" }} />
-      {/* starfield */}
-      <div style={{ position: "absolute", inset: 0, opacity: 0.55, pointerEvents: "none",
-        backgroundImage: `radial-gradient(1px 1px at 20px 30px, #fff, transparent),
-          radial-gradient(1px 1px at 130px 80px, #d8c9a0, transparent),
-          radial-gradient(1px 1px at 210px 160px, #fff, transparent),
-          radial-gradient(1.5px 1.5px at 330px 40px, #cbb98e, transparent),
-          radial-gradient(1px 1px at 90px 220px, #fff, transparent),
-          radial-gradient(1px 1px at 400px 260px, #e8dfc6, transparent),
-          radial-gradient(1px 1px at 520px 120px, #fff, transparent),
-          radial-gradient(1.5px 1.5px at 620px 300px, #cbb98e, transparent)`,
-        backgroundSize: "640px 360px" }} />
+      <Starfield />
 
       {/* DRADIS-style scope overlay: fixed to the viewport, not world space — range rings + a slow sweep */}
       <div style={{ position: "absolute", left: "50%", top: "46%", width: 0, height: 0, opacity: 0.6, pointerEvents: "none" }}>
@@ -164,8 +150,8 @@ export default function MapCanvas({
       <div className="scanlines" style={{ position: "absolute", inset: 0, zIndex: 31, opacity: 0.5, pointerEvents: "none" }} />
 
       {/* hint */}
-      <div style={{ position: "absolute", left: 12, bottom: 10, zIndex: 32, background: `${T.panel}e6`, border: `1px solid ${T.line}`, ...cut(8), pointerEvents: "none",
-        padding: "6px 10px", fontSize: 10.5, color: T.mut, maxWidth: 340, lineHeight: 1.5, boxShadow: "0 10px 30px rgba(0,0,0,.6)" }}>
+      <div style={{ position: "absolute", left: 12, bottom: 10, zIndex: 32, pointerEvents: "none",
+        padding: "6px 10px", fontSize: 10.5, color: T.mut, maxWidth: 340, lineHeight: 1.5, ...floatingPanel }}>
         {mode === "select" && canEdit && <span><b style={{ color: T.text }}>Select</b> · drag systems & fleets · click a fleet for its roster · drag empty space to pan · scroll to zoom · double-click to add a system{overview && <> · <b style={{ color: T.amber }}>zoomed out</b>, names & status icons hidden</>}</span>}
         {mode === "select" && !canEdit && <span><b style={{ color: T.amber }}>View only</b> · click a system or fleet to see its details · drag empty space to pan · scroll to zoom · unlock editing from the toolbar{overview && <> · <b style={{ color: T.amber }}>zoomed out</b>, names & status icons hidden</>}</span>}
         {mode === "link" && <span><b style={{ color: T.amber }}>Link</b> · click one system, then another to connect or disconnect their hyperlane</span>}

@@ -14,12 +14,10 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
   const catMeta = WIKI_CATS.find((c) => c.id === activeCat) || WIKI_CATS[0];
   const entries = wiki.filter((e) => e.category === activeCat);
   const selected = wiki.find((e) => e.id === selectedId);
-  // An editor only ever sees the raw textarea, so a ```csv block would be
-  // invisible to the person writing it — hence the preview toggle. Previewing is
-  // a transient look at the entry you're on: leaving for another entry ends it
-  // (selectEntry), and it's keyed to an id rather than a bare flag so that a
-  // brand-new entry — whose selection happens up in App, not through
-  // selectEntry — opens ready to type in, not read-only.
+  // Editors see only the raw textarea, so a ```csv block is invisible while
+  // writing — hence the preview toggle. It's keyed to an entry id, not a bare
+  // flag, so leaving for another entry ends the preview, and a brand-new entry
+  // (selected up in App, not via selectEntry) opens ready to type in, not read-only.
   const [previewOf, setPreviewOf] = useState(null);
   const preview = previewOf != null && previewOf === selectedId;
   const bodyRef = useRef(null);

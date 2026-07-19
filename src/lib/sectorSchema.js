@@ -167,7 +167,7 @@ export function encodeCollection(collection, list) {
 // entities without its lock, which reads as "no lock set", which means open to
 // everyone. One path in means the lock cannot be left behind.
 export const emptySector = () =>
-  COLLECTIONS.reduce((acc, c) => ({ ...acc, [c]: [] }), { lockCode: "" });
+  COLLECTIONS.reduce((acc, c) => ({ ...acc, [c]: [] }), { lockCode: "", fleetsPublic: true });
 
 function deepEqual(a, b) {
   if (a === b) return true;
@@ -201,5 +201,10 @@ export function buildSectorUpdates(prev, next) {
   // Its own node, so setting the lock never rewrites sector content — but still
   // diffed here, so migrating a sector always carries its lock across.
   if ((prev.lockCode || "") !== (next.lockCode || "")) updates["access/lockCode"] = next.lockCode || "";
+  // Whether fleet positions are public. Absent means the default, true, so we
+  // compare normalized and only write the exception (false) or a return to true.
+  const pubBefore = prev.fleetsPublic !== false;
+  const pubAfter = next.fleetsPublic !== false;
+  if (pubBefore !== pubAfter) updates["access/fleetsPublic"] = pubAfter;
   return updates;
 }

@@ -1,13 +1,13 @@
-import { Lock, Unlock, Shield, UserCog, Users, Plus, Trash2, LogOut, KeyRound } from "lucide-react";
-import { T, panelStyle, inputStyle, lbl } from "../theme.js";
+import { Lock, Unlock, Shield, UserCog, Users, Plus, Trash2, LogOut, KeyRound, Flag, Ship, EyeOff } from "lucide-react";
+import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
-import Rivet from "./ui/Rivet.jsx";
-import PopupHeader from "./ui/PopupHeader.jsx";
+import PanelPopup from "./ui/PanelPopup.jsx";
 
 // Access badge + popover. Handles four viewer states (open / GM / player / anon)
 // and, for the GM, managing player roles used by the asymmetric-info visibility.
 export default function AccessControl({
-  viewer, roles, canEdit, lockCode, accessOpen, setAccessOpen, codeInput, setCodeInput, codeError, setCodeError,
+  viewer, roles, factions, canEdit, lockCode, fleetsPublic, toggleFleetsPublic,
+  accessOpen, setAccessOpen, codeInput, setCodeInput, codeError, setCodeError,
   setNewLockCode, removeLockCode, tryUnlock, signOut, addRole, patchRole, removeRole, compact,
 }) {
   const kind = viewer.kind;
@@ -25,12 +25,8 @@ export default function AccessControl({
         {badge.icon}{!compact && badge.label}
       </Btn>
       {accessOpen && (
-        <div className="pop" onPointerDown={(e) => e.stopPropagation()}
-          style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, width: 288, zIndex: 60,
-            maxHeight: "78vh", overflowY: "auto", ...panelStyle }}>
-          <Rivet corner="tr" /><Rivet corner="bl" />
-          <PopupHeader color={T.accent} icon={badge.icon} title="ACCESS" onClose={() => setAccessOpen(false)} />
-          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+        <PanelPopup frame={{ top: "calc(100% + 6px)", right: 0, width: 288 }} maxHeight="78vh" zIndex={60} gap={10}
+          color={T.accent} icon={badge.icon} title="ACCESS" onClose={() => setAccessOpen(false)}>
 
             {/* ---- open: no GM code set yet ---- */}
             {kind === "open" && (
@@ -54,7 +50,9 @@ export default function AccessControl({
                   You are the <b>GM</b>. You see everything and edit everything. Players see only what you share with their role.
                 </div>
 
-                <RoleManager roles={roles} addRole={addRole} patchRole={patchRole} removeRole={removeRole} />
+                <RoleManager roles={roles} factions={factions} addRole={addRole} patchRole={patchRole} removeRole={removeRole} />
+
+                <FleetVisibility fleetsPublic={fleetsPublic} toggleFleetsPublic={toggleFleetsPublic} />
 
                 <div style={{ borderTop: `1px solid ${T.line}`, margin: "2px 0" }} />
                 <div style={lbl}>GM code</div>
@@ -102,15 +100,16 @@ export default function AccessControl({
               These codes are a casual lock, not real security — the underlying data is readable by anyone technical
               who opens the map. Good for keeping honest players in character.
             </div>
-          </div>
-        </div>
+        </PanelPopup>
       )}
     </div>
   );
 }
 
-// GM's list of player roles: name + password each, add/remove.
-function RoleManager({ roles, addRole, patchRole, removeRole }) {
+// GM's list of player roles: name, login code, and the faction each is tied to.
+// The faction drives which fleet positions that login sees (its own + allies/vassals).
+function RoleManager({ roles, factions, addRole, patchRole, removeRole }) {
+  const facList = factions || [];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
       <div style={{ ...lbl, display: "flex", alignItems: "center", gap: 6 }}>
@@ -120,7 +119,7 @@ function RoleManager({ roles, addRole, patchRole, removeRole }) {
       {roles.length === 0 && (
         <div style={{ fontSize: 10.5, color: T.faint, lineHeight: 1.5, padding: "8px 6px", textAlign: "center",
           border: `1px dashed ${T.line}` }}>
-          No players yet. Add a role, give your player its code, then choose what each can see on codex entries and carriers.
+          No players yet. Add a role, give your player its code, tie it to a faction, then choose what each can see on codex entries and carriers.
         </div>
       )}
       {roles.map((r) => (
@@ -145,11 +144,47 @@ function RoleManager({ roles, addRole, patchRole, removeRole }) {
           {!r.password.trim() && (
             <div style={{ fontSize: 9, color: T.amber }}>Set a code so this player can sign in.</div>
           )}
+          <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+            <Flag size={12} style={{ color: T.faint, flexShrink: 0 }} />
+            <select value={r.factionId || ""} onChange={(e) => patchRole(r.id, { factionId: e.target.value || undefined })}
+              title="Faction this login can see fleets for"
+              style={{ ...selStyle, padding: "3px 6px", flex: 1 }}>
+              <option value="">No faction — sees only shared fleets</option>
+              {facList.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
+          </div>
         </div>
       ))}
       <Btn kind="primary" onClick={addRole} style={{ justifyContent: "center" }}>
         <Plus size={13} /> Add player role
       </Btn>
+    </div>
+  );
+}
+
+// GM switch for whether fleet positions are visible to viewers without a login.
+// On (default) is the old behavior — anyone with the link sees public fleets. Off
+// is the "game has started" state: only signed-in players see fleets, each just
+// their own faction's and its allies'/vassals'.
+function FleetVisibility({ fleetsPublic, toggleFleetsPublic }) {
+  const hidden = fleetsPublic === false;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ borderTop: `1px solid ${T.line}`, margin: "2px 0" }} />
+      <div style={{ ...lbl, display: "flex", alignItems: "center", gap: 6 }}>
+        <Ship size={12} /> Fleet positions
+      </div>
+      <Btn active={hidden} onClick={() => toggleFleetsPublic(hidden)}
+        title={hidden ? "Fleets are hidden from viewers without a login" : "Fleets are visible to anyone with the link"}
+        style={{ justifyContent: "flex-start" }}>
+        {hidden ? <EyeOff size={13} /> : <Users size={13} />}
+        {hidden ? "Signed-in players only" : "Public — anyone with the link"}
+      </Btn>
+      <div style={{ fontSize: 9.5, color: hidden ? T.amber : T.mut, lineHeight: 1.5 }}>
+        {hidden
+          ? "Only players signed in with a code see fleets — each sees their own faction's positions plus its allies' and vassals'."
+          : "Anyone with the link sees fleet positions. Turn this off once the game starts to hide them from players without a login."}
+      </div>
     </div>
   );
 }

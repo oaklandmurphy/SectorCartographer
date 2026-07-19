@@ -1,9 +1,8 @@
 import { Trash2 } from "lucide-react";
-import { T, panelStyle, inputStyle, selStyle, lbl } from "../theme.js";
+import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { MEMBER_KINDS } from "../constants.js";
 import Btn from "./ui/Btn.jsx";
-import Rivet from "./ui/Rivet.jsx";
-import PopupHeader from "./ui/PopupHeader.jsx";
+import PanelPopup from "./ui/PanelPopup.jsx";
 import CodexLink from "./CodexLink.jsx";
 
 const kindMeta = (id) => MEMBER_KINDS.find((k) => k.id === id) || MEMBER_KINDS[0];
@@ -16,12 +15,8 @@ export default function MemberPopup({
 }) {
   const Km = kindMeta(member.kind); const Ic = Km.icon;
   return (
-    <div className="pop" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
-      style={{ position: "absolute", left: pos.x, top: pos.y, width: 288, zIndex: 55,
-        maxHeight: containerHeight - 20, display: "flex", flexDirection: "column", ...panelStyle }}>
-      <Rivet corner="tr" /><Rivet corner="bl" />
-      <PopupHeader color={faction.color} icon={<Ic size={13} />} title={Km.label.toUpperCase()} onClose={onClose} />
-      <div className="scroll" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, overflowY: "auto", minHeight: 0, flex: "1 1 auto" }}>
+    <PanelPopup frame={{ left: pos.x, top: pos.y, width: 288 }} maxHeight={containerHeight - 20} zIndex={55}
+      color={faction.color} icon={<Ic size={13} />} title={Km.label.toUpperCase()} onClose={onClose}>
         <div style={{ fontSize: 10.5, color: T.mut }}>
           In <b style={{ color: faction.color }}>{faction.name}</b>
         </div>
@@ -53,7 +48,6 @@ export default function MemberPopup({
             <Trash2 size={14} /> Remove {Km.label.toLowerCase()}
           </Btn>
         )}
-      </div>
-    </div>
+    </PanelPopup>
   );
 }

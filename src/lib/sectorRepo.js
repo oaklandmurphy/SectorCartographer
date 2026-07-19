@@ -50,6 +50,8 @@ function fromV2(raw) {
   const data = emptySector();
   for (const c of COLLECTIONS) data[c] = decodeCollection(c, raw[c]);
   data.lockCode = (raw.access && typeof raw.access.lockCode === "string") ? raw.access.lockCode : "";
+  // Fleet positions are public unless the GM has explicitly switched that off.
+  data.fleetsPublic = !(raw.access && raw.access.fleetsPublic === false);
   return { data, schema: SCHEMA_VERSION };
 }
 

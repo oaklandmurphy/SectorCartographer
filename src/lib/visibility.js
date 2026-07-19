@@ -22,11 +22,15 @@ export function resolveViewer(knownCode, lockCode, roles) {
   if (knownCode && knownCode === lockCode) {
     return { kind: "admin", seesAll: true, roleId: null, roleName: null };
   }
-  // Knows a player role's password: that player.
+  // Knows a player role's password: that player. `roleFactionId` (may be null)
+  // is the faction the GM tied to this login — it drives fleet-position visibility.
   const role = knownCode ? (roles || []).find((r) => r.password && r.password === knownCode) : null;
-  if (role) return { kind: "player", seesAll: false, roleId: role.id, roleName: role.name };
+  if (role) {
+    return { kind: "player", seesAll: false, roleId: role.id, roleName: role.name,
+      roleFactionId: role.factionId || null };
+  }
   // Just the link, no code: anonymous viewer.
-  return { kind: "anon", seesAll: false, roleId: null, roleName: null };
+  return { kind: "anon", seesAll: false, roleId: null, roleName: null, roleFactionId: null };
 }
 
 // Can this viewer see this item, given its `visibility` field?
@@ -42,6 +46,61 @@ export function canSee(item, viewer) {
 // True when the item has been restricted away from "public".
 export function isRestricted(item) {
   return Array.isArray(item && item.visibility);
+}
+
+/* ------------------------------------------------ fleet-position visibility
+
+   Separate from the per-carrier `visibility` above: this gates whole *fleet
+   positions* on the map by faction, so a player logged into a faction sees where
+   its own — and its allies'/vassals' — fleets are, and not the enemy's. */
+
+// The faction ids whose fleet positions a given faction is allowed to see: itself,
+// plus any faction joined to it by an alliance or vassal edge (either direction).
+export function friendlyFactionIds(factionId, relations) {
+  const ids = new Set();
+  if (!factionId) return ids;
+  ids.add(factionId);
+  for (const r of relations || []) {
+    if (r.type !== "alliance" && r.type !== "vassal") continue;
+    if (r.a === factionId) ids.add(r.b);
+    else if (r.b === factionId) ids.add(r.a);
+  }
+  return ids;
+}
+
+// A fleet counts as "public" — shown to anyone when positions aren't hidden — if
+// it has no carriers yet, or at least one carrier is itself public. This matches
+// the pre-faction rule so nothing already visible to viewers disappears.
+export function isPublicFleet(fleet) {
+  const ships = (fleet && fleet.ships) || [];
+  if (ships.length === 0) return true;
+  return ships.some((sh) => !Array.isArray(sh.visibility));
+}
+
+// The fleets a non-GM viewer renders (map + roster), each trimmed to the carriers
+// that viewer may see. A fleet's *position* shows when any of these grant it:
+//   - faction: the viewer is a player whose faction (own/ally/vassal) owns it;
+//   - explicit share: a carrier is restricted to a role list that names the viewer
+//     (a deliberate GM share — distinct from a merely public carrier);
+//   - public: it's a public fleet and the GM hasn't hidden fleets from the public.
+// `fleetsPublic` false is the GM's "game has started" switch: it drops the public
+// grant, so only signed-in players with a matching faction (or an explicit carrier
+// share) can see any fleet at all. Note a carrier being *public* does not by itself
+// grant the position when fleets are hidden — that is exactly what the switch hides.
+export function visibleFleets(fleets, viewer, { relations, fleetsPublic }) {
+  if (viewer.seesAll) return fleets;
+  const friendly = viewer.roleFactionId ? friendlyFactionIds(viewer.roleFactionId, relations) : null;
+  const out = [];
+  for (const f of fleets || []) {
+    const ships = (f.ships || []).filter((sh) => canSee(sh, viewer));
+    const factionGrant = !!(friendly && f.factionId && friendly.has(f.factionId));
+    const explicitShare = viewer.roleId != null && (f.ships || []).some(
+      (sh) => Array.isArray(sh.visibility) && sh.visibility.includes(viewer.roleId));
+    const publicGrant = fleetsPublic !== false && isPublicFleet(f);
+    if (!factionGrant && !explicitShare && !publicGrant) continue;
+    out.push({ ...f, ships });
+  }
+  return out;
 }
 
 // Short human summary of an item's visibility, for the GM's editing UI.

@@ -1,12 +1,11 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { panelStyle } from "../../theme.js";
 import { EDGE, GAP, placePopup, popupMaxHeight } from "../../lib/popupPlacement.js";
-import Rivet from "./Rivet.jsx";
-import PopupHeader from "./PopupHeader.jsx";
+import PanelPopup from "./PanelPopup.jsx";
 
-// Shared frame for the map's piece popups. Desktop: anchored beside the piece and kept
-// fully on screen. Mobile: a bottom sheet, since a 300px card anchored to a piece has
-// nowhere to fit on a phone.
+// Anchored variant of PanelPopup for the map's piece popups. Desktop: placed
+// beside the piece and kept fully on screen (measured, then re-fit). Mobile: a
+// bottom sheet, since a 300px card anchored to a piece has nowhere to fit on a
+// phone.
 export default function MapPopup({
   anchor, containerSize, isMobile, width, color, icon, title, onClose, gap = 12, children,
 }) {
@@ -27,7 +26,6 @@ export default function MapPopup({
     return () => ro.disconnect();
   }, [isMobile]);
 
-  const maxHeight = popupMaxHeight(containerSize.h, isMobile);
   const pos = !isMobile && size ? placePopup(anchor, size, containerSize) : null;
   const frame = isMobile
     ? { left: EDGE, right: EDGE, bottom: EDGE }
@@ -41,16 +39,9 @@ export default function MapPopup({
       };
 
   return (
-    <div ref={ref} className="pop" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
-      style={{ position: "absolute", zIndex: 50, maxHeight, display: "flex", flexDirection: "column",
-        ...panelStyle, ...frame }}>
-      <Rivet corner="tr" /><Rivet corner="bl" />
-      <PopupHeader color={color} icon={icon} title={title} onClose={onClose} />
-      <div className="scroll" style={{ padding: 12, display: "flex", flexDirection: "column", gap,
-        overflowY: "auto", minHeight: 0, flex: "1 1 auto",
-        overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}>
-        {children}
-      </div>
-    </div>
+    <PanelPopup containerRef={ref} frame={frame} maxHeight={popupMaxHeight(containerSize.h, isMobile)}
+      color={color} icon={icon} title={title} onClose={onClose} gap={gap}>
+      {children}
+    </PanelPopup>
   );
 }

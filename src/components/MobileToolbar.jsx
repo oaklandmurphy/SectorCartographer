@@ -1,14 +1,13 @@
 import {
-  MousePointer2, Share2, Pencil, Undo2, Trash2, Plus, Rocket,
+  Undo2, Trash2, Plus, Rocket,
   ZoomIn, ZoomOut, Maximize, PanelLeftClose, PanelLeftOpen,
   Star, Menu, X,
 } from "lucide-react";
 import { T } from "../theme.js";
 import { MIN_ZOOM, MAX_ZOOM } from "../constants.js";
 import Btn from "./ui/Btn.jsx";
+import { ModeToggle, DrawPalette } from "./ui/MapTools.jsx";
 import { SaveStatus } from "./Toolbar.jsx";
-
-const DRAW_COLORS = ["#9fc23a", "#d98f2b", "#a83d31", "#5f83a0", "#d8d0b8", "#7c6a9e"];
 
 export default function MobileToolbar({
   mode, setMode, setLinkSource, canEdit,
@@ -42,20 +41,7 @@ export default function MobileToolbar({
           style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 55, maxHeight: "70vh", overflowY: "auto",
             background: T.panel, borderBottom: `2px solid ${T.line}`, boxShadow: "0 14px 30px rgba(0,0,0,.6)",
             padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", gap: 3, background: T.panel3, padding: 3, border: `1px solid ${T.line}` }}>
-            <Btn active={mode === "select"} onClick={() => setMode("select")} title="Select, drag pieces, pan"
-              style={{ border: "none", borderRadius: 0, flex: 1, justifyContent: "center", background: mode === "select" ? undefined : "transparent" }}>
-              <MousePointer2 size={14} /> Select
-            </Btn>
-            <Btn active={mode === "link"} disabled={!canEdit} onClick={() => { setMode("link"); setLinkSource(null); }} title={canEdit ? "Link systems" : "View only"}
-              style={{ border: "none", borderRadius: 0, flex: 1, justifyContent: "center", background: mode === "link" ? undefined : "transparent" }}>
-              <Share2 size={14} /> Link
-            </Btn>
-            <Btn active={mode === "draw"} disabled={!canEdit} onClick={() => setMode("draw")} title={canEdit ? "Freehand draw" : "View only"}
-              style={{ border: "none", borderRadius: 0, flex: 1, justifyContent: "center", background: mode === "draw" ? undefined : "transparent" }}>
-              <Pencil size={14} /> Draw
-            </Btn>
-          </div>
+          <ModeToggle mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} fill />
 
           <div style={{ display: "flex", gap: 8 }}>
             <Btn onClick={addSystemCenter} disabled={!canEdit} title={canEdit ? "Add a star system" : "View only"} style={{ flex: 1, justifyContent: "center" }}>
@@ -67,15 +53,7 @@ export default function MobileToolbar({
           </div>
 
           {mode === "draw" && canEdit && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 9px", background: T.panel3, border: `1px solid ${T.line}`, flexWrap: "wrap" }}>
-              {DRAW_COLORS.map((c) => (
-                <button key={c} onClick={() => setDrawColor(c)} title={c}
-                  style={{ width: 20, height: 20, borderRadius: 2, background: c, cursor: "pointer",
-                    border: drawColor === c ? "2px solid #fff" : "1px solid rgba(0,0,0,.5)", boxShadow: drawColor === c ? `0 0 6px ${c}` : "none" }} />
-              ))}
-              <input type="range" min={1} max={12} value={drawWidth} onChange={(e) => setDrawWidth(+e.target.value)}
-                style={{ flex: 1, minWidth: 80, accentColor: T.accent }} title="Brush size" />
-            </div>
+            <DrawPalette drawColor={drawColor} setDrawColor={setDrawColor} drawWidth={drawWidth} setDrawWidth={setDrawWidth} swatch={20} fill />
           )}
 
           <div style={{ display: "flex", gap: 8 }}>

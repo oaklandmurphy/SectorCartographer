@@ -23,3 +23,19 @@ export const lbl = {
   fontSize: 10, letterSpacing: ".14em", textTransform: "uppercase", color: T.faint, fontWeight: 600,
   fontFamily: "'Oswald', sans-serif",
 };
+
+// Backdrop shared by the map and politics scenes: a faint survey grid under a
+// vignette over the void. Callers add their own `cursor` and the <Starfield/>
+// layer on top.
+export const sceneBackdrop = {
+  position: "relative", flex: 1, overflow: "hidden", userSelect: "none", backgroundColor: T.void,
+  backgroundImage: `radial-gradient(ellipse at 50% 42%, rgba(0,0,0,0) 0%, rgba(0,0,0,.6) 100%),
+    repeating-linear-gradient(0deg, rgba(90,78,56,.12) 0px, rgba(90,78,56,.12) 1px, transparent 1px, transparent 64px),
+    repeating-linear-gradient(90deg, rgba(90,78,56,.12) 0px, rgba(90,78,56,.12) 1px, transparent 1px, transparent 64px)`,
+};
+
+// Chrome for the translucent chips that float over a scene (hints, legends).
+export const floatingPanel = {
+  background: `${T.panel}e6`, border: `1px solid ${T.line}`, ...cut(8),
+  boxShadow: "0 10px 30px rgba(0,0,0,.6)",
+};

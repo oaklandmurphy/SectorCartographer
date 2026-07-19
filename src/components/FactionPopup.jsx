@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { Users, Trash2, Plus, X, Share2, ChevronRight } from "lucide-react";
-import { T, panelStyle, inputStyle, selStyle, lbl } from "../theme.js";
+import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { RELATION_TYPES, MEMBER_KINDS, relationType } from "../constants.js";
 import Btn from "./ui/Btn.jsx";
-import Rivet from "./ui/Rivet.jsx";
-import PopupHeader from "./ui/PopupHeader.jsx";
+import PanelPopup from "./ui/PanelPopup.jsx";
 import CodexLink from "./CodexLink.jsx";
 
 const kindMeta = (id) => MEMBER_KINDS.find((k) => k.id === id) || MEMBER_KINDS[0];
@@ -28,11 +27,10 @@ export default function FactionPopup({
   const [open, setOpen] = useState({ rel: false, mem: false });
   const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
 
-  // A collapsible section: header toggles it; when open, the body is a
-  // fixed-height, internally-scrolling box so a long list can't push the popup
-  // off-screen. An optional footer (e.g. Add buttons) is pinned below the scroll.
-  // Written as a called function, not a mounted <Component>, so the inputs it
-  // renders keep focus across the parent's re-renders.
+  // A collapsible section: header toggles it; open, the body is a fixed-height
+  // scrolling box so a long list can't push the popup off-screen, with an
+  // optional footer (e.g. Add buttons) pinned below. A called function, not a
+  // mounted <Component>, so its inputs keep focus across the parent's re-renders.
   const section = (key, title, count, body, footer = null) => (
     <div style={{ border: `1px solid ${T.line}`, borderRadius: 2 }}>
       <button type="button" onClick={() => toggle(key)}
@@ -56,12 +54,8 @@ export default function FactionPopup({
   );
 
   return (
-    <div className="pop" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
-      style={{ position: "absolute", left: pos.x, top: pos.y, width: 320, zIndex: 50,
-        maxHeight: containerHeight - 20, display: "flex", flexDirection: "column", ...panelStyle }}>
-      <Rivet corner="tr" /><Rivet corner="bl" />
-      <PopupHeader color={faction.color} icon={<Users size={13} />} title="FACTION" onClose={onClose} />
-      <div className="scroll" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12, overflowY: "auto", minHeight: 0, flex: "1 1 auto" }}>
+    <PanelPopup frame={{ left: pos.x, top: pos.y, width: 320 }} maxHeight={containerHeight - 20}
+      color={faction.color} icon={<Users size={13} />} title="FACTION" onClose={onClose}>
         <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
           <div style={{ flex: 1 }}>
             <div style={lbl}>Name</div>
@@ -181,7 +175,6 @@ export default function FactionPopup({
             <Trash2 size={14} /> Delete faction
           </Btn>
         )}
-      </div>
-    </div>
+    </PanelPopup>
   );
 }

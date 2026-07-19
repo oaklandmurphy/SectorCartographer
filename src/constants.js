@@ -55,5 +55,8 @@ export const ICON_KEYS = Object.keys(ICONS);
 // Default size of a freshly added squadron — a placeholder to type over, not a rule.
 export const DEFAULT_SQUADRON_SIZE = 12;
 
+// Freehand pen colors offered on both the desktop and mobile map toolbars.
+export const DRAW_COLORS = ["#9fc23a", "#d98f2b", "#a83d31", "#5f83a0", "#d8d0b8", "#7c6a9e"];
+
 // Chip colors cycled through when the GM creates player roles.
 export const ROLE_COLORS = ["#5f9098", "#a06840", "#8a9a4a", "#6b6a9e", "#b3763e", "#4f8f6f", "#9a7a2e", "#a0517a"];

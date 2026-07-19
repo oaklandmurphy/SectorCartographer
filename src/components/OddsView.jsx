@@ -13,14 +13,11 @@ const clampInt = (v, lo, hi) => {
   return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : lo;
 };
 
-// A number field holds the raw text you typed, not a clamped number.
-//
-// Clamping state on every keystroke looks equivalent and isn't: to reach "10"
-// you must pass through "1", and to reach "-5" through "-", so a per-keystroke
-// clamp rewrites the box under the cursor and puts those values out of reach
-// entirely — typing "10" into a 2..12 field lands on 12. So the text is what's
-// stored, the clamped number is what's computed from it, and blur normalizes the
-// box so it never rests on "-" or a half-typed 1.
+// A number field holds the raw text you typed, not a clamped number: clamping on
+// every keystroke would rewrite the box under the cursor — typing "10" into a
+// 2..12 field can't pass through "1" and would land on 12. So the text is stored,
+// the clamped number is computed from it, and blur normalizes the box so it never
+// rests on "-" or a half-typed value.
 function useTypedNumber(initial, lo, hi) {
   const [text, setText] = useState(String(initial));
   const value = clampInt(text, lo, hi);

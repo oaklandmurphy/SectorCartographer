@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Users, Plus, Maximize2, Network } from "lucide-react";
-import { T, cut } from "../theme.js";
+import { T, cut, sceneBackdrop, floatingPanel } from "../theme.js";
 import { SUBNODE_ZOOM, RELATION_TYPES, relationType, MEMBER_KINDS } from "../constants.js";
 import { usePoliticsInteractions } from "../hooks/usePoliticsInteractions.js";
 import TargetBrackets from "./ui/TargetBrackets.jsx";
+import Starfield from "./ui/Starfield.jsx";
 import FactionPopup from "./FactionPopup.jsx";
 import MemberPopup from "./MemberPopup.jsx";
 
@@ -76,28 +77,13 @@ export default function PoliticsView({
   const selMemObj = selMemFac ? (selMemFac.members || []).find((m) => m.id === selMem.memId) : null;
 
   return (
-    <div ref={mapRef}
-      style={{ position: "relative", flex: 1, overflow: "hidden", cursor: "grab",
-        backgroundImage: `radial-gradient(ellipse at 50% 42%, rgba(0,0,0,0) 0%, rgba(0,0,0,.6) 100%),
-          repeating-linear-gradient(0deg, rgba(90,78,56,.12) 0px, rgba(90,78,56,.12) 1px, transparent 1px, transparent 64px),
-          repeating-linear-gradient(90deg, rgba(90,78,56,.12) 0px, rgba(90,78,56,.12) 1px, transparent 1px, transparent 64px)`,
-        backgroundColor: T.void, userSelect: "none" }}>
+    <div ref={mapRef} style={{ ...sceneBackdrop, cursor: "grab" }}>
 
       {/* gesture surface — empty-space pan / tap-to-deselect */}
       <div onPointerDown={onBackgroundPointerDown}
         style={{ position: "absolute", inset: 0, zIndex: 1, touchAction: "none", cursor: "grab" }} />
 
-      {/* starfield */}
-      <div style={{ position: "absolute", inset: 0, opacity: 0.55, pointerEvents: "none", zIndex: 2,
-        backgroundImage: `radial-gradient(1px 1px at 20px 30px, #fff, transparent),
-          radial-gradient(1px 1px at 130px 80px, #d8c9a0, transparent),
-          radial-gradient(1px 1px at 210px 160px, #fff, transparent),
-          radial-gradient(1.5px 1.5px at 330px 40px, #cbb98e, transparent),
-          radial-gradient(1px 1px at 90px 220px, #fff, transparent),
-          radial-gradient(1px 1px at 400px 260px, #e8dfc6, transparent),
-          radial-gradient(1px 1px at 520px 120px, #fff, transparent),
-          radial-gradient(1.5px 1.5px at 620px 300px, #cbb98e, transparent)`,
-        backgroundSize: "640px 360px" }} />
+      <Starfield zIndex={2} />
 
       {/* relationship edges */}
       <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 4 }}>
@@ -233,9 +219,8 @@ export default function PoliticsView({
       </div>
 
       {/* legend */}
-      <div style={{ position: "absolute", right: 12, bottom: 10, zIndex: 32, background: `${T.panel}e6`,
-        border: `1px solid ${T.line}`, ...cut(8), padding: "8px 11px", pointerEvents: "none",
-        boxShadow: "0 10px 30px rgba(0,0,0,.6)", maxWidth: 200 }}>
+      <div style={{ position: "absolute", right: 12, bottom: 10, zIndex: 32, padding: "8px 11px",
+        pointerEvents: "none", maxWidth: 200, ...floatingPanel }}>
         <div className="stencil" style={{ fontSize: 11, letterSpacing: ".1em", color: T.mut, marginBottom: 6 }}>RELATIONS</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {RELATION_TYPES.map((r) => (
@@ -248,8 +233,8 @@ export default function PoliticsView({
       </div>
 
       {/* hint */}
-      <div style={{ position: "absolute", left: 12, bottom: 10, zIndex: 32, background: `${T.panel}e6`, border: `1px solid ${T.line}`, ...cut(8), pointerEvents: "none",
-        padding: "6px 10px", fontSize: 10.5, color: T.mut, maxWidth: 340, lineHeight: 1.5, boxShadow: "0 10px 30px rgba(0,0,0,.6)" }}>
+      <div style={{ position: "absolute", left: 12, bottom: 10, zIndex: 32, pointerEvents: "none",
+        padding: "6px 10px", fontSize: 10.5, color: T.mut, maxWidth: 340, lineHeight: 1.5, ...floatingPanel }}>
         <Network size={12} style={{ color: T.accent, verticalAlign: "-2px", marginRight: 5 }} />
         {canEdit
           ? <span><b style={{ color: T.text }}>Politics</b> · drag factions to arrange · click one to edit its relations & members · <b style={{ color: T.amber }}>zoom in</b> to reveal characters & organizations inside each faction</span>
