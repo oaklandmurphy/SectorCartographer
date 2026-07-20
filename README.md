@@ -49,24 +49,41 @@ Firebase Realtime Database so every visitor sees the same map.
    is plenty for a campaign.
 2. **Build > Realtime Database > Create Database**. Pick a location and start in
    **test mode**; step 3 replaces the rules.
-3. Still in Realtime Database, open the **Rules** tab and use:
+3. Still in Realtime Database, open the **Rules** tab and use the contents of
+   [`database.rules.json`](database.rules.json):
    ```json
    {
      "rules": {
        "sectors": {
          "$sector": {
            ".read": true,
-           ".write": true
+           ".write": "auth != null",
+
+           "wiki": {
+             "$id": {
+               "image": {
+                 ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 1400000)"
+               }
+             }
+           }
          }
        }
      }
    }
    ```
-   This scopes access to the `sectors/` path and leaves it open to anyone with the
-   link, which matches the app's own casual edit-code lock. If you want real
-   auth-gated writes instead, that means adding Firebase Auth — out of scope here,
-   but these rules are where it would go.
-4. **Project settings > General > Your apps**, click the **`</>`** (web) icon to
+   This scopes access to the `sectors/` path, keeps reads open to anyone with the
+   link (matching the app's own casual edit-code lock), but requires a Firebase
+   Auth token to write. Combined with step 4 below, that's enough to stop a
+   script from writing straight to the database REST API using the config
+   values pulled out of the public JS bundle — see
+   [Preventing spam / abuse](#preventing-spam--abuse). If you deploy with the
+   Firebase CLI, `firebase deploy` picks up this file automatically (it's
+   already wired into `firebase.json`); editing it in the console works too,
+   they just need to stay in sync.
+4. **Build > Authentication > Sign-in method**, enable the **Anonymous**
+   provider. The app signs every visitor in silently on load — no login UI —
+   purely so the `.write` rule above has a token to check.
+5. **Project settings > General > Your apps**, click the **`</>`** (web) icon to
    register a web app, and copy the `firebaseConfig` values it shows you.
 
 ### 2. Configure and run
@@ -79,13 +96,48 @@ cp .env.example .env.local   # then paste in your firebaseConfig values
 npm run dev
 ```
 
-`.env.local` holds the `VITE_FIREBASE_*` variables from step 1.4. It is
-gitignored — the values are per-deployment, not per-repo.
+`.env.local` holds the `VITE_FIREBASE_*` variables from step 1.5, plus the
+optional `VITE_RECAPTCHA_SITE_KEY` from
+[Preventing spam / abuse](#preventing-spam--abuse) below. It is gitignored —
+the values are per-deployment, not per-repo.
 
 Open the printed `localhost` URL and you'll get an empty sector. Edits save to
 your Firebase project within ~600ms; the indicator top-right shows SAVED.
 
-### 3. Deploy
+### 3. Preventing spam / abuse
+
+The rules from step 1.3 already stop unauthenticated writes, but a token from
+the Anonymous provider is trivial for a script to get too — it just means
+they're now making an extra API call before spamming the database. **App
+Check** closes that gap by additionally requiring proof the request came from
+this app running in a real browser:
+
+1. At https://www.google.com/recaptcha/admin, register a new site for
+   **reCAPTCHA v3**, adding your deployed domain (and `localhost` while
+   developing). You'll get a **site key** and a **secret key**.
+2. In the Firebase console, **Build > App Check > Apps**, register your web
+   app and choose **reCAPTCHA v3** as the provider, pasting in the secret key.
+3. Put the site key in `.env.local` as `VITE_RECAPTCHA_SITE_KEY`. The app
+   picks it up automatically (`src/lib/firebase.js`) — no code changes needed.
+4. Watch the **Requests** metrics on the App Check dashboard for a day or two
+   with real traffic before flipping enforcement on for Realtime Database
+   (same page, **Enforce**). Enforcing too early, before every deployed copy
+   of the app has the site key, locks out legitimate writes too.
+
+Without a site key configured, the app still runs — it just skips this layer,
+same as before. Two more things worth doing regardless:
+
+- Set a **budget alert** (Project settings > Usage and billing) so an
+  unexpected write flood shows up as a notification, not a surprise bill.
+- The `wiki/$id/image` size cap in `database.rules.json` is the one field
+  worth validating specifically — see the comment in `src/lib/codexImage.js`
+  for why (it's the one place a client could try to push a multi-megabyte
+  blob straight into the database, bypassing the app's own downscaling).
+
+None of this touches read access — sectors stay world-readable by design, per
+the app's own casual edit-code model.
+
+### 4. Deploy
 
 ```sh
 npm run build
@@ -106,13 +158,15 @@ This repo ships a `firebase.json`, so Firebase Hosting works out of the box:
 ```sh
 npx firebase-tools login
 npx firebase-tools use --add     # select your own project
-npx firebase-tools deploy --only hosting
+npx firebase-tools deploy --only hosting,database
 ```
 
-Nothing depends on Firebase Hosting specifically — it's just the shortest path
-when you already made a Firebase project in step 1.
+`--only database` pushes `database.rules.json`, so a rules change you commit
+gets deployed alongside the app instead of drifting from what's in the
+console. Nothing depends on Firebase Hosting specifically — it's just the
+shortest path when you already made a Firebase project in step 1.
 
-### 4. Embedding it elsewhere (optional)
+### 5. Embedding it elsewhere (optional)
 
 The app is fine to iframe into a site you already have (Google Sites, Notion,
 WordPress, a static page of your own):
