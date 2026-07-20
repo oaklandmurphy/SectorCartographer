@@ -2,6 +2,13 @@ import { Plus, Trash2, Zap } from "lucide-react";
 import { T, inputStyle } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
 
+const LEVELS = [
+  { id: "low", label: "Low", color: T.accent },
+  { id: "moderate", label: "Moderate", color: T.amber },
+  { id: "high", label: "High", color: "#c2551f" },
+  { id: "critical", label: "Critical", color: T.danger },
+];
+
 // A subtab per faction, each holding freeform text snippets ("modifiers") that
 // describe events affecting that faction. Which factions show up here is
 // decided by the caller (App.jsx) from the viewer's identity — the GM sees
@@ -71,29 +78,73 @@ export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
             No modifiers recorded for this faction yet.{canEdit ? " Add one below." : ""}
           </div>
         )}
-        {entries.map((m) => (
-          <div key={m.id} style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel2, padding: 10,
-            display: "flex", flexDirection: "column", gap: 6 }}>
-            {canEdit ? (
-              <>
-                <textarea value={m.text} onChange={(e) => patchModifier(m.id, { text: e.target.value })}
-                  placeholder="Describe the event and its effect on this faction…"
-                  style={{ ...inputStyle, minHeight: 70, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 10 }} />
-                <Btn kind="danger" onClick={() => removeModifier(m.id)} style={{ alignSelf: "flex-start" }}>
-                  <Trash2 size={13} /> Remove
-                </Btn>
-              </>
-            ) : (
-              <div style={{ fontSize: 12.5, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>
-                {m.text || "—"}
-              </div>
-            )}
-          </div>
-        ))}
+        {entries.map((m) => {
+          const kind = m.kind || "text";
+          const level = LEVELS.find((l) => l.id === m.level) || LEVELS[0];
+          return (
+            <div key={m.id} style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel2, padding: 10,
+              display: "flex", flexDirection: "column", gap: 6 }}>
+              {canEdit ? (
+                <input value={m.name} onChange={(e) => patchModifier(m.id, { name: e.target.value })}
+                  placeholder="MODIFIER NAME…"
+                  style={{ margin: "-10px -10px 0", width: "calc(100% + 20px)",
+                    background: `${activeFaction.color}1f`, border: "none",
+                    borderBottom: `2px solid ${activeFaction.color}`, borderRadius: 0,
+                    padding: "9px 10px", outline: "none",
+                    fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", letterSpacing: ".07em",
+                    textTransform: "uppercase", color: activeFaction.color }} />
+              ) : (
+                <div style={{ margin: "-10px -10px 0", padding: "9px 10px",
+                  background: `${activeFaction.color}1f`, borderBottom: `2px solid ${activeFaction.color}`,
+                  fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif",
+                  letterSpacing: ".07em", textTransform: "uppercase", color: activeFaction.color }}>
+                  {m.name || "Untitled modifier"}
+                </div>
+              )}
+              {kind === "slider" && (
+                <div style={{ display: "flex", gap: 4 }}>
+                  {LEVELS.map((l) => {
+                    const on = l.id === level.id;
+                    return (
+                      <button key={l.id} onClick={canEdit ? () => patchModifier(m.id, { level: l.id }) : undefined}
+                        style={{ flex: 1, cursor: canEdit ? "pointer" : "default",
+                          border: `1px solid ${on ? l.color : T.line}`,
+                          borderRadius: 2, padding: "6px 4px", background: on ? `${l.color}26` : T.panel3,
+                          color: on ? l.color : T.faint, opacity: on ? 1 : 0.75,
+                          fontFamily: "'Oswald', sans-serif", fontSize: 11,
+                          fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase" }}>
+                        {l.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {canEdit ? (
+                <>
+                  <textarea value={m.text} onChange={(e) => patchModifier(m.id, { text: e.target.value })}
+                    placeholder="Description…"
+                    style={{ ...inputStyle, minHeight: 70, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 10 }} />
+                  <Btn kind="danger" onClick={() => removeModifier(m.id)} style={{ alignSelf: "flex-start" }}>
+                    <Trash2 size={13} /> Remove
+                  </Btn>
+                </>
+              ) : (
+                <div style={{ fontSize: 12.5, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>
+                  {m.text || "—"}
+                </div>
+              )}
+            </div>
+          );
+        })}
         {canEdit && (
-          <Btn kind="primary" onClick={() => addModifier(activeFaction.id)} style={{ justifyContent: "center", marginTop: 2 }}>
-            <Plus size={14} /> New modifier
-          </Btn>
+          <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+            <Btn kind="primary" onClick={() => addModifier(activeFaction.id, "text")} style={{ flex: 1, justifyContent: "center" }}>
+              <Plus size={14} /> New text modifier
+            </Btn>
+            <Btn kind="primary" onClick={() => addModifier(activeFaction.id, "slider")} style={{ flex: 1, justifyContent: "center" }}>
+              <Plus size={14} /> New slider modifier
+            </Btn>
+          </div>
         )}
       </div>
     );

@@ -400,17 +400,23 @@ export default function GalaxySectorMap() {
       ? { ...f, members: (f.members || []).filter((m) => m.id !== memId) } : f));
   }
 
-  /* ---- modifiers: freeform event snippets attached to a faction ---- */
-  function addModifier(factionId) {
-    if (!canEdit) return;
-    setModifiers((ms) => [...ms, { id: uid("mod"), factionId, text: "", createdAt: Date.now() }]);
+  /* ---- modifiers: freeform event snippets attached to a faction.
+     GM-only, even in open mode — unlike everything else canEdit covers,
+     these are called out by name so only an authenticated GM (viewer.kind
+     === "admin") may touch them. */
+  const isGM = viewer.kind === "admin";
+  function addModifier(factionId, kind = "text") {
+    if (!isGM) return;
+    const entry = { id: uid("mod"), factionId, kind, name: "", text: "", createdAt: Date.now() };
+    if (kind === "slider") entry.level = "low";
+    setModifiers((ms) => [...ms, entry]);
   }
   function patchModifier(id, p) {
-    if (!canEdit) return;
+    if (!isGM) return;
     setModifiers((ms) => ms.map((m) => (m.id === id ? { ...m, ...p } : m)));
   }
   function removeModifier(id) {
-    if (!canEdit) return;
+    if (!isGM) return;
     setModifiers((ms) => ms.filter((m) => m.id !== id));
   }
 
@@ -762,7 +768,7 @@ export default function GalaxySectorMap() {
 
       {activeTab === "modifiers" && (
         <ModifiersView
-          factions={displayModifierFactions} modifiers={displayModifiers} canEdit={canEdit} isMobile={isMobile}
+          factions={displayModifierFactions} modifiers={displayModifiers} canEdit={isGM} isMobile={isMobile}
           activeFactionId={modFactionId} setActiveFactionId={setModFactionId}
           addModifier={addModifier} patchModifier={patchModifier} removeModifier={removeModifier}
         />
