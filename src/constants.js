@@ -30,7 +30,7 @@ export const SUBNODE_ZOOM = 0.85;
 // The kinds of subnode that can live inside a faction on the politics map.
 export const MEMBER_KINDS = [
   { id: "character", label: "Character", icon: User, defaultCat: "characters" },
-  { id: "org", label: "Organization", icon: Building2, defaultCat: "factions" },
+  { id: "org", label: "Organization", icon: Building2, defaultCat: "misc" },
 ];
 
 // Relationship types drawn as the edges between faction nodes. `dash` is an

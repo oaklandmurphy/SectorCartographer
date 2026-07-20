@@ -340,6 +340,11 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, 
             <div className="stencil" style={{ fontSize: 24, fontWeight: 800, letterSpacing: ".03em", color: T.text }}>
               {selected.title || "Untitled"}
             </div>
+            {selected.submittedBy && (
+              <div style={{ fontSize: 10.5, color: T.faint, fontStyle: "italic" }}>
+                Submitted by {selected.submittedBy.roleName || "a player"}
+              </div>
+            )}
             {/* Players see the image section only when a picture is present. */}
             {selected.image && imageFrame(selected.image, isMobile ? 320 : 480, selected.title)}
             <CodexBody body={selected.body} isMobile={isMobile} />
