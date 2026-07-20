@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Plus, Trash2, ChevronLeft, FileText, EyeOff, Users, Table, Eye, Pencil,
-  Image as ImageIcon, ImagePlus, X, AlertTriangle } from "lucide-react";
+  Image as ImageIcon, ImagePlus, X, AlertTriangle, Inbox, CheckCircle2, Undo2, Send, Clock } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { WIKI_CATS } from "../constants.js";
 import { isRestricted } from "../lib/visibility.js";
@@ -10,9 +10,23 @@ import Btn from "./ui/Btn.jsx";
 import CodexBody from "./CodexBody.jsx";
 import VisibilityRow from "./VisibilityRow.jsx";
 
-export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCat, setActiveCat, selectedId, setSelectedId, addEntry, patchEntry, deleteEntry }) {
+export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, activeCat, setActiveCat, selectedId, setSelectedId,
+  addEntry, patchEntry, deleteEntry, submitEntry, patchOwnEntry, withdrawEntry, approveEntry }) {
   const catMeta = WIKI_CATS.find((c) => c.id === activeCat) || WIKI_CATS[0];
-  const entries = wiki.filter((e) => e.category === activeCat);
+  // A signed-in player (not the GM, not anonymous) can submit a new entry.
+  const canSubmit = !!(viewer && viewer.kind === "player");
+  const isMine = (e) => !!(viewer && viewer.roleId != null && e.submittedBy && e.submittedBy.roleId === viewer.roleId);
+  // GM-only inbox: every submission awaiting review, across all categories,
+  // instead of the active category's list. Local/unrouted, same as previewOf
+  // below — it's a triage view, not a page worth bookmarking.
+  const [queueMode, setQueueMode] = useState(false);
+  const pendingCount = wiki.filter((e) => e.status === "pending").length;
+  // Normal category browsing hides everyone else's pending submissions — they
+  // aren't real pages yet — but still shows the viewer's own, so a player can
+  // find and keep editing what they just wrote.
+  const entries = queueMode
+    ? wiki.filter((e) => e.status === "pending")
+    : wiki.filter((e) => e.category === activeCat && (e.status !== "pending" || isMine(e)));
   const selected = wiki.find((e) => e.id === selectedId);
   // Editors see only the raw textarea, so a ```csv block is invisible while
   // writing — hence the preview toggle. It's keyed to an entry id, not a bare
@@ -27,24 +41,27 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
   const [imgError, setImgError] = useState(null);
   // setActiveCat clears the open entry itself (see App.jsx) — clearing it here
   // too would be a second URL change, i.e. two Back presses for one click.
-  const selectCat = (id) => setActiveCat(id);
+  const selectCat = (id) => { setQueueMode(false); setActiveCat(id); };
+  const openQueue = () => { setQueueMode(true); setSelectedId(null); };
   const selectEntry = (id) => { setPreviewOf(null); setImgError(null); setSelectedId(id); };
 
   // Downscale/re-encode a picked raster file, then store it on the entry as a
   // data URI. Rejects (with a message) rather than pushing an oversized image.
-  async function onPickImage(entry, e) {
+  // `patch` is whichever write path the current viewer has (GM or the entry's
+  // own submitter) — see editForm below.
+  async function onPickImage(entry, e, patch) {
     const file = e.target.files && e.target.files[0];
     e.target.value = ""; // let the same file be re-picked after an error
     if (!file) return;
     setImgError(null);
     const res = await processImage(file);
     if (res.error) { setImgError(res.error); return; }
-    patchEntry(entry.id, { image: res.dataUri });
+    patch(entry.id, { image: res.dataUri });
   }
 
   // Drops a starter CSV block in at the caret. Only reachable while the textarea
   // is on screen (the button hides in preview), so bodyRef is live here.
-  function insertTable(entry) {
+  function insertTable(entry, patch) {
     const el = bodyRef.current;
     const body = entry.body || "";
     const at = el ? el.selectionStart : body.length;
@@ -54,7 +71,7 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
     // between it and any prose either side.
     const lead = before === "" || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
     const tail = after === "" ? "\n" : after.startsWith("\n") ? "\n" : "\n\n";
-    patchEntry(entry.id, { body: before + lead + CSV_TEMPLATE + tail + after });
+    patch(entry.id, { body: before + lead + CSV_TEMPLATE + tail + after });
     // Select the placeholder caption so the writer just types over it.
     const start = before.length + lead.length + CSV_TEMPLATE.indexOf(CSV_TEMPLATE_CAPTION);
     requestAnimationFrame(() => {
@@ -73,9 +90,11 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
     </div>
   );
 
-  // GM-only image control: preview + add/replace/remove. Hidden entirely from
-  // players — they see the picture (via imageFrame) only when one is present.
-  const imageEditor = () => (
+  // Image control: preview + add/replace/remove, shared by the GM edit form and
+  // a player's own-submission form — `patch` picks which one actually writes.
+  // Hidden entirely from read-only viewers — they see the picture (via
+  // imageFrame) only when one is present.
+  const imageEditor = (patch) => (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ ...lbl, display: "flex", alignItems: "center", gap: 6 }}>
         <ImageIcon size={12} /> Image
@@ -86,14 +105,14 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
       </div>
       {selected.image && imageFrame(selected.image, 260)}
       <input ref={imgRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif"
-        onChange={(e) => onPickImage(selected, e)} style={{ display: "none" }} />
+        onChange={(e) => onPickImage(selected, e, patch)} style={{ display: "none" }} />
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         <Btn onClick={() => imgRef.current && imgRef.current.click()}
           title={selected.image ? "Choose a different picture" : "Upload a picture for this page"}>
           <ImagePlus size={13} /> {selected.image ? "Replace image" : "Add image"}
         </Btn>
         {selected.image && (
-          <Btn kind="danger" onClick={() => patchEntry(selected.id, { image: undefined })} title="Remove this page's image">
+          <Btn kind="danger" onClick={() => patch(selected.id, { image: undefined })} title="Remove this page's image">
             <X size={13} /> Remove
           </Btn>
         )}
@@ -115,9 +134,22 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
     <div className={vertical ? "" : "scroll"} style={{ display: "flex", flexDirection: vertical ? "column" : "row",
       gap: 4, padding: vertical ? "10px 8px" : "8px", overflowX: vertical ? "visible" : "auto",
       borderBottom: vertical ? `1px solid ${T.line}` : `2px solid ${T.line}`, flexShrink: 0 }}>
+      {canEdit && (
+        <button onClick={openQueue} title="Entries submitted by players, awaiting your approval"
+          style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
+            border: `1px solid ${queueMode ? T.amber : T.line}`, borderRadius: 2, padding: "7px 10px",
+            background: queueMode ? "rgba(217,143,43,.14)" : T.panel2, color: queueMode ? T.amber : T.text,
+            fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
+            textTransform: "uppercase", justifyContent: vertical ? "flex-start" : "center", flex: vertical ? "none" : "0 0 auto" }}>
+          <Inbox size={15} /> <span style={{ flex: 1, textAlign: "left" }}>Review Queue</span>
+          {pendingCount > 0 && (
+            <span className="mono" style={{ fontSize: 10, color: T.amber, fontWeight: 700 }}>{pendingCount}</span>
+          )}
+        </button>
+      )}
       {WIKI_CATS.map((cat) => {
-        const Ic = cat.icon; const count = wiki.filter((e) => e.category === cat.id).length;
-        const on = cat.id === activeCat;
+        const Ic = cat.icon; const count = wiki.filter((e) => e.category === cat.id && e.status !== "pending").length;
+        const on = !queueMode && cat.id === activeCat;
         return (
           <button key={cat.id} onClick={() => selectCat(cat.id)} title={cat.label}
             style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
@@ -139,13 +171,16 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
       {entries.length === 0 && (
         <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
           border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
-          No {catMeta.label.toLowerCase()} entries yet.{canEdit ? " Add one below." : ""}
+          {queueMode
+            ? "Nothing waiting for review."
+            : `No ${catMeta.label.toLowerCase()} entries yet.${canEdit ? " Add one below." : canSubmit ? " Submit one below." : ""}`}
         </div>
       )}
       {entries.map((e) => {
         const on = e.id === selectedId;
         const restricted = canEdit && roles.length > 0 && isRestricted(e);
         const gmOnly = restricted && e.visibility.length === 0;
+        const pending = e.status === "pending";
         return (
           <button key={e.id} onClick={() => selectEntry(e.id)}
             style={{ textAlign: "left", cursor: "pointer", background: on ? "rgba(159,194,58,.1)" : T.panel2,
@@ -156,7 +191,15 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
                 color: on ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {e.title || "Untitled"}
               </span>
-              {restricted && (
+              {pending && (
+                <span title={e.submittedBy ? `Submitted by ${e.submittedBy.roleName || "a player"}` : "Pending review"}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 3, flexShrink: 0, color: T.amber,
+                    border: `1px solid ${T.amber}`, borderRadius: 2, padding: "1px 4px", fontSize: 8.5,
+                    letterSpacing: ".08em", textTransform: "uppercase" }}>
+                  <Clock size={9} /> {queueMode ? (e.submittedBy && e.submittedBy.roleName) || "Pending" : "Pending"}
+                </span>
+              )}
+              {restricted && !pending && (
                 <span title={gmOnly ? "GM only" : "Restricted to some players"}
                   style={{ display: "inline-flex", alignItems: "center", gap: 3, flexShrink: 0, color: gmOnly ? T.amber : T.mut,
                     border: `1px solid ${gmOnly ? T.amber : T.line}`, borderRadius: 2, padding: "1px 4px", fontSize: 8.5,
@@ -172,9 +215,14 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
           </button>
         );
       })}
-      {canEdit && (
+      {canEdit && !queueMode && (
         <Btn kind="primary" onClick={() => addEntry(activeCat)} style={{ justifyContent: "center", marginTop: 2 }}>
           <Plus size={14} /> New {catMeta.label} entry
+        </Btn>
+      )}
+      {canSubmit && !queueMode && (
+        <Btn kind="primary" onClick={() => submitEntry(activeCat)} style={{ justifyContent: "center", marginTop: 2 }}>
+          <Send size={14} /> Submit new {catMeta.label.toLowerCase()} entry
         </Btn>
       )}
     </div>
@@ -188,13 +236,59 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
           <FileText size={40} strokeWidth={1.2} />
           <div className="stencil" style={{ fontSize: 15, letterSpacing: ".06em", color: T.mut }}>NO ENTRY SELECTED</div>
           <div style={{ fontSize: 11.5, lineHeight: 1.6, maxWidth: 300 }}>
-            Pick an entry from the list to read it{canEdit ? ", or create a new one." : "."}
+            Pick an entry from the list to read it{canEdit ? ", or create a new one." : canSubmit ? ", or submit a new one." : "."}
           </div>
         </div>
       );
     }
     const catOf = WIKI_CATS.find((c) => c.id === selected.category) || catMeta;
     const CatIc = catOf.icon;
+    const pending = selected.status === "pending";
+    // A player only ever gets the edit form back for their own not-yet-reviewed
+    // submission — canSeeSubmission upstream already keeps anyone else's pending
+    // entries out of `wiki`, so this can't fire for someone else's.
+    const own = !canEdit && pending && isMine(selected);
+    // Shared field markup for the GM's edit form and a player's own-submission
+    // form — only which `patch` function actually writes differs between them.
+    const editForm = (patch) => (
+      <>
+        <input value={selected.title} onChange={(e) => patch(selected.id, { title: e.target.value })}
+          placeholder="Entry title"
+          style={{ ...inputStyle, fontSize: 18, fontFamily: "'Big Shoulders Stencil', 'Oswald', sans-serif",
+            fontWeight: 700, letterSpacing: ".04em", padding: "8px 10px" }} />
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={lbl}>Category</span>
+          <select value={selected.category} onChange={(e) => patch(selected.id, { category: e.target.value })}
+            style={{ ...selStyle, width: "auto", minWidth: 130 }}>
+            {WIKI_CATS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ ...lbl, flex: 1 }}>Body</span>
+          {!preview && (
+            <Btn onClick={() => insertTable(selected, patch)} title="Insert a CSV table block at the cursor">
+              <Table size={13} /> Insert table
+            </Btn>
+          )}
+          <Btn onClick={() => setPreviewOf(preview ? null : selected.id)} title={preview ? "Back to editing" : "See how this entry reads"}>
+            {preview ? <><Pencil size={13} /> Edit</> : <><Eye size={13} /> Preview</>}
+          </Btn>
+        </div>
+        {preview ? (
+          <div style={{ minHeight: isMobile ? 220 : 340, border: `1px dashed ${T.line}`, borderRadius: 2, padding: 12,
+            display: "flex", flexDirection: "column", gap: 12 }}>
+            {selected.image && imageFrame(selected.image, isMobile ? 320 : 480, selected.title)}
+            <CodexBody body={selected.body} isMobile={isMobile} />
+          </div>
+        ) : (
+          <textarea ref={bodyRef} value={selected.body} onChange={(e) => patch(selected.id, { body: e.target.value })}
+            placeholder="Write anything here — lore, notes, stats, rules…"
+            style={{ ...inputStyle, minHeight: isMobile ? 220 : 340, resize: "vertical", lineHeight: 1.6,
+              fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace", fontSize: 12.5, padding: 12 }} />
+        )}
+        {imageEditor(patch)}
+      </>
+    );
     return (
       <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: isMobile ? 14 : 22,
         display: "flex", flexDirection: "column", gap: 12 }}>
@@ -209,47 +303,36 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, activeCa
           <CatIc size={16} style={{ color: T.accent }} />
           <span style={{ ...lbl, color: T.faint }}>{catOf.label}</span>
         </div>
+        {pending && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.amber,
+            border: `1px solid ${T.amber}`, borderRadius: 2, padding: "6px 10px", background: "rgba(217,143,43,.1)" }}>
+            <Clock size={13} style={{ flexShrink: 0 }} />
+            {canEdit
+              ? `Submitted by ${(selected.submittedBy && selected.submittedBy.roleName) || "a player"} — pending your review.`
+              : "Pending review — only you and the GM can see this until it's approved."}
+          </div>
+        )}
         {canEdit ? (
           <>
-            <input value={selected.title} onChange={(e) => patchEntry(selected.id, { title: e.target.value })}
-              placeholder="Entry title"
-              style={{ ...inputStyle, fontSize: 18, fontFamily: "'Big Shoulders Stencil', 'Oswald', sans-serif",
-                fontWeight: 700, letterSpacing: ".04em", padding: "8px 10px" }} />
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <span style={lbl}>Category</span>
-              <select value={selected.category} onChange={(e) => patchEntry(selected.id, { category: e.target.value })}
-                style={{ ...selStyle, width: "auto", minWidth: 130 }}>
-                {WIKI_CATS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-              </select>
-            </div>
-            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ ...lbl, flex: 1 }}>Body</span>
-              {!preview && (
-                <Btn onClick={() => insertTable(selected)} title="Insert a CSV table block at the cursor">
-                  <Table size={13} /> Insert table
-                </Btn>
-              )}
-              <Btn onClick={() => setPreviewOf(preview ? null : selected.id)} title={preview ? "Back to editing" : "See how this entry reads"}>
-                {preview ? <><Pencil size={13} /> Edit</> : <><Eye size={13} /> Preview</>}
-              </Btn>
-            </div>
-            {preview ? (
-              <div style={{ minHeight: isMobile ? 220 : 340, border: `1px dashed ${T.line}`, borderRadius: 2, padding: 12,
-                display: "flex", flexDirection: "column", gap: 12 }}>
-                {selected.image && imageFrame(selected.image, isMobile ? 320 : 480, selected.title)}
-                <CodexBody body={selected.body} isMobile={isMobile} />
-              </div>
-            ) : (
-              <textarea ref={bodyRef} value={selected.body} onChange={(e) => patchEntry(selected.id, { body: e.target.value })}
-                placeholder="Write anything here — lore, notes, stats, rules…"
-                style={{ ...inputStyle, minHeight: isMobile ? 220 : 340, resize: "vertical", lineHeight: 1.6,
-                  fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace", fontSize: 12.5, padding: 12 }} />
-            )}
-            {imageEditor()}
+            {editForm(patchEntry)}
             <VisibilityRow roles={roles} value={selected.visibility}
               onChange={(v) => patchEntry(selected.id, { visibility: v })} />
-            <Btn kind="danger" onClick={() => deleteEntry(selected.id)} style={{ alignSelf: "flex-start" }}>
-              <Trash2 size={14} /> Delete entry
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {pending && (
+                <Btn kind="primary" onClick={() => approveEntry(selected.id)}>
+                  <CheckCircle2 size={14} /> Approve &amp; publish
+                </Btn>
+              )}
+              <Btn kind="danger" onClick={() => deleteEntry(selected.id)}>
+                <Trash2 size={14} /> {pending ? "Reject (delete)" : "Delete entry"}
+              </Btn>
+            </div>
+          </>
+        ) : own ? (
+          <>
+            {editForm(patchOwnEntry)}
+            <Btn kind="danger" onClick={() => withdrawEntry(selected.id)} style={{ alignSelf: "flex-start" }}>
+              <Undo2 size={14} /> Withdraw submission
             </Btn>
           </>
         ) : (

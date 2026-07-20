@@ -313,6 +313,11 @@ How each visitor sees the map:
 | **Player** | knows their role's code | public content + whatever is shared with their role | no |
 | **Anonymous** | just the link, no code | public content only | no |
 
+The **Modifiers** tab works the same way but by faction rather than by entry: the
+GM sees a subtab for every faction, a player sees only their own faction's subtab
+plus any faction allied or vassal to it (via the Politics tab's relationships),
+and an anonymous viewer — or a player role with no faction assigned — sees none.
+
 Visibility is set per carrier, and a carrier's hangar follows it — hide a carrier
 from a player and its squadrons go with it. Hiding *every* carrier in a fleet from
 a player also hides that fleet's marker from them, so you can keep a whole task
@@ -343,6 +348,8 @@ exactly what you're looking at:
 | `#/codex` | the codex |
 | `#/codex/lore` | a codex category |
 | `#/codex/lore/wk_193_iltz` | a single codex entry |
+| `#/modifiers` | the faction modifiers tab |
+| `#/modifiers/fac_gorbulon` | that faction's modifiers subtab |
 | `#/odds` | the mission odds table |
 
 e.g. `https://your-deployed-url/#/codex/lore/wk_193_iltz`. The ids are the
@@ -381,6 +388,7 @@ sectors/<name>/
   wiki/       <id>: { category, title, body, visibility }
   roles/      <id>: { name, password, color }
   art/        <id>: { name, svg }
+  modifiers/  <id>: { factionId, text, createdAt }
 ```
 
 A save writes only the entities that changed, so typing in a codex entry sends a

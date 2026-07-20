@@ -14,6 +14,7 @@
 //   #/fleet · #/fleet/<fleetId> · #/fleet/<fleetId>/vs/<fleetId>
 //   #/politics
 //   #/codex · #/codex/<category> · #/codex/<category>/<entryId>
+//   #/modifiers · #/modifiers/<factionId>
 //   #/odds
 //
 // Map popups deliberately stay out of the URL: they're a click on a marker, not
@@ -23,7 +24,7 @@
 
 import { WIKI_CATS } from "../constants.js";
 
-export const TABS = ["map", "fleet", "politics", "codex", "odds"];
+export const TABS = ["map", "fleet", "politics", "codex", "modifiers", "odds"];
 
 export const DEFAULT_ROUTE = {
   tab: "map",
@@ -31,6 +32,7 @@ export const DEFAULT_ROUTE = {
   wikiId: null,
   fleetId: null,   // null = whichever fleet FleetView falls back to
   compareId: null,
+  modFactionId: null, // null = whichever faction ModifiersView falls back to
 };
 
 const isTab = (t) => TABS.includes(t);
@@ -58,6 +60,9 @@ export function parseHash(hash) {
   if (tab === "fleet") {
     return { tab, fleetId: rest[0] || null, compareId: rest[1] === "vs" ? rest[2] || null : null };
   }
+  if (tab === "modifiers") {
+    return { tab, modFactionId: rest[0] || null };
+  }
   return { tab };
 }
 
@@ -69,6 +74,8 @@ export function formatHash(route) {
   } else if (route.tab === "fleet" && route.fleetId) {
     seg.push(route.fleetId);
     if (route.compareId) seg.push("vs", route.compareId);
+  } else if (route.tab === "modifiers" && route.modFactionId) {
+    seg.push(route.modFactionId);
   }
   return `#/${seg.map(encodeURIComponent).join("/")}`;
 }

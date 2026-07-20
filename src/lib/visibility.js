@@ -48,6 +48,18 @@ export function isRestricted(item) {
   return Array.isArray(item && item.visibility);
 }
 
+// A player-submitted codex entry sits as `status: "pending"` until the GM
+// reviews it — invisible to everyone but the GM and whoever submitted it, so
+// a submission doesn't leak into the public codex before review. Absent
+// status (every pre-existing/GM-authored entry) or "approved" is just a
+// normal entry, gated only by `canSee` above.
+export function canSeeSubmission(item, viewer) {
+  if (viewer.seesAll) return true;
+  const status = item && item.status;
+  if (!status || status === "approved") return true;
+  return viewer.roleId != null && !!item.submittedBy && item.submittedBy.roleId === viewer.roleId;
+}
+
 /* ------------------------------------------------ fleet-position visibility
 
    Separate from the per-carrier `visibility` above: this gates whole *fleet

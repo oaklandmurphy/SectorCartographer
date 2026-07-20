@@ -25,7 +25,7 @@ export const V1_ACCESS_KEY = "galaxy-sector-access:v1";
 // being re-uploaded on every keystroke, which per-entity writes solve for free.
 export const COLLECTIONS = [
   "factions", "relations", "layers", "systems",
-  "links", "fleets", "strokes", "wiki", "roles", "art",
+  "links", "fleets", "strokes", "wiki", "roles", "art", "modifiers",
 ];
 
 // Fields RTDB will not give back as stored: empty arrays vanish, and explicit
@@ -37,7 +37,7 @@ const defaults = {
   fleets: { ships: [], systemId: null },
   strokes: { pts: [] },
   wiki: { body: "", title: "" },
-  relations: {}, layers: {}, links: {}, roles: {}, art: {},
+  relations: {}, layers: {}, links: {}, roles: {}, art: {}, modifiers: {},
 };
 
 /* ------------------------------------------------ visibility

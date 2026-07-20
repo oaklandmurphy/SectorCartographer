@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Map as MapIcon, Library, Satellite, Network, Ship, Dices } from "lucide-react";
+import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Zap } from "lucide-react";
 import { T, panelStyle, cut } from "./theme.js";
 import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
 import { storage } from "./lib/storage.js";
 import { subscribeSector, saveSector, emptySector } from "./lib/sectorRepo.js";
 import { buildSectorUpdates } from "./lib/sectorSchema.js";
-import { resolveViewer, canSee, visibleFleets } from "./lib/visibility.js";
+import { resolveViewer, canSee, canSeeSubmission, visibleFleets, friendlyFactionIds } from "./lib/visibility.js";
 import { craftInCarrier, withSquadrons } from "./lib/carriers.js";
 import { uid } from "./utils/id.js";
 import { useResponsive } from "./hooks/useResponsive.js";
@@ -20,6 +20,7 @@ import MapCanvas from "./components/MapCanvas.jsx";
 import FleetView from "./components/FleetView.jsx";
 import WikiView from "./components/WikiView.jsx";
 import PoliticsView from "./components/PoliticsView.jsx";
+import ModifiersView from "./components/ModifiersView.jsx";
 import OddsView from "./components/OddsView.jsx";
 
 export default function GalaxySectorMap() {
@@ -34,6 +35,7 @@ export default function GalaxySectorMap() {
   const [wiki, setWiki] = useState([]);
   const [roles, setRoles] = useState([]); // player roles for asymmetric-info games
   const [art, setArt] = useState([]);     // ship-art library
+  const [modifiers, setModifiers] = useState([]); // per-faction event snippets (Modifiers tab)
 
   const [mode, setMode] = useState("select"); // select | link | draw
   const [view, setView] = useState({ scale: 1, ox: 60, oy: 40 });
@@ -66,7 +68,7 @@ export default function GalaxySectorMap() {
      so pages are shareable and Back works. */
   const [route, navigate] = useHashRoute();
   const { tab: activeTab, cat: activeCat, wikiId: selectedWikiId,
-    fleetId: fleetPrimaryId, compareId: fleetCompareId } = route;
+    fleetId: fleetPrimaryId, compareId: fleetCompareId, modFactionId } = route;
 
   // Setters keeping the useState signature (a value or an updater) that the
   // views below already call them with, so only their plumbing changed.
@@ -80,6 +82,7 @@ export default function GalaxySectorMap() {
     return { fleetId, compareId: r.compareId === fleetId ? null : r.compareId }; // never compare a fleet with itself
   });
   const setFleetCompareId = (v) => navigate((r) => ({ compareId: fromSetter(v, r.compareId) }));
+  const setModFactionId = (v) => navigate((r) => ({ modFactionId: fromSetter(v, r.modFactionId) }));
 
   useEffect(() => { if (isMobile) setPanelOpen(false); }, [isMobile]); // avoid opening full-screen on first mobile load
 
@@ -88,8 +91,8 @@ export default function GalaxySectorMap() {
   // like any other, and once, when it had its own write path, a migration left it
   // behind and silently unlocked the sector.
   const sector = useMemo(
-    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, roles, art, lockCode, fleetsPublic }),
-    [factions, relations, layers, systems, links, fleets, strokes, wiki, roles, art, lockCode, fleetsPublic],
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, roles, art, modifiers, lockCode, fleetsPublic }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, roles, art, modifiers, lockCode, fleetsPublic],
   );
   // The sector as the database currently has it. Null until the load below fills
   // it in, which is also what stops an autosave from firing against an empty
@@ -119,6 +122,7 @@ export default function GalaxySectorMap() {
       setFactions(data.factions); setRelations(data.relations); setLayers(data.layers);
       setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
       setStrokes(data.strokes); setWiki(data.wiki); setRoles(data.roles); setArt(data.art);
+      setModifiers(data.modifiers);
       setLockCode(data.lockCode); setFleetsPublic(data.fleetsPublic !== false);
     };
     const unsub = subscribeSector(
@@ -166,7 +170,12 @@ export default function GalaxySectorMap() {
      written (see lib/sectorSchema.js buildSectorUpdates) — so art's SVGs don't ride
      along on every keystroke the way the old one-blob-per-key layout forced. */
   useEffect(() => {
-    if (!loaded || !canEdit || !savedRef.current) return; // viewers never write to shared storage
+    // A signed-in player can also write now — see submitWikiEntry etc. below —
+    // but only ever to their own pending codex entry; every other setter in
+    // the app stays canEdit-gated, so a player session's diff can only ever
+    // touch `wiki`. Anyone else (anon, or no GM code set yet) never writes.
+    const canWrite = canEdit || viewer.kind === "player";
+    if (!loaded || !canWrite || !savedRef.current) return;
     // Nothing changed (a re-render, or the load settling) — stay quiet rather
     // than flashing the save indicator at an idle sector.
     if (!Object.keys(buildSectorUpdates(savedRef.current, sector)).length) return;
@@ -184,7 +193,7 @@ export default function GalaxySectorMap() {
       }
     }, 600);
     return () => clearTimeout(t);
-  }, [sector, loaded, canEdit]);
+  }, [sector, loaded, canEdit, viewer.kind]);
 
   /* ------------------------------------------------ edit-lock management (frontend-only gate, not real security).
      The code is part of the sector snapshot, so the autosave above persists it
@@ -370,6 +379,7 @@ export default function GalaxySectorMap() {
     // Drop the deleted faction from any player login tied to it, so its fleet
     // gate doesn't silently dangle on a faction that no longer exists.
     setRoles((rs) => rs.map((r) => (r.factionId === id ? { ...r, factionId: undefined } : r)));
+    setModifiers((ms) => ms.filter((m) => m.factionId !== id));
     setFactions((fx) => fx.filter((f) => f.id !== id));
   }
 
@@ -388,6 +398,20 @@ export default function GalaxySectorMap() {
     if (!canEdit) return;
     setFactions((fx) => fx.map((f) => f.id === facId
       ? { ...f, members: (f.members || []).filter((m) => m.id !== memId) } : f));
+  }
+
+  /* ---- modifiers: freeform event snippets attached to a faction ---- */
+  function addModifier(factionId) {
+    if (!canEdit) return;
+    setModifiers((ms) => [...ms, { id: uid("mod"), factionId, text: "", createdAt: Date.now() }]);
+  }
+  function patchModifier(id, p) {
+    if (!canEdit) return;
+    setModifiers((ms) => ms.map((m) => (m.id === id ? { ...m, ...p } : m)));
+  }
+  function removeModifier(id) {
+    if (!canEdit) return;
+    setModifiers((ms) => ms.filter((m) => m.id !== id));
   }
 
   /* ---- faction relationship edges (upsert; "none" removes the edge) ---- */
@@ -443,6 +467,41 @@ export default function GalaxySectorMap() {
     setWiki((w) => w.filter((e) => e.id !== id));
     // replace, not push: Back should not offer to reopen an entry that's gone
     setSelectedWikiId((cur) => (cur === id ? null : cur), { replace: true });
+  }
+  // A signed-in player starts a submission — same shape as addWikiEntry, but
+  // marked pending and stamped with who sent it, so the GM can review it
+  // before it's a real codex page.
+  function submitWikiEntry(category) {
+    if (viewer.kind !== "player") return null;
+    const entry = { id: uid("wk"), category, title: "New Entry", body: "",
+      status: "pending", submittedBy: { roleId: viewer.roleId, roleName: viewer.roleName }, submittedAt: Date.now() };
+    setWiki((w) => [...w, entry]);
+    setSelectedWikiId(entry.id);
+    return entry.id;
+  }
+  // The one write path a non-GM viewer has onto shared data: editing their
+  // own submission, and only while the GM hasn't acted on it yet.
+  function patchOwnWikiEntry(id, p) {
+    if (viewer.kind !== "player") return;
+    setWiki((w) => w.map((e) => {
+      if (e.id !== id || e.status !== "pending" || !e.submittedBy || e.submittedBy.roleId !== viewer.roleId) return e;
+      return { ...e, ...p };
+    }));
+  }
+  // Pull a submission back before the GM has reviewed it.
+  function withdrawWikiEntry(id) {
+    if (viewer.kind !== "player") return;
+    const e = wiki.find((x) => x.id === id);
+    if (!e || e.status !== "pending" || !e.submittedBy || e.submittedBy.roleId !== viewer.roleId) return;
+    setWiki((w) => w.filter((x) => x.id !== id));
+    setSelectedWikiId((cur) => (cur === id ? null : cur), { replace: true });
+  }
+  // GM: publish a pending submission (after any edits made via patchWikiEntry)
+  // as a normal live entry. Rejecting one needs no function of its own — it's
+  // just deleteWikiEntry, same as removing any other entry.
+  function approveWikiEntry(id) {
+    if (!canEdit) return;
+    setWiki((w) => w.map((e) => (e.id === id ? { ...e, status: "approved" } : e)));
   }
 
   /* ------------------------------------------------ map gesture handlers (mode-aware click/tap/drop routing) */
@@ -518,14 +577,31 @@ export default function GalaxySectorMap() {
   /* ------------------------------------------------ visibility-filtered views (what non-GM viewers render).
      The full arrays stay in state; only the GM/open mode writes, so a narrow player view never overwrites the master. */
   const displayWiki = useMemo(
-    () => (viewer.seesAll ? wiki : wiki.filter((e) => canSee(e, viewer))),
+    () => (viewer.seesAll ? wiki : wiki.filter((e) => canSee(e, viewer) && canSeeSubmission(e, viewer))),
     [wiki, viewer]
   );
+  // GM-only: how many submissions are waiting on them, for the Codex tab badge.
+  const pendingWikiCount = useMemo(() => wiki.filter((e) => e.status === "pending").length, [wiki]);
   // Fleet positions are gated both by faction (a player sees their own faction's
   // fleets plus allies'/vassals') and by the GM's public switch — see visibleFleets.
   const displayFleets = useMemo(
     () => visibleFleets(fleets, viewer, { relations, fleetsPublic }),
     [fleets, viewer, relations, fleetsPublic]
+  );
+  // Modifiers tab: GM sees every faction's subtab; a player sees their own
+  // faction's plus any allied/vassal to it; anyone with no faction tied to
+  // their login (anon, or a role the GM hasn't assigned a faction) sees none.
+  const modifierFactionIds = useMemo(() => {
+    if (viewer.seesAll) return null; // null = no filter, every faction
+    return viewer.roleFactionId ? friendlyFactionIds(viewer.roleFactionId, relations) : new Set();
+  }, [viewer, relations]);
+  const displayModifierFactions = useMemo(
+    () => (modifierFactionIds ? factions.filter((f) => modifierFactionIds.has(f.id)) : factions),
+    [factions, modifierFactionIds]
+  );
+  const displayModifiers = useMemo(
+    () => (modifierFactionIds ? modifiers.filter((m) => modifierFactionIds.has(m.factionId)) : modifiers),
+    [modifiers, modifierFactionIds]
   );
 
   const accessProps = {
@@ -574,6 +650,17 @@ export default function GalaxySectorMap() {
           <Btn active={activeTab === "codex"} onClick={() => { setActiveTab("codex"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Setting codex / wiki"
             style={{ border: "none", borderRadius: 0, background: activeTab === "codex" ? undefined : "transparent" }}>
             <Library size={14} /> {!isMobile && "Codex"}
+            {canEdit && pendingWikiCount > 0 && (
+              <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 8,
+                minWidth: 15, height: 15, padding: "0 4px", display: "inline-flex", alignItems: "center",
+                justifyContent: "center", fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>
+                {pendingWikiCount}
+              </span>
+            )}
+          </Btn>
+          <Btn active={activeTab === "modifiers"} onClick={() => { setActiveTab("modifiers"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Faction modifiers / events"
+            style={{ border: "none", borderRadius: 0, background: activeTab === "modifiers" ? undefined : "transparent" }}>
+            <Zap size={14} /> {!isMobile && "Modifiers"}
           </Btn>
           <Btn active={activeTab === "odds"} onClick={() => { setActiveTab("odds"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Mission odds table"
             style={{ border: "none", borderRadius: 0, background: activeTab === "odds" ? undefined : "transparent" }}>
@@ -581,7 +668,7 @@ export default function GalaxySectorMap() {
           </Btn>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-          {canEdit && <SaveStatus saveStatus={saveStatus} isMobile={isMobile} />}
+          {(canEdit || viewer.kind === "player") && <SaveStatus saveStatus={saveStatus} isMobile={isMobile} />}
           <AccessControl compact={isMobile} {...accessProps} />
         </div>
       </div>
@@ -664,10 +751,20 @@ export default function GalaxySectorMap() {
 
       {activeTab === "codex" && (
         <WikiView
-          wiki={displayWiki} roles={roles} canEdit={canEdit} isMobile={isMobile}
+          wiki={displayWiki} roles={roles} canEdit={canEdit} isMobile={isMobile} viewer={viewer}
           activeCat={activeCat} setActiveCat={setActiveCat}
           selectedId={selectedWikiId} setSelectedId={setSelectedWikiId}
           addEntry={addWikiEntry} patchEntry={patchWikiEntry} deleteEntry={deleteWikiEntry}
+          submitEntry={submitWikiEntry} patchOwnEntry={patchOwnWikiEntry}
+          withdrawEntry={withdrawWikiEntry} approveEntry={approveWikiEntry}
+        />
+      )}
+
+      {activeTab === "modifiers" && (
+        <ModifiersView
+          factions={displayModifierFactions} modifiers={displayModifiers} canEdit={canEdit} isMobile={isMobile}
+          activeFactionId={modFactionId} setActiveFactionId={setModFactionId}
+          addModifier={addModifier} patchModifier={patchModifier} removeModifier={removeModifier}
         />
       )}
 
