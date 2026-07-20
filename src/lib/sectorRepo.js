@@ -8,7 +8,7 @@
 // The app above this layer still deals in plain arrays; the array/tree translation
 // (and everything RTDB mangles on the way) lives in sectorSchema.js.
 import { ref, get as dbGet, onValue, update as dbUpdate } from "firebase/database";
-import { db, firebaseReady } from "./firebase.js";
+import { db, firebaseReady, authReady } from "./firebase.js";
 import {
   SCHEMA_VERSION, COLLECTIONS, V1_STATE_KEY, V1_ART_KEY, V1_ACCESS_KEY,
   decodeCollection, emptySector, buildSectorUpdates,
@@ -98,6 +98,7 @@ export async function saveSector(prev, next) {
   if (!Object.keys(updates).length) return false;
   updates["meta/schema"] = SCHEMA_VERSION;
   updates["meta/updatedAt"] = Date.now();
+  await authReady; // the .write rule requires auth != null
   await dbUpdate(ref(db, root()), updates);
   return true;
 }

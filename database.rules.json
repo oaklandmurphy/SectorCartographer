@@ -1,0 +1,18 @@
+{
+  "rules": {
+    "sectors": {
+      "$sector": {
+        ".read": true,
+        ".write": "auth != null",
+
+        "wiki": {
+          "$id": {
+            "image": {
+              ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 1400000)"
+            }
+          }
+        }
+      }
+    }
+  }
+}
