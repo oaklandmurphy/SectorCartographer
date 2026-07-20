@@ -166,6 +166,8 @@ export default function PoliticsView({
               const Km = kindMeta(m.kind); const Ic = Km.icon;
               const size = MEMBER_SIZE * view.scale;
               const isMSel = selMem && selMem.facId === f.id && selMem.memId === m.id;
+              const codexEntry = m.wikiId ? wiki.find((e) => e.id === m.wikiId) : null;
+              const portrait = codexEntry && codexEntry.image;
               return (
                 <div key={m.id}
                   onPointerDown={(e) => e.stopPropagation()}
@@ -175,11 +177,13 @@ export default function PoliticsView({
                     transform: "translate(-50%,-50%)", zIndex: isMSel ? 3 : 2, cursor: "pointer", textAlign: "center" }}>
                   <div style={{ position: "relative", width: size, height: size, margin: "0 auto" }}>
                     {isMSel && <TargetBrackets color={T.accent} inset={-3} armLen={6} thick={1.5} />}
-                    <div style={{ position: "absolute", inset: 0, ...cut(4),
-                      background: `linear-gradient(150deg, ${f.color}, ${f.color}aa 60%, #000 150%)`,
+                    <div style={{ position: "absolute", inset: 0, ...cut(4), overflow: "hidden",
+                      background: portrait ? "#000" : `linear-gradient(150deg, ${f.color}, ${f.color}aa 60%, #000 150%)`,
                       border: "1.5px solid #14110b", display: "flex", alignItems: "center", justifyContent: "center",
                       color: "#0f0d08", boxShadow: "inset 0 1px 2px rgba(255,255,255,.2), 0 2px 4px rgba(0,0,0,.6)" }}>
-                      <Ic size={Math.max(9, size * 0.5)} />
+                      {portrait
+                        ? <img src={portrait} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }} />
+                        : <Ic size={Math.max(9, size * 0.5)} />}
                     </div>
                     {m.wikiId && (
                       <div style={{ position: "absolute", right: -2, top: -2, width: 6, height: 6, borderRadius: "50%",

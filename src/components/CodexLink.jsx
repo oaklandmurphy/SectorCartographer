@@ -59,7 +59,7 @@ export default function CodexLink({
               })}
             </select>
           </div>
-          <button onClick={() => { const id = onCreate(createTitle, createCategory); if (id) onChange(id); }}
+          <button onClick={() => { const id = onCreate(createCategory, createTitle); if (id) onChange(id); }}
             title={`Create a new "${createTitle}" codex entry and link it`}
             style={{ ...inputStyle, width: "auto", flexShrink: 0, display: "flex", alignItems: "center", gap: 4,
               cursor: "pointer", color: T.accent, borderColor: "rgba(159,194,58,.5)",
