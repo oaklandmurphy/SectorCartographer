@@ -494,7 +494,29 @@ export default function GalaxySectorMap() {
       return { ...e, ...p };
     }));
   }
-  // Pull a submission back before the GM has reviewed it.
+  // A player proposes a change to an existing, already-live entry. Rather than
+  // touch the live page (which everyone still reads), this stages a separate
+  // pending copy carrying the player's editable fields and an `editOf` pointer
+  // back to the original. The live entry is untouched until the GM approves.
+  // Reopens an existing proposal instead of stacking a second one.
+  function proposeWikiEdit(id) {
+    if (viewer.kind !== "player") return null;
+    const orig = wiki.find((e) => e.id === id);
+    // Only real, visible, non-pending entries can be proposed against.
+    if (!orig || orig.status === "pending" || !canSee(orig, viewer)) return null;
+    const existing = wiki.find((e) => e.status === "pending" && e.editOf === id
+      && e.submittedBy && e.submittedBy.roleId === viewer.roleId);
+    if (existing) { setSelectedWikiId(existing.id); return existing.id; }
+    const entry = { id: uid("wk"), category: orig.category, title: orig.title || "", body: orig.body || "",
+      ...(orig.image ? { image: orig.image } : {}),
+      status: "pending", editOf: id,
+      submittedBy: { roleId: viewer.roleId, roleName: viewer.roleName }, submittedAt: Date.now() };
+    setWiki((w) => [...w, entry]);
+    setSelectedWikiId(entry.id);
+    return entry.id;
+  }
+  // Pull a submission (new entry or change proposal) back before the GM has
+  // reviewed it. Same ownership gate as patchOwnWikiEntry.
   function withdrawWikiEntry(id) {
     if (viewer.kind !== "player") return;
     const e = wiki.find((x) => x.id === id);
@@ -507,7 +529,27 @@ export default function GalaxySectorMap() {
   // just deleteWikiEntry, same as removing any other entry.
   function approveWikiEntry(id) {
     if (!canEdit) return;
-    setWiki((w) => w.map((e) => (e.id === id ? { ...e, status: "approved" } : e)));
+    const e = wiki.find((x) => x.id === id);
+    if (!e) return;
+    // A change proposal (editOf set): fold its edited fields into the live entry
+    // it targets, then drop the proposal — so approving a change never spawns a
+    // duplicate page. If the original was deleted meanwhile, keep the content by
+    // publishing the proposal as a standalone entry rather than losing it.
+    if (e.editOf) {
+      const target = wiki.find((x) => x.id === e.editOf);
+      if (!target) {
+        setWiki((w) => w.map((x) => (x.id === id ? { ...x, status: "approved", editOf: undefined } : x)));
+        return;
+      }
+      const patch = { title: e.title, body: e.body, category: e.category, image: e.image };
+      setWiki((w) => w
+        .map((x) => (x.id === e.editOf ? { ...x, ...patch } : x))
+        .filter((x) => x.id !== id));
+      // The proposal is gone; land the GM on the entry they just updated.
+      setSelectedWikiId((cur) => (cur === id ? e.editOf : cur), { replace: true });
+      return;
+    }
+    setWiki((w) => w.map((x) => (x.id === id ? { ...x, status: "approved" } : x)));
   }
 
   /* ------------------------------------------------ map gesture handlers (mode-aware click/tap/drop routing) */
@@ -763,6 +805,7 @@ export default function GalaxySectorMap() {
           addEntry={addWikiEntry} patchEntry={patchWikiEntry} deleteEntry={deleteWikiEntry}
           submitEntry={submitWikiEntry} patchOwnEntry={patchOwnWikiEntry}
           withdrawEntry={withdrawWikiEntry} approveEntry={approveWikiEntry}
+          proposeEdit={proposeWikiEdit}
         />
       )}
 
