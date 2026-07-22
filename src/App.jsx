@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react";
 import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Zap, Bell } from "lucide-react";
 import { T, panelStyle, cut } from "./theme.js";
 import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
@@ -17,12 +17,12 @@ import Toolbar, { SaveStatus } from "./components/Toolbar.jsx";
 import MobileToolbar from "./components/MobileToolbar.jsx";
 import SidePanel from "./components/SidePanel.jsx";
 import MapCanvas from "./components/MapCanvas.jsx";
-import FleetView from "./components/FleetView.jsx";
-import WikiView from "./components/WikiView.jsx";
-import PoliticsView from "./components/PoliticsView.jsx";
-import ModifiersView from "./components/ModifiersView.jsx";
-import OddsView from "./components/OddsView.jsx";
-import UpdatesView from "./components/UpdatesView.jsx";
+const FleetView = lazy(() => import("./components/FleetView.jsx"));
+const WikiView = lazy(() => import("./components/WikiView.jsx"));
+const PoliticsView = lazy(() => import("./components/PoliticsView.jsx"));
+const ModifiersView = lazy(() => import("./components/ModifiersView.jsx"));
+const OddsView = lazy(() => import("./components/OddsView.jsx"));
+const UpdatesView = lazy(() => import("./components/UpdatesView.jsx"));
 
 export default function GalaxySectorMap() {
   // Empty until the saved sector loads from storage; the loading gate below keeps
@@ -682,10 +682,15 @@ export default function GalaxySectorMap() {
     () => (modifierFactionIds ? factions.filter((f) => modifierFactionIds.has(f.id)) : factions),
     [factions, modifierFactionIds]
   );
-  const displayModifiers = useMemo(
-    () => (modifierFactionIds ? modifiers.filter((m) => modifierFactionIds.has(m.factionId)) : modifiers),
-    [modifiers, modifierFactionIds]
-  );
+  // A `private` modifier drops the ally/vassal grant: only the faction it's
+  // attached to (and the GM, handled by the null filter above) may see it. So
+  // an ally still gets that faction's subtab, just without its private entries.
+  const displayModifiers = useMemo(() => {
+    if (!modifierFactionIds) return modifiers; // GM: no filter
+    return modifiers.filter((m) =>
+      modifierFactionIds.has(m.factionId) &&
+      (!m.private || m.factionId === viewer.roleFactionId));
+  }, [modifiers, modifierFactionIds, viewer.roleFactionId]);
 
   const accessProps = {
     viewer, roles, factions, canEdit, lockCode, fleetsPublic, toggleFleetsPublic,
@@ -820,55 +825,57 @@ export default function GalaxySectorMap() {
         </>
       )}
 
-      {activeTab === "fleet" && (
-        <FleetView
-          fleets={displayFleets} systems={systems} canEdit={canEdit} isMobile={isMobile}
-          factionById={factionById}
-          primaryId={fleetPrimaryId} setPrimaryId={setFleetPrimaryId}
-          compareId={fleetCompareId} setCompareId={setFleetCompareId}
-          addShip={addShip} patchShip={patchShip} removeShip={removeShip}
-          addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
-          art={art} addArt={addArt} patchArt={patchArt} removeArt={removeArt}
-        />
-      )}
+      <Suspense fallback={null}>
+        {activeTab === "fleet" && (
+          <FleetView
+            fleets={displayFleets} systems={systems} canEdit={canEdit} isMobile={isMobile}
+            factionById={factionById}
+            primaryId={fleetPrimaryId} setPrimaryId={setFleetPrimaryId}
+            compareId={fleetCompareId} setCompareId={setFleetCompareId}
+            addShip={addShip} patchShip={patchShip} removeShip={removeShip}
+            addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
+            art={art} addArt={addArt} patchArt={patchArt} removeArt={removeArt}
+          />
+        )}
 
-      {activeTab === "politics" && (
-        <PoliticsView
-          factions={factions} relations={relations} canEdit={canEdit} isMobile={isMobile} wiki={displayWiki}
-          patchFaction={patchFaction} addFaction={addFaction} deleteFaction={deleteFaction} setRelation={setRelation}
-          addMember={addMember} patchMember={patchMember} removeMember={removeMember}
-          goToCodex={goToCodex} createEntry={createEntry}
-        />
-      )}
+        {activeTab === "politics" && (
+          <PoliticsView
+            factions={factions} relations={relations} canEdit={canEdit} isMobile={isMobile} wiki={displayWiki}
+            patchFaction={patchFaction} addFaction={addFaction} deleteFaction={deleteFaction} setRelation={setRelation}
+            addMember={addMember} patchMember={patchMember} removeMember={removeMember}
+            goToCodex={goToCodex} createEntry={createEntry}
+          />
+        )}
 
-      {activeTab === "codex" && (
-        <WikiView
-          wiki={displayWiki} roles={roles} canEdit={canEdit} isMobile={isMobile} viewer={viewer}
-          activeCat={activeCat} setActiveCat={setActiveCat}
-          selectedId={selectedWikiId} setSelectedId={setSelectedWikiId}
-          addEntry={addWikiEntry} patchEntry={patchWikiEntry} deleteEntry={deleteWikiEntry}
-          submitEntry={submitWikiEntry} patchOwnEntry={patchOwnWikiEntry}
-          withdrawEntry={withdrawWikiEntry} approveEntry={approveWikiEntry}
-          proposeEdit={proposeWikiEdit}
-        />
-      )}
+        {activeTab === "codex" && (
+          <WikiView
+            wiki={displayWiki} roles={roles} canEdit={canEdit} isMobile={isMobile} viewer={viewer}
+            activeCat={activeCat} setActiveCat={setActiveCat}
+            selectedId={selectedWikiId} setSelectedId={setSelectedWikiId}
+            addEntry={addWikiEntry} patchEntry={patchWikiEntry} deleteEntry={deleteWikiEntry}
+            submitEntry={submitWikiEntry} patchOwnEntry={patchOwnWikiEntry}
+            withdrawEntry={withdrawWikiEntry} approveEntry={approveWikiEntry}
+            proposeEdit={proposeWikiEdit}
+          />
+        )}
 
-      {activeTab === "updates" && (
-        <UpdatesView articles={unseenArticles} factionName={currentFaction && currentFaction.name} isMobile={isMobile}
-          openArticle={goToCodex} />
-      )}
+        {activeTab === "updates" && (
+          <UpdatesView articles={unseenArticles} factionName={currentFaction && currentFaction.name} isMobile={isMobile}
+            openArticle={goToCodex} />
+        )}
 
-      {activeTab === "modifiers" && (
-        <ModifiersView
-          factions={displayModifierFactions} modifiers={displayModifiers} canEdit={isGM} isMobile={isMobile}
-          activeFactionId={modFactionId} setActiveFactionId={setModFactionId}
-          addModifier={addModifier} patchModifier={patchModifier} removeModifier={removeModifier}
-        />
-      )}
+        {activeTab === "modifiers" && (
+          <ModifiersView
+            factions={displayModifierFactions} modifiers={displayModifiers} canEdit={isGM} isMobile={isMobile}
+            activeFactionId={modFactionId} setActiveFactionId={setModFactionId}
+            addModifier={addModifier} patchModifier={patchModifier} removeModifier={removeModifier}
+          />
+        )}
 
-      {/* A dice-reference tool, not a view of the sector — it takes no props but
-          the breakpoint, and deliberately reads nothing from the map. */}
-      {activeTab === "odds" && <OddsView isMobile={isMobile} />}
+        {/* A dice-reference tool, not a view of the sector — it takes no props but
+            the breakpoint, and deliberately reads nothing from the map. */}
+        {activeTab === "odds" && <OddsView isMobile={isMobile} />}
+      </Suspense>
 
       {/* ship drag ghost */}
       {mapInt.shipDrag && (

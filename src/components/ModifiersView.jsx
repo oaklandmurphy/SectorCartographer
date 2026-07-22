@@ -1,4 +1,4 @@
-import { Plus, Trash2, Zap } from "lucide-react";
+import { Lock, Plus, Trash2, Users, Zap } from "lucide-react";
 import { T, inputStyle } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
 
@@ -119,6 +119,30 @@ export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
                   })}
                 </div>
               )}
+              {/* Private toggle: a private modifier drops the ally/vassal grant,
+                  so only this faction (and the GM) can see it. The GM toggles it;
+                  the owning faction just sees the badge. */}
+              {canEdit ? (
+                <button onClick={() => patchModifier(m.id, { private: !m.private })}
+                  title={m.private
+                    ? "Private — only this faction can see it. Click to also share with its allies/vassals."
+                    : "Visible to this faction and its allies/vassals. Click to make it private."}
+                  style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+                    border: `1px solid ${m.private ? T.amber : T.line}`, borderRadius: 2, padding: "5px 9px",
+                    background: m.private ? `${T.amber}22` : T.panel3, color: m.private ? T.amber : T.faint,
+                    fontFamily: "'Oswald', sans-serif", fontSize: 10.5, fontWeight: 700,
+                    letterSpacing: ".05em", textTransform: "uppercase" }}>
+                  {m.private ? <Lock size={12} /> : <Users size={12} />}
+                  {m.private ? "Private" : "Allies can see"}
+                </button>
+              ) : m.private ? (
+                <div style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6,
+                  border: `1px solid ${T.amber}`, borderRadius: 2, padding: "4px 8px",
+                  background: `${T.amber}22`, color: T.amber, fontFamily: "'Oswald', sans-serif",
+                  fontSize: 10, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>
+                  <Lock size={11} /> Private
+                </div>
+              ) : null}
               {canEdit ? (
                 <>
                   <textarea value={m.text} onChange={(e) => patchModifier(m.id, { text: e.target.value })}
