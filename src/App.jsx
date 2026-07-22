@@ -664,7 +664,8 @@ export default function GalaxySectorMap() {
   }, [displayWiki, wikiReads, viewer.roleFactionId]);
   const currentFaction = factions.find((f) => f.id === viewer.roleFactionId) || null;
   // GM-only: how many submissions are waiting on them, for the Codex tab badge.
-  const pendingWikiCount = useMemo(() => wiki.filter((e) => e.status === "pending").length, [wiki]);
+  // Only entries the player has flagged "ready" count — drafts still being written don't.
+  const pendingWikiCount = useMemo(() => wiki.filter((e) => e.status === "pending" && e.ready).length, [wiki]);
   // Fleet positions are gated both by faction (a player sees their own faction's
   // fleets plus allies'/vassals') and by the GM's public switch — see visibleFleets.
   const displayFleets = useMemo(

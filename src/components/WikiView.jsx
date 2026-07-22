@@ -26,7 +26,7 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, 
   // instead of the active category's list. Local/unrouted, same as previewOf
   // below — it's a triage view, not a page worth bookmarking.
   const [queueMode, setQueueMode] = useState(false);
-  const pendingCount = wiki.filter((e) => e.status === "pending").length;
+  const pendingCount = wiki.filter((e) => e.status === "pending" && e.ready).length;
   // Free-text search across the whole codex. A non-empty query overrides both
   // category browsing and the queue, listing every live entry whose title, body
   // or category matches — pending submissions aren't articles yet, so they stay
