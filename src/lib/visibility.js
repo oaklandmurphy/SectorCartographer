@@ -50,15 +50,20 @@ export function isRestricted(item) {
   return Array.isArray(item && item.visibility);
 }
 
-// A player-submitted codex entry sits as `status: "pending"` until the GM
-// reviews it — invisible to everyone but the GM and whoever submitted it, so
-// a submission doesn't leak into the public codex before review. Absent
-// status (every pre-existing/GM-authored entry) or "approved" is just a
-// normal entry, gated only by `canSee` above.
+// A codex entry not yet cleared for players sits behind this gate:
+//   "pending"  — a player submission awaiting GM review, seen only by the GM
+//                and the player who submitted it, so it doesn't leak into the
+//                public codex before review.
+//   "draft"    — a GM-authored page not yet published (no submitter), seen only
+//                by the GM until they hit Publish.
+// Absent status (every pre-existing entry) or "approved" is a normal live entry,
+// gated only by `canSee` above.
 export function canSeeSubmission(item, viewer) {
   if (viewer.seesAll) return true;
   const status = item && item.status;
   if (!status || status === "approved") return true;
+  // A GM draft has no submitter, so this correctly hides it from every player;
+  // a pending submission is visible to its own submitter.
   return viewer.roleId != null && !!item.submittedBy && item.submittedBy.roleId === viewer.roleId;
 }
 

@@ -454,19 +454,24 @@ export default function GalaxySectorMap() {
   function patchLayer(id, p) { if (canEdit) setLayers((ls) => ls.map((l) => (l.id === id ? { ...l, ...p } : l))); }
   const toggleLayer = (id) => setLayers((ls) => ls.map((l) => (l.id === id ? { ...l, visible: !l.visible } : l)));
 
+  // A GM entry starts life as a draft: `status: "draft"` keeps it out of every
+  // non-GM view (see canSeeSubmission) and out of Updates until the GM hits
+  // Publish, so a half-written page never leaks to players. No publishedAt yet —
+  // that gets stamped at publish time, which is also the Updates baseline.
   function addWikiEntry(category) {
     if (!canEdit) return;
     const now = Date.now();
-    const entry = { id: uid("wk"), category, title: "New Entry", body: "", createdAt: now, updatedAt: now, publishedAt: now };
+    const entry = { id: uid("wk"), category, title: "New Entry", body: "", createdAt: now, updatedAt: now, status: "draft" };
     setWiki((w) => [...w, entry]);
     setSelectedWikiId(entry.id);
   }
   // create an entry and return its id — used by codex links to spin up a page
-  // pre-titled from the element (system, faction, character…) being linked.
+  // pre-titled from the element (system, faction, character…) being linked. Also
+  // a draft until published, so linking an element never publishes a stub page.
   function createEntry(category, title) {
     if (!canEdit) return null;
     const now = Date.now();
-    const entry = { id: uid("wk"), category, title: title || "New Entry", body: "", createdAt: now, updatedAt: now, publishedAt: now };
+    const entry = { id: uid("wk"), category, title: title || "New Entry", body: "", createdAt: now, updatedAt: now, status: "draft" };
     setWiki((w) => [...w, entry]);
     return entry.id;
   }
@@ -575,6 +580,21 @@ export default function GalaxySectorMap() {
     setWiki((w) => w.map((x) => (x.id === id ? { ...x, status: "approved", publishedAt: now, updatedAt: now } : x)));
   }
 
+  // GM: publish a draft entry. Clearing `status` makes it a plain live page, and
+  // stamping publishedAt/updatedAt to now makes it surface fresh in every
+  // faction's Updates from this moment — not from whenever it was first drafted.
+  function publishWikiEntry(id) {
+    if (!canEdit) return;
+    const now = Date.now();
+    setWiki((w) => w.map((e) => (e.id === id ? { ...e, status: undefined, publishedAt: now, updatedAt: now } : e)));
+  }
+  // GM: pull a live entry back to a draft, hiding it from players again while it
+  // gets reworked. Publishing it afterwards re-stamps and re-announces it.
+  function unpublishWikiEntry(id) {
+    if (!canEdit) return;
+    setWiki((w) => w.map((e) => (e.id === id ? { ...e, status: "draft" } : e)));
+  }
+
   // A receipt belongs to a faction rather than a person: once one member reads
   // an article, it is no longer new for that faction's shared briefing view.
   function markWikiSeen(entry) {
@@ -673,7 +693,9 @@ export default function GalaxySectorMap() {
   const unseenArticles = useMemo(() => {
     const factionId = viewer.roleFactionId;
     if (!factionId) return [];
-    return displayWiki.filter((e) => e.status !== "pending" && (e.updatedAt || e.createdAt)).filter((e) => {
+    // displayWiki already drops drafts for non-GM viewers; the extra guard keeps
+    // an unpublished draft out of Updates regardless of how this list is derived.
+    return displayWiki.filter((e) => e.status !== "pending" && e.status !== "draft" && (e.updatedAt || e.createdAt)).filter((e) => {
       const seen = wikiReads.find((r) => r.factionId === factionId && r.wikiId === e.id);
       return !seen || seen.seenAt < (e.updatedAt || e.createdAt || e.publishedAt || 0);
     }).sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
@@ -878,6 +900,7 @@ export default function GalaxySectorMap() {
             addEntry={addWikiEntry} patchEntry={patchWikiEntry} deleteEntry={deleteWikiEntry}
             submitEntry={submitWikiEntry} patchOwnEntry={patchOwnWikiEntry}
             withdrawEntry={withdrawWikiEntry} approveEntry={approveWikiEntry}
+            publishEntry={publishWikiEntry} unpublishEntry={unpublishWikiEntry}
             proposeEdit={proposeWikiEdit}
           />
         )}

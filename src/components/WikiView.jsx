@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Plus, Trash2, ChevronLeft, FileText, EyeOff, Users, Table, Eye, Pencil,
-  Image as ImageIcon, ImagePlus, X, AlertTriangle, Inbox, CheckCircle2, Undo2, Send, Clock, Search } from "lucide-react";
+  Image as ImageIcon, ImagePlus, X, AlertTriangle, Inbox, CheckCircle2, Undo2, Send, Clock, Search, Globe } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { WIKI_CATS } from "../constants.js";
 import { isRestricted } from "../lib/visibility.js";
@@ -16,7 +16,8 @@ const formatUpdatedAt = (value) => value ? new Intl.DateTimeFormat(undefined, {
 }).format(new Date(value)) : null;
 
 export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, activeCat, setActiveCat, selectedId, setSelectedId,
-  addEntry, patchEntry, deleteEntry, submitEntry, patchOwnEntry, withdrawEntry, approveEntry, proposeEdit }) {
+  addEntry, patchEntry, deleteEntry, submitEntry, patchOwnEntry, withdrawEntry, approveEntry,
+  publishEntry, unpublishEntry, proposeEdit }) {
   const catMeta = WIKI_CATS.find((c) => c.id === activeCat) || WIKI_CATS[0];
   const catLabel = (id) => (WIKI_CATS.find((c) => c.id === id) || {}).label || id;
   // A signed-in player (not the GM, not anonymous) can submit a new entry.
@@ -230,7 +231,11 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, 
       )}
       {entries.map((e) => {
         const on = e.id === selectedId;
-        const restricted = canEdit && roles.length > 0 && isRestricted(e);
+        // A GM draft — only the GM ever has one in their list (players never
+        // receive drafts in `wiki`) — shows a "Draft" badge and hides the
+        // restricted badge, which is moot while nobody but the GM can see it.
+        const draft = canEdit && e.status === "draft";
+        const restricted = canEdit && !draft && roles.length > 0 && isRestricted(e);
         const gmOnly = restricted && e.visibility.length === 0;
         const pending = e.status === "pending";
         const isEditProp = pending && !!e.editOf;
@@ -253,6 +258,14 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, 
                     borderRadius: 2, padding: "1px 4px", fontSize: 8.5, letterSpacing: ".08em", textTransform: "uppercase" }}>
                   {ready ? <Send size={9} /> : <Pencil size={9} />}
                   {queueMode ? (who || (ready ? "Ready" : "Draft")) : (ready ? "Submitted" : "Draft")}
+                </span>
+              )}
+              {draft && (
+                <span title="Draft — not published; only you can see this"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 3, flexShrink: 0, color: T.faint,
+                    border: `1px solid ${T.line}`, borderRadius: 2, padding: "1px 4px", fontSize: 8.5,
+                    letterSpacing: ".08em", textTransform: "uppercase" }}>
+                  <EyeOff size={9} /> Draft
                 </span>
               )}
               {restricted && !pending && (
@@ -304,6 +317,8 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, 
     const catOf = WIKI_CATS.find((c) => c.id === selected.category) || catMeta;
     const CatIc = catOf.icon;
     const pending = selected.status === "pending";
+    // A GM-authored page still held back from players (see App.addWikiEntry).
+    const draft = canEdit && selected.status === "draft";
     // A player only ever gets the edit form back for their own not-yet-reviewed
     // submission — canSeeSubmission upstream already keeps anyone else's pending
     // entries out of `wiki`, so this can't fire for someone else's.
@@ -399,6 +414,13 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, 
             </div>
           );
         })()}
+        {draft && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.mut,
+            border: `1px solid ${T.line}`, borderRadius: 2, padding: "6px 10px", background: "rgba(107,98,80,.08)" }}>
+            <EyeOff size={13} style={{ flexShrink: 0 }} />
+            Draft — only you can see this. Players won't see it, or get an Updates notification, until you publish.
+          </div>
+        )}
         {canEdit ? (
           <>
             {editForm(patchEntry)}
@@ -455,6 +477,18 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, 
               {pending && (
                 <Btn kind="primary" onClick={() => approveEntry(selected.id)}>
                   <CheckCircle2 size={14} /> {isEditProposal ? "Approve & apply" : "Approve & publish"}
+                </Btn>
+              )}
+              {draft && (
+                <Btn kind="primary" onClick={() => publishEntry(selected.id)}
+                  title="Make this entry visible to players and announce it in their Updates">
+                  <Globe size={14} /> Publish
+                </Btn>
+              )}
+              {!pending && !draft && (
+                <Btn onClick={() => unpublishEntry(selected.id)}
+                  title="Hide this entry from players again while you rework it — publishing re-announces it">
+                  <EyeOff size={14} /> Unpublish
                 </Btn>
               )}
               <Btn kind="danger" onClick={() => deleteEntry(selected.id)}>
