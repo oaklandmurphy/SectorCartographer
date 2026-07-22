@@ -16,6 +16,7 @@
 //   #/codex · #/codex/<category> · #/codex/<category>/<entryId>
 //   #/modifiers · #/modifiers/<factionId>
 //   #/odds
+//   #/gmtools
 //
 // Map popups deliberately stay out of the URL: they're a click on a marker, not
 // a page, and pushing one per click would bury the Back button. The odds tool's
@@ -24,7 +25,7 @@
 
 import { WIKI_CATS } from "../constants.js";
 
-export const TABS = ["map", "fleet", "politics", "codex", "updates", "modifiers", "odds"];
+export const TABS = ["map", "fleet", "politics", "codex", "updates", "modifiers", "odds", "gmtools"];
 
 export const DEFAULT_ROUTE = {
   tab: "map",

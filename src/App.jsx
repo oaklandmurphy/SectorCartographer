@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react";
-import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Zap, Bell } from "lucide-react";
+import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Zap, Bell, Gavel } from "lucide-react";
 import { T, panelStyle, cut } from "./theme.js";
 import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
 import { storage } from "./lib/storage.js";
@@ -23,6 +23,7 @@ const PoliticsView = lazy(() => import("./components/PoliticsView.jsx"));
 const ModifiersView = lazy(() => import("./components/ModifiersView.jsx"));
 const OddsView = lazy(() => import("./components/OddsView.jsx"));
 const UpdatesView = lazy(() => import("./components/UpdatesView.jsx"));
+const GMToolsView = lazy(() => import("./components/GMToolsView.jsx"));
 
 export default function GalaxySectorMap() {
   // Empty until the saved sector loads from storage; the loading gate below keeps
@@ -38,6 +39,7 @@ export default function GalaxySectorMap() {
   const [roles, setRoles] = useState([]); // player roles for asymmetric-info games
   const [art, setArt] = useState([]);     // ship-art library
   const [modifiers, setModifiers] = useState([]); // per-faction event snippets (Modifiers tab)
+  const [notes, setNotes] = useState([]); // GM Tools: freeform notes + tracked roll resolutions
 
   const [mode, setMode] = useState("select"); // select | link | draw
   const [view, setView] = useState({ scale: 1, ox: 60, oy: 40 });
@@ -93,8 +95,8 @@ export default function GalaxySectorMap() {
   // like any other, and once, when it had its own write path, a migration left it
   // behind and silently unlocked the sector.
   const sector = useMemo(
-    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, lockCode, fleetsPublic }),
-    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, lockCode, fleetsPublic],
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, notes, lockCode, fleetsPublic }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, notes, lockCode, fleetsPublic],
   );
   // The sector as the database currently has it. Null until the load below fills
   // it in, which is also what stops an autosave from firing against an empty
@@ -124,7 +126,7 @@ export default function GalaxySectorMap() {
       setFactions(data.factions); setRelations(data.relations); setLayers(data.layers);
       setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
       setStrokes(data.strokes); setWiki(data.wiki); setWikiReads(data.wikiReads); setRoles(data.roles); setArt(data.art);
-      setModifiers(data.modifiers);
+      setModifiers(data.modifiers); setNotes(data.notes);
       setLockCode(data.lockCode); setFleetsPublic(data.fleetsPublic !== false);
     };
     const unsub = subscribeSector(
@@ -420,6 +422,20 @@ export default function GalaxySectorMap() {
   function removeModifier(id) {
     if (!isGM) return;
     setModifiers((ms) => ms.filter((m) => m.id !== id));
+  }
+
+  /* ---- GM Tools notes: freeform log entries, plus roll resolutions the GM
+     chose to keep. GM-only, same as modifiers — a player never reaches this
+     tab (see the tab bar below), but the write paths are gated regardless. */
+  function addNote(text, kind = "note", extra = {}) {
+    if (!isGM || !text) return null;
+    const entry = { id: uid("note"), kind, text, createdAt: Date.now(), ...extra };
+    setNotes((ns) => [...ns, entry]);
+    return entry.id;
+  }
+  function removeNote(id) {
+    if (!isGM) return;
+    setNotes((ns) => ns.filter((n) => n.id !== id));
   }
 
   /* ---- faction relationship edges (upsert; "none" removes the edge) ---- */
@@ -764,6 +780,12 @@ export default function GalaxySectorMap() {
             style={{ border: "none", borderRadius: 0, background: activeTab === "odds" ? undefined : "transparent" }}>
             <Dices size={14} /> {!isMobile && "Odds"}
           </Btn>
+          {isGM && (
+            <Btn active={activeTab === "gmtools"} onClick={() => { setActiveTab("gmtools"); setAccessOpen(false); setMobileMenuOpen(false); }} title="GM tools: roll resolution & notes"
+              style={{ border: "none", borderRadius: 0, background: activeTab === "gmtools" ? undefined : "transparent" }}>
+              <Gavel size={14} /> {!isMobile && "GM Tools"}
+            </Btn>
+          )}
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
           {(canEdit || viewer.kind === "player") && <SaveStatus saveStatus={saveStatus} isMobile={isMobile} />}
@@ -876,6 +898,15 @@ export default function GalaxySectorMap() {
         {/* A dice-reference tool, not a view of the sector — it takes no props but
             the breakpoint, and deliberately reads nothing from the map. */}
         {activeTab === "odds" && <OddsView isMobile={isMobile} />}
+
+        {/* GM-only: no tab button reaches this for anyone else, and the render is
+            gated again here in case a player types the hash in by hand. */}
+        {activeTab === "gmtools" && isGM && (
+          <GMToolsView
+            roles={roles} factions={factions} modifiers={modifiers} notes={notes} isMobile={isMobile}
+            addNote={addNote} removeNote={removeNote}
+          />
+        )}
       </Suspense>
 
       {/* ship drag ghost */}
