@@ -281,6 +281,18 @@ current row and column picked out. Grade colour runs worst → best, but it's on
 scan aid: every cell prints its grade and casualty figure, so nothing is carried by
 colour alone.
 
+## News and article updates
+
+The Codex has a **News** category. Every published article now records its
+creation and last-update time. A signed-in player whose role has a faction also
+gets an **Updates** tab: it lists visible published articles created or changed
+after that faction last opened them. Read receipts are shared by faction, so one
+member reading an article clears it for the whole faction.
+
+Existing articles are left out of Updates until they are next edited, because
+they predate the timestamp feature and the app cannot truthfully infer when a
+faction last read them.
+
 ## Tables in codex entries
 
 A codex entry's body is plain text, with one exception: a fenced **```csv** block
@@ -439,7 +451,8 @@ sectors/<name>/
   links/      <id>: { a, b }
   fleets/     <id>: { name, factionId, systemId, x, y, ships: [...] }
   strokes/    <id>: { color, width, pts: [...] }
-  wiki/       <id>: { category, title, body, visibility }
+  wiki/       <id>: { category, title, body, createdAt, updatedAt, visibility }
+  wikiReads/  <faction + article>: { factionId, wikiId, seenAt }
   roles/      <id>: { name, password, color }
   art/        <id>: { name, svg }
   modifiers/  <id>: { factionId, text, createdAt }

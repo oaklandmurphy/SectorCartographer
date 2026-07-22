@@ -24,7 +24,7 @@
 
 import { WIKI_CATS } from "../constants.js";
 
-export const TABS = ["map", "fleet", "politics", "codex", "modifiers", "odds"];
+export const TABS = ["map", "fleet", "politics", "codex", "updates", "modifiers", "odds"];
 
 export const DEFAULT_ROUTE = {
   tab: "map",

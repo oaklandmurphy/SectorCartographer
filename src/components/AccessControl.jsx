@@ -95,11 +95,6 @@ export default function AccessControl({
                 </Btn>
               </>
             )}
-
-            <div style={{ fontSize: 9, color: T.faint, lineHeight: 1.5, marginTop: 2 }}>
-              These codes are a casual lock, not real security — the underlying data is readable by anyone technical
-              who opens the map. Good for keeping honest players in character.
-            </div>
         </PanelPopup>
       )}
     </div>

@@ -11,6 +11,10 @@ import CodexBody from "./CodexBody.jsx";
 import CodexDiff, { DiffLegend } from "./CodexDiff.jsx";
 import VisibilityRow from "./VisibilityRow.jsx";
 
+const formatUpdatedAt = (value) => value ? new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium", timeStyle: "short",
+}).format(new Date(value)) : null;
+
 export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, activeCat, setActiveCat, selectedId, setSelectedId,
   addEntry, patchEntry, deleteEntry, submitEntry, patchOwnEntry, withdrawEntry, approveEntry, proposeEdit }) {
   const catMeta = WIKI_CATS.find((c) => c.id === activeCat) || WIKI_CATS[0];
@@ -483,6 +487,11 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, 
             <div className="stencil" style={{ fontSize: 24, fontWeight: 800, letterSpacing: ".03em", color: T.text }}>
               {selected.title || "Untitled"}
             </div>
+            {formatUpdatedAt(selected.updatedAt || selected.createdAt) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, color: T.faint }}>
+                <Clock size={11} /> Last updated {formatUpdatedAt(selected.updatedAt || selected.createdAt)}
+              </div>
+            )}
             {selected.submittedBy && (
               <div style={{ fontSize: 10.5, color: T.faint, fontStyle: "italic" }}>
                 Submitted by {selected.submittedBy.roleName || "a player"}

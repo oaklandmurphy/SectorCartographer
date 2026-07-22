@@ -2,7 +2,7 @@ import {
   Gem, Fuel, Hammer, Factory, Landmark, Satellite, Radiation, Skull,
   ShieldAlert, Atom, Sparkles, Orbit, Crown, Flag, Star,
   Users, MapPin, ScrollText, Scale, Boxes,
-  User, Handshake, Swords, Minus, Flame,
+  User, Handshake, Swords, Minus, Flame, Newspaper,
 } from "lucide-react";
 
 // The only key still kept per-device: the code this browser/account has entered.
@@ -15,6 +15,7 @@ export const MAX_ZOOM = 3;     // 300%
 export const OVERVIEW_ZOOM = 0.45; // at or below this scale, systems simplify to plain markers (names/status icons hidden)
 
 export const WIKI_CATS = [
+  { id: "news", label: "News", icon: Newspaper },
   { id: "factions", label: "Factions", icon: Users },
   { id: "characters", label: "Characters", icon: User },
   { id: "locations", label: "Locations", icon: MapPin },

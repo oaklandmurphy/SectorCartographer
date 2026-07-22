@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Zap } from "lucide-react";
+import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Zap, Bell } from "lucide-react";
 import { T, panelStyle, cut } from "./theme.js";
 import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
 import { storage } from "./lib/storage.js";
@@ -22,6 +22,7 @@ import WikiView from "./components/WikiView.jsx";
 import PoliticsView from "./components/PoliticsView.jsx";
 import ModifiersView from "./components/ModifiersView.jsx";
 import OddsView from "./components/OddsView.jsx";
+import UpdatesView from "./components/UpdatesView.jsx";
 
 export default function GalaxySectorMap() {
   // Empty until the saved sector loads from storage; the loading gate below keeps
@@ -33,6 +34,7 @@ export default function GalaxySectorMap() {
   const [links, setLinks] = useState([]);
   const [fleets, setFleets] = useState([]);
   const [wiki, setWiki] = useState([]);
+  const [wikiReads, setWikiReads] = useState([]); // shared per-faction article read receipts
   const [roles, setRoles] = useState([]); // player roles for asymmetric-info games
   const [art, setArt] = useState([]);     // ship-art library
   const [modifiers, setModifiers] = useState([]); // per-faction event snippets (Modifiers tab)
@@ -91,8 +93,8 @@ export default function GalaxySectorMap() {
   // like any other, and once, when it had its own write path, a migration left it
   // behind and silently unlocked the sector.
   const sector = useMemo(
-    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, roles, art, modifiers, lockCode, fleetsPublic }),
-    [factions, relations, layers, systems, links, fleets, strokes, wiki, roles, art, modifiers, lockCode, fleetsPublic],
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, lockCode, fleetsPublic }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, lockCode, fleetsPublic],
   );
   // The sector as the database currently has it. Null until the load below fills
   // it in, which is also what stops an autosave from firing against an empty
@@ -121,7 +123,7 @@ export default function GalaxySectorMap() {
     const applyData = (data) => {
       setFactions(data.factions); setRelations(data.relations); setLayers(data.layers);
       setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
-      setStrokes(data.strokes); setWiki(data.wiki); setRoles(data.roles); setArt(data.art);
+      setStrokes(data.strokes); setWiki(data.wiki); setWikiReads(data.wikiReads); setRoles(data.roles); setArt(data.art);
       setModifiers(data.modifiers);
       setLockCode(data.lockCode); setFleetsPublic(data.fleetsPublic !== false);
     };
@@ -438,7 +440,8 @@ export default function GalaxySectorMap() {
 
   function addWikiEntry(category) {
     if (!canEdit) return;
-    const entry = { id: uid("wk"), category, title: "New Entry", body: "" };
+    const now = Date.now();
+    const entry = { id: uid("wk"), category, title: "New Entry", body: "", createdAt: now, updatedAt: now, publishedAt: now };
     setWiki((w) => [...w, entry]);
     setSelectedWikiId(entry.id);
   }
@@ -446,7 +449,8 @@ export default function GalaxySectorMap() {
   // pre-titled from the element (system, faction, character…) being linked.
   function createEntry(category, title) {
     if (!canEdit) return null;
-    const entry = { id: uid("wk"), category, title: title || "New Entry", body: "" };
+    const now = Date.now();
+    const entry = { id: uid("wk"), category, title: title || "New Entry", body: "", createdAt: now, updatedAt: now, publishedAt: now };
     setWiki((w) => [...w, entry]);
     return entry.id;
   }
@@ -466,7 +470,7 @@ export default function GalaxySectorMap() {
   }
   function patchWikiEntry(id, p) {
     if (!canEdit) return;
-    setWiki((w) => w.map((e) => (e.id === id ? { ...e, ...p } : e)));
+    setWiki((w) => w.map((e) => (e.id === id ? { ...e, ...p, updatedAt: Date.now() } : e)));
   }
   function deleteWikiEntry(id) {
     if (!canEdit) return;
@@ -479,8 +483,9 @@ export default function GalaxySectorMap() {
   // before it's a real codex page.
   function submitWikiEntry(category) {
     if (viewer.kind !== "player") return null;
-    const entry = { id: uid("wk"), category, title: "New Entry", body: "",
-      status: "pending", submittedBy: { roleId: viewer.roleId, roleName: viewer.roleName }, submittedAt: Date.now() };
+    const now = Date.now();
+    const entry = { id: uid("wk"), category, title: "New Entry", body: "", createdAt: now, updatedAt: now,
+      status: "pending", submittedBy: { roleId: viewer.roleId, roleName: viewer.roleName }, submittedAt: now };
     setWiki((w) => [...w, entry]);
     setSelectedWikiId(entry.id);
     return entry.id;
@@ -491,7 +496,7 @@ export default function GalaxySectorMap() {
     if (viewer.kind !== "player") return;
     setWiki((w) => w.map((e) => {
       if (e.id !== id || e.status !== "pending" || !e.submittedBy || e.submittedBy.roleId !== viewer.roleId) return e;
-      return { ...e, ...p };
+      return { ...e, ...p, updatedAt: Date.now() };
     }));
   }
   // A player proposes a change to an existing, already-live entry. Rather than
@@ -507,7 +512,7 @@ export default function GalaxySectorMap() {
     const existing = wiki.find((e) => e.status === "pending" && e.editOf === id
       && e.submittedBy && e.submittedBy.roleId === viewer.roleId);
     if (existing) { setSelectedWikiId(existing.id); return existing.id; }
-    const entry = { id: uid("wk"), category: orig.category, title: orig.title || "", body: orig.body || "",
+    const entry = { id: uid("wk"), category: orig.category, title: orig.title || "", body: orig.body || "", createdAt: Date.now(), updatedAt: Date.now(),
       ...(orig.image ? { image: orig.image } : {}),
       status: "pending", editOf: id,
       submittedBy: { roleId: viewer.roleId, roleName: viewer.roleName }, submittedAt: Date.now() };
@@ -538,10 +543,11 @@ export default function GalaxySectorMap() {
     if (e.editOf) {
       const target = wiki.find((x) => x.id === e.editOf);
       if (!target) {
-        setWiki((w) => w.map((x) => (x.id === id ? { ...x, status: "approved", editOf: undefined } : x)));
+        const now = Date.now();
+        setWiki((w) => w.map((x) => (x.id === id ? { ...x, status: "approved", editOf: undefined, publishedAt: now, updatedAt: now } : x)));
         return;
       }
-      const patch = { title: e.title, body: e.body, category: e.category, image: e.image };
+      const patch = { title: e.title, body: e.body, category: e.category, image: e.image, updatedAt: Date.now() };
       setWiki((w) => w
         .map((x) => (x.id === e.editOf ? { ...x, ...patch } : x))
         .filter((x) => x.id !== id));
@@ -549,7 +555,23 @@ export default function GalaxySectorMap() {
       setSelectedWikiId((cur) => (cur === id ? e.editOf : cur), { replace: true });
       return;
     }
-    setWiki((w) => w.map((x) => (x.id === id ? { ...x, status: "approved" } : x)));
+    const now = Date.now();
+    setWiki((w) => w.map((x) => (x.id === id ? { ...x, status: "approved", publishedAt: now, updatedAt: now } : x)));
+  }
+
+  // A receipt belongs to a faction rather than a person: once one member reads
+  // an article, it is no longer new for that faction's shared briefing view.
+  function markWikiSeen(entry) {
+    const factionId = viewer.roleFactionId;
+    if (!factionId || !entry || entry.status === "pending") return;
+    const latest = entry.updatedAt || entry.createdAt || entry.publishedAt || 0;
+    setWikiReads((reads) => {
+      const id = `read_${factionId}_${entry.id}`;
+      const existing = reads.find((r) => r.id === id);
+      if (existing && existing.seenAt >= latest) return reads;
+      const receipt = { id, factionId, wikiId: entry.id, seenAt: Date.now() };
+      return existing ? reads.map((r) => r.id === id ? receipt : r) : [...reads, receipt];
+    });
   }
 
   /* ------------------------------------------------ map gesture handlers (mode-aware click/tap/drop routing) */
@@ -628,6 +650,19 @@ export default function GalaxySectorMap() {
     () => (viewer.seesAll ? wiki : wiki.filter((e) => canSee(e, viewer) && canSeeSubmission(e, viewer))),
     [wiki, viewer]
   );
+  useEffect(() => {
+    if (activeTab !== "codex" || !selectedWikiId) return;
+    markWikiSeen(displayWiki.find((e) => e.id === selectedWikiId));
+  }, [activeTab, selectedWikiId, displayWiki, viewer.roleFactionId]);
+  const unseenArticles = useMemo(() => {
+    const factionId = viewer.roleFactionId;
+    if (!factionId) return [];
+    return displayWiki.filter((e) => e.status !== "pending" && (e.updatedAt || e.createdAt)).filter((e) => {
+      const seen = wikiReads.find((r) => r.factionId === factionId && r.wikiId === e.id);
+      return !seen || seen.seenAt < (e.updatedAt || e.createdAt || e.publishedAt || 0);
+    }).sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+  }, [displayWiki, wikiReads, viewer.roleFactionId]);
+  const currentFaction = factions.find((f) => f.id === viewer.roleFactionId) || null;
   // GM-only: how many submissions are waiting on them, for the Codex tab badge.
   const pendingWikiCount = useMemo(() => wiki.filter((e) => e.status === "pending").length, [wiki]);
   // Fleet positions are gated both by faction (a player sees their own faction's
@@ -703,6 +738,15 @@ export default function GalaxySectorMap() {
                 minWidth: 15, height: 15, padding: "0 4px", display: "inline-flex", alignItems: "center",
                 justifyContent: "center", fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>
                 {pendingWikiCount}
+              </span>
+            )}
+          </Btn>
+          <Btn active={activeTab === "updates"} onClick={() => { setActiveTab("updates"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Articles your faction has not seen"
+            style={{ border: "none", borderRadius: 0, background: activeTab === "updates" ? undefined : "transparent" }}>
+            <Bell size={14} /> {!isMobile && "Updates"}
+            {unseenArticles.length > 0 && (
+              <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 8, minWidth: 15, height: 15, padding: "0 4px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>
+                {unseenArticles.length}
               </span>
             )}
           </Btn>
@@ -807,6 +851,11 @@ export default function GalaxySectorMap() {
           withdrawEntry={withdrawWikiEntry} approveEntry={approveWikiEntry}
           proposeEdit={proposeWikiEdit}
         />
+      )}
+
+      {activeTab === "updates" && (
+        <UpdatesView articles={unseenArticles} factionName={currentFaction && currentFaction.name} isMobile={isMobile}
+          openArticle={goToCodex} />
       )}
 
       {activeTab === "modifiers" && (

@@ -16,19 +16,21 @@
 //   string[]          -> restricted: only these role ids (plus the GM) can see it
 //   []                -> GM-only: no player role can see it
 export function resolveViewer(knownCode, lockCode, roles) {
-  // No GM code set yet: legacy "open" mode — everyone edits and sees everything.
-  if (!lockCode) return { kind: "open", seesAll: true, roleId: null, roleName: null };
   // Knows the GM code: the admin.
-  if (knownCode && knownCode === lockCode) {
+  if (lockCode && knownCode && knownCode === lockCode) {
     return { kind: "admin", seesAll: true, roleId: null, roleName: null };
   }
-  // Knows a player role's password: that player. `roleFactionId` (may be null)
-  // is the faction the GM tied to this login — it drives fleet-position visibility.
+  // A matching player code must win even before a GM lock is configured. That
+  // keeps the legacy open editor available to everyone else, while allowing a
+  // campaign to test faction-scoped views (including Updates) during setup.
   const role = knownCode ? (roles || []).find((r) => r.password && r.password === knownCode) : null;
   if (role) {
     return { kind: "player", seesAll: false, roleId: role.id, roleName: role.name,
       roleFactionId: role.factionId || null };
   }
+  // No GM code set yet: legacy "open" mode — anyone without a player code can
+  // still edit and see everything.
+  if (!lockCode) return { kind: "open", seesAll: true, roleId: null, roleName: null, roleFactionId: null };
   // Just the link, no code: anonymous viewer.
   return { kind: "anon", seesAll: false, roleId: null, roleName: null, roleFactionId: null };
 }
