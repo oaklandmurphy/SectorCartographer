@@ -1,25 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Users, Plus, Maximize2, Network } from "lucide-react";
+import { Users, Plus, Maximize2, Network, User, Star } from "lucide-react";
 import { T, cut, sceneBackdrop, floatingPanel } from "../theme.js";
-import { SUBNODE_ZOOM, RELATION_TYPES, relationType, MEMBER_KINDS } from "../constants.js";
+import { SUBNODE_ZOOM, RELATION_TYPES, relationType } from "../constants.js";
 import { usePoliticsInteractions } from "../hooks/usePoliticsInteractions.js";
 import TargetBrackets from "./ui/TargetBrackets.jsx";
 import Starfield from "./ui/Starfield.jsx";
 import FactionPopup from "./FactionPopup.jsx";
 import MemberPopup from "./MemberPopup.jsx";
 
-const NODE_R = 78;      // faction node radius, world units
-const MEMBER_RING = 44; // radius of the subnode cloud inside a faction
-const MEMBER_SIZE = 30; // subnode diameter, world units
-
-const kindMeta = (id) => MEMBER_KINDS.find((k) => k.id === id) || MEMBER_KINDS[0];
-
-// where a member subnode sits inside its faction node (world offset from center)
-function memberOffset(i, n) {
-  if (n <= 1) return { x: 0, y: 30 };
-  const ang = -Math.PI / 2 + i * ((Math.PI * 2) / n);
-  return { x: Math.cos(ang) * MEMBER_RING, y: Math.sin(ang) * MEMBER_RING };
-}
+const NODE_R = 62;   // collapsed faction badge radius, world units
+const CARD_W = 300;  // expanded roster card width, screen px
 
 function popupPos(w2s, containerSize, wx, wy, cardW, cardH) {
   const s = w2s(wx, wy);
@@ -112,11 +102,11 @@ export default function PoliticsView({
         const meta = relationType(r.type); const Ic = meta.icon;
         return (
           <div key={`lbl_${r.id}`} style={{ position: "absolute", left: mx, top: my, transform: "translate(-50%,-50%)",
-            zIndex: 5, pointerEvents: "none", display: "flex", alignItems: "center", gap: 4,
-            background: `${T.panel}e6`, border: `1px solid ${meta.color}`, ...cut(4), padding: "2px 6px",
-            color: meta.color, fontFamily: "'Oswald', sans-serif", fontSize: 10, fontWeight: 600,
+            zIndex: 5, pointerEvents: "none", display: "flex", alignItems: "center", gap: 5,
+            background: `${T.panel}e6`, border: `1px solid ${meta.color}`, ...cut(5), padding: "3px 8px",
+            color: meta.color, fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600,
             letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
-            <Ic size={10} /> {meta.label}
+            <Ic size={13} /> {meta.label}
           </div>
         );
       })}
@@ -125,78 +115,119 @@ export default function PoliticsView({
       {factions.map((f) => {
         const c = nodePos[f.id]; const p = w2s(c.x, c.y);
         const isSel = selFac === f.id && !selMem;
-        const screenR = NODE_R * view.scale;
         const members = f.members || [];
+        const starred = members.filter((m) => m.star);
+        const listed = members.filter((m) => !m.star);
+        const isMemSel = (m) => selMem && selMem.facId === f.id && selMem.memId === m.id;
+        const pickMember = (e, m) => { e.stopPropagation(); setSelFac(null); setSelMem({ facId: f.id, memId: m.id }); };
+
+        // zoomed out: compact square badge (cut corners) with sigil + count
+        if (!showMembers) {
+          const screenR = NODE_R * view.scale;
+          return (
+            <div key={f.id} onPointerDown={(e) => startFactionDrag(e, f.id, c.x, c.y)}
+              style={{ position: "absolute", left: p.x, top: p.y, transform: "translate(-50%,-50%)",
+                width: screenR * 2, height: screenR * 2, touchAction: "none",
+                zIndex: isSel ? 22 : 12, cursor: canEdit ? "grab" : "pointer" }}>
+              <div style={{ position: "absolute", inset: 0, ...cut(Math.max(6, 13 * view.scale)),
+                background: `radial-gradient(circle at 50% 34%, ${f.color}66, ${f.color}3a 60%, ${f.color}26 100%), ${T.panel}`,
+                border: `2px solid ${f.color}`,
+                boxShadow: `0 0 ${16 * view.scale}px ${f.color}44, inset 0 0 ${22 * view.scale}px ${f.color}22` }} />
+              {isSel && <TargetBrackets color={T.accent} inset={-5} armLen={Math.max(8, 11 * view.scale)} thick={2} />}
+              <div className="stencil" style={{ position: "absolute", left: "50%", top: 0, transform: "translate(-50%,-130%)",
+                whiteSpace: "nowrap", background: `${T.panel}f0`, border: `1px solid ${f.color}`, ...cut(4),
+                padding: "2px 8px", fontSize: 12.5, fontWeight: 700, letterSpacing: ".04em", color: T.text,
+                boxShadow: "0 2px 6px rgba(0,0,0,.5)" }}>{f.name}</div>
+              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center", gap: 2, color: f.color, pointerEvents: "none" }}>
+                <Users size={Math.max(13, 20 * view.scale)} />
+                <span className="mono" style={{ fontSize: Math.max(10, 13 * view.scale), color: T.mut }}>{members.length}</span>
+              </div>
+            </div>
+          );
+        }
+
+        // zoomed in: roster card — portrait grid for important characters, list for the rest
         return (
           <div key={f.id} onPointerDown={(e) => startFactionDrag(e, f.id, c.x, c.y)}
             style={{ position: "absolute", left: p.x, top: p.y, transform: "translate(-50%,-50%)",
-              width: screenR * 2, height: screenR * 2, touchAction: "none",
-              zIndex: isSel ? 22 : 12, cursor: canEdit ? "grab" : "pointer" }}>
-            {/* node disc */}
-            <div style={{ position: "absolute", inset: 0, borderRadius: "50%",
-              background: `radial-gradient(circle at 50% 35%, ${f.color}3a, ${f.color}14 58%, transparent 72%)`,
-              border: `2px solid ${f.color}`,
-              boxShadow: `0 0 ${16 * view.scale}px ${f.color}44, inset 0 0 ${22 * view.scale}px ${f.color}1c` }} />
-            {isSel && <TargetBrackets color={T.accent} inset={-5} armLen={Math.max(8, 12 * view.scale)} thick={2} />}
+              width: CARD_W, touchAction: "none", zIndex: isSel ? 22 : 12, cursor: canEdit ? "grab" : "pointer" }}>
+            {isSel && <TargetBrackets color={T.accent} inset={-6} armLen={16} thick={2.5} />}
+            <div style={{ ...cut(15), overflow: "hidden", background: `${T.panel}f5`,
+              border: `2px solid ${f.color}`, boxShadow: `0 0 18px ${f.color}40, 0 12px 30px rgba(0,0,0,.6)` }}>
 
-            {/* name plate on the top edge */}
-            <div className="stencil" style={{ position: "absolute", left: "50%", top: 0, transform: "translate(-50%,-130%)",
-              whiteSpace: "nowrap", background: `${T.panel}f0`, border: `1px solid ${f.color}`, ...cut(4),
-              padding: "2px 8px", fontSize: 12.5, fontWeight: 700, letterSpacing: ".04em", color: T.text,
-              boxShadow: "0 2px 6px rgba(0,0,0,.5)" }}>
-              {f.name}
-            </div>
-
-            {/* zoomed out: sigil + member count */}
-            {!showMembers && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "center", gap: 2, color: f.color, pointerEvents: "none" }}>
-                <Users size={Math.max(12, 20 * view.scale)} />
-                <span className="mono" style={{ fontSize: Math.max(9, 12 * view.scale), color: T.mut }}>{members.length}</span>
+              {/* header / name plate */}
+              <div className="stencil" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 13px",
+                borderBottom: `1px solid ${f.color}55`, background: `linear-gradient(${f.color}26, transparent)` }}>
+                <Users size={17} style={{ color: f.color, flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0, fontSize: 16.5, fontWeight: 700, letterSpacing: ".04em",
+                  color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                <span className="mono" style={{ fontSize: 12.5, color: T.faint }}>{members.length}</span>
               </div>
-            )}
 
-            {/* zoomed in: member subnode cloud */}
-            {showMembers && members.length === 0 && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                color: T.faint, fontSize: 10, pointerEvents: "none" }}>no members</div>
-            )}
-            {showMembers && members.map((m, i) => {
-              const off = memberOffset(i, members.length);
-              const Km = kindMeta(m.kind); const Ic = Km.icon;
-              const size = MEMBER_SIZE * view.scale;
-              const isMSel = selMem && selMem.facId === f.id && selMem.memId === m.id;
-              const codexEntry = m.wikiId ? wiki.find((e) => e.id === m.wikiId) : null;
-              const portrait = codexEntry && codexEntry.image;
-              return (
-                <div key={m.id}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); setSelFac(null); setSelMem({ facId: f.id, memId: m.id }); }}
-                  title={`${m.name}${m.role ? " · " + m.role : ""}`}
-                  style={{ position: "absolute", left: screenR + off.x * view.scale, top: screenR + off.y * view.scale,
-                    transform: "translate(-50%,-50%)", zIndex: isMSel ? 3 : 2, cursor: "pointer", textAlign: "center" }}>
-                  <div style={{ position: "relative", width: size, height: size, margin: "0 auto" }}>
-                    {isMSel && <TargetBrackets color={T.accent} inset={-3} armLen={6} thick={1.5} />}
-                    <div style={{ position: "absolute", inset: 0, ...cut(4), overflow: "hidden",
-                      background: portrait ? "#000" : `linear-gradient(150deg, ${f.color}, ${f.color}aa 60%, #000 150%)`,
-                      border: "1.5px solid #14110b", display: "flex", alignItems: "center", justifyContent: "center",
-                      color: "#0f0d08", boxShadow: "inset 0 1px 2px rgba(255,255,255,.2), 0 2px 4px rgba(0,0,0,.6)" }}>
-                      {portrait
-                        ? <img src={portrait} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }} />
-                        : <Ic size={Math.max(9, size * 0.5)} />}
-                    </div>
-                    {m.wikiId && (
-                      <div style={{ position: "absolute", right: -2, top: -2, width: 6, height: 6, borderRadius: "50%",
-                        background: T.accent, border: "1px solid #14110b" }} title="Has codex entry" />
-                    )}
-                  </div>
-                  {view.scale >= 1.05 && (
-                    <div className="mono" style={{ marginTop: 3, fontSize: 9.5, color: T.text, textShadow: "0 1px 3px #000",
-                      maxWidth: 88, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</div>
-                  )}
+              {members.length === 0 && (
+                <div style={{ padding: "16px 13px", textAlign: "center", color: T.faint, fontSize: 13 }}>no characters</div>
+              )}
+
+              {/* important characters: uniform portrait grid, always 3 across */}
+              {starred.length > 0 && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, padding: 12 }}>
+                  {starred.map((m) => {
+                    const sel = isMemSel(m);
+                    const codexEntry = m.wikiId ? wiki.find((e) => e.id === m.wikiId) : null;
+                    const portrait = codexEntry && codexEntry.image;
+                    return (
+                      <div key={m.id} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => pickMember(e, m)}
+                        title={`${m.name}${m.role ? " · " + m.role : ""}`} style={{ minWidth: 0, cursor: "pointer", textAlign: "center" }}>
+                        <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", ...cut(5), overflow: "hidden",
+                          background: portrait ? "#000" : `linear-gradient(150deg, ${f.color}, ${f.color}aa 60%, #000 150%)`,
+                          border: `2px solid ${sel ? T.accent : "#14110b"}`, display: "flex",
+                          alignItems: "center", justifyContent: "center", color: "#0f0d08",
+                          boxShadow: "inset 0 1px 2px rgba(255,255,255,.15), 0 2px 4px rgba(0,0,0,.6)" }}>
+                          {portrait
+                            ? <img src={portrait} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }} />
+                            : <User size={34} />}
+                          <Star size={13} style={{ position: "absolute", top: 3, right: 3, color: T.amber, fill: T.amber }} />
+                        </div>
+                        <div className="mono" style={{ marginTop: 5, fontSize: 12, lineHeight: 1.3,
+                          color: sel ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {m.name}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              )}
+
+              {starred.length > 0 && listed.length > 0 && (
+                <div style={{ height: 1, background: T.line, margin: "0 12px 3px" }} />
+              )}
+
+              {/* everyone else: compact list */}
+              {listed.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 1, padding: "6px 8px 11px" }}>
+                  {listed.map((m) => {
+                    const sel = isMemSel(m);
+                    return (
+                      <div key={m.id} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => pickMember(e, m)}
+                        title={`${m.name}${m.role ? " · " + m.role : ""}`}
+                        style={{ display: "flex", alignItems: "center", gap: 9, padding: "5px 7px", cursor: "pointer",
+                          borderRadius: 2, background: sel ? `${T.accent}22` : "transparent" }}>
+                        <span style={{ width: 9, height: 9, flexShrink: 0, ...cut(2), background: f.color, border: "1px solid #14110b" }} />
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: sel ? T.accent : T.text,
+                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+                        {m.role && (
+                          <span style={{ flexShrink: 1, minWidth: 0, maxWidth: 120, fontSize: 12, color: T.faint,
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.role}</span>
+                        )}
+                        {m.wikiId && <span style={{ width: 6, height: 6, flexShrink: 0, borderRadius: "50%",
+                          background: T.accent }} title="Has codex entry" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         );
       })}
@@ -205,32 +236,32 @@ export default function PoliticsView({
       <div className="scanlines" style={{ position: "absolute", inset: 0, zIndex: 31, opacity: 0.5, pointerEvents: "none" }} />
 
       {/* floating toolbar */}
-      <div style={{ position: "absolute", left: 12, top: 12, zIndex: 34, display: "flex", gap: 6, flexWrap: "wrap" }}>
+      <div style={{ position: "absolute", left: 12, top: 12, zIndex: 34, display: "flex", gap: 8, flexWrap: "wrap" }}>
         {canEdit && (
           <button onClick={() => addFaction()} title="Add a faction"
-            style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(159,194,58,.14)",
-              border: `1px solid rgba(159,194,58,.5)`, ...cut(6), color: T.accent, cursor: "pointer", padding: "7px 11px",
-              fontFamily: "'Oswald', sans-serif", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
-            <Plus size={14} /> Faction
+            style={{ display: "flex", alignItems: "center", gap: 7, background: "rgba(159,194,58,.14)",
+              border: `1px solid rgba(159,194,58,.5)`, ...cut(7), color: T.accent, cursor: "pointer", padding: "9px 14px",
+              fontFamily: "'Oswald', sans-serif", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
+            <Plus size={17} /> Faction
           </button>
         )}
         <button onClick={centerView} title="Reset view"
-          style={{ display: "flex", alignItems: "center", gap: 6, background: `${T.panel}e6`,
-            border: `1px solid ${T.line}`, ...cut(6), color: T.text, cursor: "pointer", padding: "7px 11px",
-            fontFamily: "'Oswald', sans-serif", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
-          <Maximize2 size={14} /> Reset
+          style={{ display: "flex", alignItems: "center", gap: 7, background: `${T.panel}e6`,
+            border: `1px solid ${T.line}`, ...cut(7), color: T.text, cursor: "pointer", padding: "9px 14px",
+            fontFamily: "'Oswald', sans-serif", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
+          <Maximize2 size={17} /> Reset
         </button>
       </div>
 
       {/* legend */}
-      <div style={{ position: "absolute", right: 12, bottom: 10, zIndex: 32, padding: "8px 11px",
-        pointerEvents: "none", maxWidth: 200, ...floatingPanel }}>
-        <div className="stencil" style={{ fontSize: 11, letterSpacing: ".1em", color: T.mut, marginBottom: 6 }}>RELATIONS</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ position: "absolute", right: 12, bottom: 10, zIndex: 32, padding: "10px 14px",
+        pointerEvents: "none", maxWidth: 240, ...floatingPanel }}>
+        <div className="stencil" style={{ fontSize: 13, letterSpacing: ".1em", color: T.mut, marginBottom: 7 }}>RELATIONS</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {RELATION_TYPES.map((r) => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 7 }}>
-              <span style={{ width: 20, height: 0, borderTop: `${Math.max(2, r.width)}px ${r.dash ? "dashed" : "solid"} ${r.color}`, flexShrink: 0 }} />
-              <span style={{ fontSize: 10.5, color: T.text, fontFamily: "'Oswald', sans-serif", letterSpacing: ".02em" }}>{r.label}</span>
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <span style={{ width: 26, height: 0, borderTop: `${Math.max(2, r.width)}px ${r.dash ? "dashed" : "solid"} ${r.color}`, flexShrink: 0 }} />
+              <span style={{ fontSize: 13, color: T.text, fontFamily: "'Oswald', sans-serif", letterSpacing: ".02em" }}>{r.label}</span>
             </div>
           ))}
         </div>
@@ -238,11 +269,11 @@ export default function PoliticsView({
 
       {/* hint */}
       <div style={{ position: "absolute", left: 12, bottom: 10, zIndex: 32, pointerEvents: "none",
-        padding: "6px 10px", fontSize: 10.5, color: T.mut, maxWidth: 340, lineHeight: 1.5, ...floatingPanel }}>
-        <Network size={12} style={{ color: T.accent, verticalAlign: "-2px", marginRight: 5 }} />
+        padding: "9px 13px", fontSize: 13, color: T.mut, maxWidth: 420, lineHeight: 1.5, ...floatingPanel }}>
+        <Network size={15} style={{ color: T.accent, verticalAlign: "-2px", marginRight: 6 }} />
         {canEdit
-          ? <span><b style={{ color: T.text }}>Politics</b> · drag factions to arrange · click one to edit its relations & members · <b style={{ color: T.amber }}>zoom in</b> to reveal characters & organizations inside each faction</span>
-          : <span><b style={{ color: T.amber }}>View only</b> · click a faction for its members & relations · <b style={{ color: T.amber }}>zoom in</b> to reveal characters & organizations · scroll to zoom, drag to pan</span>}
+          ? <span><b style={{ color: T.text }}>Politics</b> · drag factions to arrange · click one to edit its relations & characters · <b style={{ color: T.amber }}>zoom in</b> to reveal the characters inside each faction</span>
+          : <span><b style={{ color: T.amber }}>View only</b> · click a faction for its characters & relations · <b style={{ color: T.amber }}>zoom in</b> to reveal characters · scroll to zoom, drag to pan</span>}
         {!showMembers && <span style={{ color: T.amber }}> · zoomed out</span>}
       </div>
 
@@ -258,15 +289,13 @@ export default function PoliticsView({
         />
       )}
 
-      {/* member subnode popup */}
+      {/* member popup — anchored at its faction's card */}
       {selMemObj && selMemFac && (() => {
-        const idx = (selMemFac.members || []).findIndex((m) => m.id === selMemObj.id);
-        const off = memberOffset(idx, (selMemFac.members || []).length);
         const c = nodePos[selMemFac.id];
         return (
           <MemberPopup
             faction={selMemFac} member={selMemObj}
-            pos={popupPos(w2s, containerSize, c.x + off.x, c.y + off.y, 288, 360)}
+            pos={popupPos(w2s, containerSize, c.x, c.y, 288, 360)}
             containerHeight={containerSize.h} canEdit={canEdit} wiki={wiki}
             patchMember={patchMember} removeMember={removeMember}
             goToCodex={goToCodex} createEntry={createEntry} onClose={() => setSelMem(null)}

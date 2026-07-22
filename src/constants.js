@@ -2,7 +2,7 @@ import {
   Gem, Fuel, Hammer, Factory, Landmark, Satellite, Radiation, Skull,
   ShieldAlert, Atom, Sparkles, Orbit, Crown, Flag, Star,
   Users, MapPin, ScrollText, Scale, Boxes,
-  User, Building2, Handshake, Swords, Minus, Flame,
+  User, Handshake, Swords, Minus, Flame,
 } from "lucide-react";
 
 // The only key still kept per-device: the code this browser/account has entered.
@@ -12,7 +12,7 @@ export const KNOWN_CODE_KEY = "galaxy-sector-known-code:v1"; // personal: the co
 
 export const MIN_ZOOM = 0.1;   // 10% — far enough out to see a whole large sector at once
 export const MAX_ZOOM = 3;     // 300%
-export const OVERVIEW_ZOOM = 0.25; // at or below this scale, systems simplify to plain markers (names/status icons hidden)
+export const OVERVIEW_ZOOM = 0.45; // at or below this scale, systems simplify to plain markers (names/status icons hidden)
 
 export const WIKI_CATS = [
   { id: "factions", label: "Factions", icon: Users },
@@ -24,13 +24,14 @@ export const WIKI_CATS = [
 ];
 
 // SUBNODE_ZOOM: at or above this politics-view scale, each faction node expands
-// to reveal the cloud of member subnodes (characters & organizations) inside it.
-export const SUBNODE_ZOOM = 0.85;
+// from its compact badge into the full roster card (portrait grid + list).
+export const SUBNODE_ZOOM = 1.0
 
 // The kinds of subnode that can live inside a faction on the politics map.
+// Organizations were retired — every member is a character now. Any legacy
+// member still stored with kind "org" falls back to this entry when rendered.
 export const MEMBER_KINDS = [
   { id: "character", label: "Character", icon: User, defaultCat: "characters" },
-  { id: "org", label: "Organization", icon: Building2, defaultCat: "misc" },
 ];
 
 // Relationship types drawn as the edges between faction nodes. `dash` is an

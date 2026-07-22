@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Users, Trash2, Plus, X, Share2, ChevronRight } from "lucide-react";
+import { Users, Trash2, Plus, X, Share2, ChevronRight, Star } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { RELATION_TYPES, MEMBER_KINDS, relationType } from "../constants.js";
 import Btn from "./ui/Btn.jsx";
@@ -112,12 +112,12 @@ export default function FactionPopup({
           </div>
         )}
 
-        {/* members: characters & organizations */}
-        {section("mem", "Characters & Organizations", members.length,
+        {/* characters */}
+        {section("mem", "Characters", members.length,
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {members.length === 0 && (
               <div style={{ fontSize: 11, color: T.faint, padding: "10px 6px", textAlign: "center", border: `1px dashed ${T.line}` }}>
-                No members yet.{canEdit ? " Add a character or organization below." : ""}
+                No characters yet.{canEdit ? " Add one below." : ""}
               </div>
             )}
             {members.map((m) => {
@@ -133,10 +133,12 @@ export default function FactionPopup({
                     </div>
                     <input value={m.name} disabled={!canEdit} onChange={(e) => patchMember(faction.id, m.id, { name: e.target.value })}
                       style={{ ...inputStyle, padding: "3px 6px", flex: 1 }} />
-                    <select value={m.kind} disabled={!canEdit} onChange={(e) => patchMember(faction.id, m.id, { kind: e.target.value })}
-                      style={{ ...selStyle, padding: "3px 4px", width: 74 }}>
-                      {MEMBER_KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
-                    </select>
+                    <button onClick={() => canEdit && patchMember(faction.id, m.id, { star: !m.star })} disabled={!canEdit}
+                      title={m.star ? "Important — shown as a portrait" : "Mark important (portrait)"}
+                      style={{ background: "none", border: "none", cursor: canEdit ? "pointer" : "default", padding: 2,
+                        color: m.star ? T.amber : T.faint }}>
+                      <Star size={14} style={{ fill: m.star ? T.amber : "none" }} />
+                    </button>
                     {canEdit && (
                       <button onClick={() => removeMember(faction.id, m.id)} title="Remove"
                         style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", padding: 2 }}>
@@ -158,14 +160,9 @@ export default function FactionPopup({
             })}
           </div>,
           canEdit && (
-            <div style={{ display: "flex", gap: 6 }}>
-              <Btn kind="primary" onClick={() => addMember(faction.id, "character")} style={{ flex: 1, justifyContent: "center" }}>
-                <Plus size={13} /> Character
-              </Btn>
-              <Btn kind="primary" onClick={() => addMember(faction.id, "org")} style={{ flex: 1, justifyContent: "center" }}>
-                <Plus size={13} /> Org
-              </Btn>
-            </div>
+            <Btn kind="primary" onClick={() => addMember(faction.id)} style={{ width: "100%", justifyContent: "center" }}>
+              <Plus size={13} /> Add character
+            </Btn>
           )
         )}
 

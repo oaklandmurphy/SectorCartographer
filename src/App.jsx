@@ -383,10 +383,10 @@ export default function GalaxySectorMap() {
     setFactions((fx) => fx.filter((f) => f.id !== id));
   }
 
-  /* ---- faction members (the character/organization subnode cloud) ---- */
-  function addMember(facId, kind = "character") {
+  /* ---- faction members (the character subnode cloud) ---- */
+  function addMember(facId) {
     if (!canEdit) return;
-    const m = { id: uid("mem"), name: kind === "org" ? "New Organization" : "New Character", kind, role: "", wikiId: null };
+    const m = { id: uid("mem"), name: "New Character", kind: "character", role: "", wikiId: null, star: false };
     setFactions((fx) => fx.map((f) => (f.id === facId ? { ...f, members: [...(f.members || []), m] } : f)));
   }
   function patchMember(facId, memId, p) {
