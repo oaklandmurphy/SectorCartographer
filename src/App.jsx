@@ -298,7 +298,18 @@ export default function GalaxySectorMap() {
     setSelSystem(null);
   }
   function deleteFleet(id) { if (!canEdit) return; setFleets((fs) => fs.filter((f) => f.id !== id)); setSelFleet(null); }
-  const patchSystem = (id, p) => { if (canEdit) setSystems((ss) => ss.map((s) => (s.id === id ? { ...s, ...p } : s))); };
+  const patchSystem = (id, p) => {
+    if (!canEdit) return;
+    setSystems((ss) => ss.map((s) => (s.id === id ? { ...s, ...p } : s)));
+    // A system's affiliation is also readable from its codex ("locations") entry
+    // — keep that copy in sync so the map and the article never disagree.
+    if ("factionId" in p) {
+      const sys = systems.find((s) => s.id === id);
+      if (sys && sys.wikiId) {
+        setWiki((w) => w.map((e) => (e.id === sys.wikiId ? { ...e, factionId: p.factionId, updatedAt: Date.now() } : e)));
+      }
+    }
+  };
   const patchFleet = (id, p) => { if (canEdit) setFleets((fs) => fs.map((f) => (f.id === id ? { ...f, ...p } : f))); };
 
   function addMarker(sysId, layerId) {
@@ -454,6 +465,48 @@ export default function GalaxySectorMap() {
   function patchLayer(id, p) { if (canEdit) setLayers((ls) => ls.map((l) => (l.id === id ? { ...l, ...p } : l))); }
   const toggleLayer = (id) => setLayers((ls) => ls.map((l) => (l.id === id ? { ...l, visible: !l.visible } : l)));
 
+  // A codex "characters"/"locations" entry's `factionId` is the source of truth
+  // for that character's/system's faction once the entry is live — this is what
+  // makes the politics-view member or map system for it exist and follow along,
+  // rather than the two being maintained by hand in two places. Only called for
+  // published entries (approve/publish, or an edit to one already live), so a
+  // draft or pending submission never spawns a visible node.
+  function syncFactionNode(entry) {
+    if (!entry || !entry.factionId) return;
+    if (entry.category === "characters") {
+      setFactions((fx) => {
+        let from = null, member = null;
+        for (const f of fx) {
+          const m = (f.members || []).find((m) => m.wikiId === entry.id);
+          if (m) { from = f; member = m; break; }
+        }
+        if (from && from.id === entry.factionId) return fx; // already the right faction
+        if (!fx.some((f) => f.id === entry.factionId)) return fx; // target faction doesn't exist
+        if (member) {
+          // Move the existing node to its new faction rather than orphaning it.
+          return fx.map((f) => {
+            if (f.id === from.id) return { ...f, members: f.members.filter((m) => m.id !== member.id) };
+            if (f.id === entry.factionId) return { ...f, members: [...(f.members || []), member] };
+            return f;
+          });
+        }
+        const m = { id: uid("mem"), name: entry.title || "New Character", kind: "character", role: "", wikiId: entry.id, star: false };
+        return fx.map((f) => (f.id === entry.factionId ? { ...f, members: [...(f.members || []), m] } : f));
+      });
+    } else if (entry.category === "locations") {
+      setSystems((ss) => {
+        const linked = ss.find((s) => s.wikiId === entry.id);
+        if (linked) return linked.factionId === entry.factionId
+          ? ss : ss.map((s) => (s.id === linked.id ? { ...s, factionId: entry.factionId } : s));
+        // No system linked yet — create one near the map origin; the GM drags it
+        // into place, same as any freshly-added system.
+        const jitter = () => Math.random() * 160 - 80;
+        return [...ss, { id: uid("sys"), name: entry.title || "New System", x: jitter(), y: jitter(),
+          factionId: entry.factionId, wikiId: entry.id, markers: [] }];
+      });
+    }
+  }
+
   // A GM entry starts life as a draft: `status: "draft"` keeps it out of every
   // non-GM view (see canSeeSubmission) and out of Updates until the GM hits
   // Publish, so a half-written page never leaks to players. No publishedAt yet —
@@ -492,6 +545,12 @@ export default function GalaxySectorMap() {
   function patchWikiEntry(id, p) {
     if (!canEdit) return;
     setWiki((w) => w.map((e) => (e.id === id ? { ...e, ...p, updatedAt: Date.now() } : e)));
+    // Reassigning the faction on an already-live entry should move its politics
+    // node / map system too, not just leave the codex saying something new.
+    if ("factionId" in p) {
+      const e = wiki.find((x) => x.id === id);
+      if (e && e.status !== "draft" && e.status !== "pending") syncFactionNode({ ...e, ...p });
+    }
   }
   function deleteWikiEntry(id) {
     if (!canEdit) return;
@@ -535,6 +594,7 @@ export default function GalaxySectorMap() {
     if (existing) { setSelectedWikiId(existing.id); return existing.id; }
     const entry = { id: uid("wk"), category: orig.category, title: orig.title || "", body: orig.body || "", createdAt: Date.now(), updatedAt: Date.now(),
       ...(orig.image ? { image: orig.image } : {}),
+      ...(orig.factionId ? { factionId: orig.factionId } : {}),
       status: "pending", editOf: id,
       submittedBy: { roleId: viewer.roleId, roleName: viewer.roleName }, submittedAt: Date.now() };
     setWiki((w) => [...w, entry]);
@@ -566,18 +626,22 @@ export default function GalaxySectorMap() {
       if (!target) {
         const now = Date.now();
         setWiki((w) => w.map((x) => (x.id === id ? { ...x, status: "approved", editOf: undefined, publishedAt: now, updatedAt: now } : x)));
+        syncFactionNode({ ...e, status: "approved" });
         return;
       }
-      const patch = { title: e.title, body: e.body, category: e.category, image: e.image, updatedAt: Date.now() };
+      const patch = { title: e.title, body: e.body, category: e.category, image: e.image, updatedAt: Date.now(),
+        factionId: e.factionId !== undefined ? e.factionId : target.factionId };
       setWiki((w) => w
         .map((x) => (x.id === e.editOf ? { ...x, ...patch } : x))
         .filter((x) => x.id !== id));
       // The proposal is gone; land the GM on the entry they just updated.
       setSelectedWikiId((cur) => (cur === id ? e.editOf : cur), { replace: true });
+      syncFactionNode({ ...target, ...patch });
       return;
     }
     const now = Date.now();
     setWiki((w) => w.map((x) => (x.id === id ? { ...x, status: "approved", publishedAt: now, updatedAt: now } : x)));
+    syncFactionNode({ ...e, status: "approved" });
   }
 
   // GM: publish a draft entry. Clearing `status` makes it a plain live page, and
@@ -586,7 +650,9 @@ export default function GalaxySectorMap() {
   function publishWikiEntry(id) {
     if (!canEdit) return;
     const now = Date.now();
+    const e = wiki.find((x) => x.id === id);
     setWiki((w) => w.map((e) => (e.id === id ? { ...e, status: undefined, publishedAt: now, updatedAt: now } : e)));
+    if (e) syncFactionNode({ ...e, status: undefined });
   }
   // GM: pull a live entry back to a draft, hiding it from players again while it
   // gets reworked. Publishing it afterwards re-stamps and re-announces it.
@@ -894,7 +960,7 @@ export default function GalaxySectorMap() {
 
         {activeTab === "codex" && (
           <WikiView
-            wiki={displayWiki} roles={roles} canEdit={canEdit} isMobile={isMobile} viewer={viewer}
+            wiki={displayWiki} roles={roles} factions={factions} canEdit={canEdit} isMobile={isMobile} viewer={viewer}
             activeCat={activeCat} setActiveCat={setActiveCat}
             selectedId={selectedWikiId} setSelectedId={setSelectedWikiId}
             addEntry={addWikiEntry} patchEntry={patchWikiEntry} deleteEntry={deleteWikiEntry}

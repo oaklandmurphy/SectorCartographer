@@ -36,7 +36,7 @@ const defaults = {
   systems: { markers: [], factionId: "fac_none" },
   fleets: { ships: [], systemId: null },
   strokes: { pts: [] },
-  wiki: { body: "", title: "" },
+  wiki: { body: "", title: "", factionId: null },
   relations: {}, layers: {}, links: {}, wikiReads: {}, roles: {}, art: {}, modifiers: {}, notes: { text: "" },
 };
 

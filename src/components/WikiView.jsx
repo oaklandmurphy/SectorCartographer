@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Plus, Trash2, ChevronLeft, FileText, EyeOff, Users, Table, Eye, Pencil,
-  Image as ImageIcon, ImagePlus, X, AlertTriangle, Inbox, CheckCircle2, Undo2, Send, Clock, Search, Globe } from "lucide-react";
+  Image as ImageIcon, ImagePlus, X, AlertTriangle, Inbox, CheckCircle2, Undo2, Send, Clock, Search, Globe,
+  ArrowUpDown, Filter } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { WIKI_CATS } from "../constants.js";
 import { isRestricted } from "../lib/visibility.js";
@@ -15,11 +16,14 @@ const formatUpdatedAt = (value) => value ? new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium", timeStyle: "short",
 }).format(new Date(value)) : null;
 
-export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, activeCat, setActiveCat, selectedId, setSelectedId,
+export default function WikiView({ wiki, roles = [], factions = [], canEdit, isMobile, viewer, activeCat, setActiveCat, selectedId, setSelectedId,
   addEntry, patchEntry, deleteEntry, submitEntry, patchOwnEntry, withdrawEntry, approveEntry,
   publishEntry, unpublishEntry, proposeEdit }) {
   const catMeta = WIKI_CATS.find((c) => c.id === activeCat) || WIKI_CATS[0];
   const catLabel = (id) => (WIKI_CATS.find((c) => c.id === id) || {}).label || id;
+  // A character/location entry's faction tint — a quick visual cue in the list
+  // for which faction an entry belongs to, without opening it.
+  const factionColor = (id) => (factions.find((f) => f.id === id) || {}).color || null;
   // A signed-in player (not the GM, not anonymous) can submit a new entry.
   const canSubmit = !!(viewer && viewer.kind === "player");
   const isMine = (e) => !!(viewer && viewer.roleId != null && e.submittedBy && e.submittedBy.roleId === viewer.roleId);
@@ -40,16 +44,31 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, 
     const hay = `${e.title || ""}\n${e.body || ""}\n${catLabel(e.category)}`.toLowerCase();
     return terms.every((t) => hay.includes(t));
   };
+  // How the list is ordered, and (when relevant) narrowed to one faction.
+  // Sticky across category/queue/search switches — a GM comparing one
+  // faction's footprint across categories shouldn't have to re-pick it.
+  const [sortMode, setSortMode] = useState("updated"); // "updated" | "created" | "alpha"
+  const [filterFaction, setFilterFaction] = useState(""); // "" = all factions
+  function sortCmp(a, b) {
+    if (sortMode === "alpha") return (a.title || "").localeCompare(b.title || "");
+    if (sortMode === "created") return (b.createdAt || 0) - (a.createdAt || 0);
+    return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0); // "updated"
+  }
   // Normal category browsing hides everyone else's pending submissions — they
   // aren't real pages yet — but still shows the viewer's own, so a player can
   // find and keep editing what they just wrote.
-  const entries = searching
-    ? wiki.filter((e) => e.status !== "pending" && matches(e))
+  const baseEntries = searching
+    ? wiki.filter((e) => e.status !== "pending" && matches(e)).sort(sortCmp)
     : queueMode
       // Submissions the player has marked ready sort above ones they're still
-      // drafting, so the GM sees what's actually waiting on them first.
-      ? wiki.filter((e) => e.status === "pending").sort((a, b) => (b.ready ? 1 : 0) - (a.ready ? 1 : 0))
-      : wiki.filter((e) => e.category === activeCat && (e.status !== "pending" || isMine(e)));
+      // drafting, so the GM sees what's actually waiting on them first; the
+      // chosen sort only breaks ties within each of those two groups.
+      ? wiki.filter((e) => e.status === "pending").sort((a, b) => (b.ready ? 1 : 0) - (a.ready ? 1 : 0) || sortCmp(a, b))
+      : wiki.filter((e) => e.category === activeCat && (e.status !== "pending" || isMine(e))).sort(sortCmp);
+  // The faction filter only offers (and only appears for) factions actually
+  // present in the current list — "when available", per the ask.
+  const factionIdsInView = [...new Set(baseEntries.map((e) => e.factionId).filter(Boolean))];
+  const entries = filterFaction ? baseEntries.filter((e) => e.factionId === filterFaction) : baseEntries;
   const selected = wiki.find((e) => e.id === selectedId);
   // Editors see only the raw textarea, so a ```csv block is invisible while
   // writing — hence the preview toggle. It's keyed to an entry id, not a bare
@@ -211,9 +230,38 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, 
     </div>
   );
 
+  const sortFilterBar = () => (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      <div style={{ position: "relative", display: "flex", alignItems: "center", flex: "1 1 130px", minWidth: 130 }}>
+        <ArrowUpDown size={12} style={{ position: "absolute", left: 7, color: T.faint, pointerEvents: "none" }} />
+        <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} title="Sort order"
+          style={{ ...selStyle, paddingLeft: 24, fontSize: 11 }}>
+          <option value="updated">Recently updated</option>
+          <option value="created">Recently created</option>
+          <option value="alpha">A–Z</option>
+        </select>
+      </div>
+      {factionIdsInView.length > 0 && (
+        <div style={{ position: "relative", display: "flex", alignItems: "center", flex: "1 1 130px", minWidth: 130 }}>
+          <Filter size={12} style={{ position: "absolute", left: 7, color: filterFaction ? T.accent : T.faint, pointerEvents: "none" }} />
+          <select value={filterFaction} onChange={(e) => setFilterFaction(e.target.value)} title="Filter by faction"
+            style={{ ...selStyle, paddingLeft: 24, fontSize: 11,
+              color: filterFaction ? (factionColor(filterFaction) || T.text) : T.text,
+              borderColor: filterFaction ? (factionColor(filterFaction) || T.line) : T.line }}>
+            <option value="">All factions</option>
+            {factions.filter((f) => factionIdsInView.includes(f.id)).map((f) => (
+              <option key={f.id} value={f.id} style={{ color: f.color }}>{f.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+    </div>
+  );
+
   const entryList = () => (
     <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 10,
       display: "flex", flexDirection: "column", gap: 6 }}>
+      {sortFilterBar()}
       {searching && entries.length > 0 && (
         <div style={{ ...lbl, color: T.faint, padding: "0 2px 2px" }}>
           {entries.length} result{entries.length === 1 ? "" : "s"}
@@ -224,9 +272,11 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, 
           border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
           {searching
             ? `No entries match “${query.trim()}”.`
-            : queueMode
-              ? "Nothing waiting for review."
-              : `No ${catMeta.label.toLowerCase()} entries yet.${canEdit ? " Add one below." : canSubmit ? " Draft one below." : ""}`}
+            : filterFaction && baseEntries.length > 0
+              ? "No entries for this faction."
+              : queueMode
+                ? "Nothing waiting for review."
+                : `No ${catMeta.label.toLowerCase()} entries yet.${canEdit ? " Add one below." : canSubmit ? " Draft one below." : ""}`}
         </div>
       )}
       {entries.map((e) => {
@@ -241,10 +291,11 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, 
         const isEditProp = pending && !!e.editOf;
         const ready = pending && !!e.ready; // player has flagged it done
         const who = e.submittedBy && e.submittedBy.roleName;
+        const fc = e.factionId ? factionColor(e.factionId) : null;
         return (
           <button key={e.id} onClick={() => selectEntry(e.id)}
-            style={{ textAlign: "left", cursor: "pointer", background: on ? "rgba(159,194,58,.1)" : T.panel2,
-              border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 2, padding: "8px 10px", color: T.text,
+            style={{ textAlign: "left", cursor: "pointer", background: on ? "rgba(159,194,58,.1)" : fc ? `${fc}1f` : T.panel2,
+              border: `1px solid ${on ? T.accent : fc || T.line}`, borderRadius: 2, padding: "8px 10px", color: T.text,
               fontFamily: "inherit", display: "flex", flexDirection: "column", gap: 3 }}>
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span className="stencil" style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700, letterSpacing: ".03em",
@@ -350,6 +401,16 @@ export default function WikiView({ wiki, roles = [], canEdit, isMobile, viewer, 
             {WIKI_CATS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
         </div>
+        {(selected.category === "characters" || selected.category === "locations") && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={lbl}>Faction</span>
+            <select value={selected.factionId || ""} onChange={(e) => patch(selected.id, { factionId: e.target.value || null })}
+              style={{ ...selStyle, width: "auto", minWidth: 130 }}>
+              <option value="">— Unassigned —</option>
+              {factions.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
+          </div>
+        )}
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ ...lbl, flex: 1 }}>Body</span>
           {!preview && (
