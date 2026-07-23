@@ -117,6 +117,13 @@ export function visibleFleets(fleets, viewer, { relations, fleetsPublic }) {
       (sh) => Array.isArray(sh.visibility) && sh.visibility.includes(viewer.roleId));
     const publicGrant = fleetsPublic !== false && isPublicFleet(f);
     if (!factionGrant && !explicitShare && !publicGrant) continue;
+    // factionGrant/explicitShare only prove the *fleet* is theirs to see, not that
+    // any individual carrier is. If every carrier got filtered out by canSee above
+    // (all hidden from this viewer) while the fleet actually has carriers, the whole
+    // fleet position must disappear too — otherwise players see an empty marker
+    // where a fully-hidden fleet is sitting, defeating per-carrier hiding.
+    const hadShips = (f.ships || []).length > 0;
+    if (hadShips && ships.length === 0) continue;
     out.push({ ...f, ships });
   }
   return out;
