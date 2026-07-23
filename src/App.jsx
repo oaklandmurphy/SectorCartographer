@@ -756,6 +756,25 @@ export default function GalaxySectorMap() {
     if (activeTab !== "codex" || !selectedWikiId) return;
     markWikiSeen(displayWiki.find((e) => e.id === selectedWikiId));
   }, [activeTab, selectedWikiId, displayWiki, viewer.roleFactionId]);
+  // GM asks: batch version of markWikiSeen so "Acknowledge all" doesn't fire
+  // one setState per article — same receipt shape, single state update.
+  function acknowledgeAllUpdates() {
+    const factionId = viewer.roleFactionId;
+    if (!factionId) return;
+    const now = Date.now();
+    setWikiReads((reads) => {
+      let next = reads;
+      unseenArticles.forEach((entry) => {
+        const latest = entry.updatedAt || entry.createdAt || entry.publishedAt || 0;
+        const id = `read_${factionId}_${entry.id}`;
+        const existing = next.find((r) => r.id === id);
+        if (existing && existing.seenAt >= latest) return;
+        const receipt = { id, factionId, wikiId: entry.id, seenAt: now };
+        next = existing ? next.map((r) => (r.id === id ? receipt : r)) : [...next, receipt];
+      });
+      return next;
+    });
+  }
   const unseenArticles = useMemo(() => {
     const factionId = viewer.roleFactionId;
     if (!factionId) return [];
@@ -973,7 +992,7 @@ export default function GalaxySectorMap() {
 
         {activeTab === "updates" && (
           <UpdatesView articles={unseenArticles} factionName={currentFaction && currentFaction.name} isMobile={isMobile}
-            openArticle={goToCodex} />
+            openArticle={goToCodex} acknowledgeArticle={markWikiSeen} acknowledgeAll={acknowledgeAllUpdates} />
         )}
 
         {activeTab === "modifiers" && (

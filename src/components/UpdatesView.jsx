@@ -1,4 +1,4 @@
-import { Bell, Clock, FileText } from "lucide-react";
+import { Bell, Check, CheckCheck, Clock, FileText } from "lucide-react";
 import { T } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
 
@@ -6,13 +6,18 @@ const dateTime = (value) => value ? new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium", timeStyle: "short",
 }).format(new Date(value)) : "Unknown";
 
-export default function UpdatesView({ articles, factionName, isMobile, openArticle }) {
+export default function UpdatesView({ articles, factionName, isMobile, openArticle, acknowledgeArticle, acknowledgeAll }) {
   return (
     <div className="scroll" style={{ flex: 1, overflowY: "auto", padding: isMobile ? 14 : 24 }}>
       <div style={{ maxWidth: 820, margin: "0 auto", display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Bell size={22} color={T.accent} />
-          <div className="stencil" style={{ fontSize: 20, letterSpacing: ".05em" }}>UPDATES</div>
+          <div className="stencil" style={{ fontSize: 20, letterSpacing: ".05em", flex: 1 }}>UPDATES</div>
+          {articles.length > 0 && (
+            <Btn onClick={acknowledgeAll} title="Dismiss every update below without reading it">
+              <CheckCheck size={14} /> {!isMobile && "Acknowledge all"}
+            </Btn>
+          )}
         </div>
         {!factionName ? null : articles.length === 0 ? (
           <div style={{ border: `1px dashed ${T.line}`, color: T.faint, padding: "28px 16px", textAlign: "center", fontSize: 12 }}>
@@ -27,6 +32,9 @@ export default function UpdatesView({ articles, factionName, isMobile, openArtic
                 <Clock size={11} /> Updated {dateTime(article.updatedAt || article.createdAt)}
               </div>
             </div>
+            <Btn title="Dismiss without reading" onClick={() => acknowledgeArticle(article)}>
+              <Check size={14} /> {!isMobile && "Acknowledge"}
+            </Btn>
             <Btn kind="primary" onClick={() => openArticle(article.id)}>Read</Btn>
           </div>
         ))}
