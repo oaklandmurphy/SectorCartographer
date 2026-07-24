@@ -1,8 +1,11 @@
 import { useMemo, useRef, useState } from "react";
 import { Images, Plus, X, ChevronRight, ChevronDown, AlertTriangle } from "lucide-react";
 import { T, inputStyle, lbl } from "../theme.js";
-import { artDataUri, artUsage, validateSvg, mergeNames } from "../lib/shipArt.js";
+import { artUsage, validateSvg, mergeNames } from "../lib/shipArt.js";
 import { knownModels, knownCarrierModels } from "../lib/carriers.js";
+import { uploadText } from "../lib/firebaseStorage.js";
+import { SECTOR_ID } from "../lib/sectorRepo.js";
+import { uid } from "../utils/id.js";
 import Btn from "./ui/Btn.jsx";
 
 // Upload / rename / remove the sector's ship art. Art is matched to ships by
@@ -22,31 +25,38 @@ export default function ArtLibrary({ art, fleets, canEdit, addArt, patchArt, rem
   );
   const SUGGEST_ID = "artlib-model-names";
 
-  function onFiles(e) {
+  // Validates locally, then uploads straight to Cloud Storage (see
+  // lib/firebaseStorage.js) and stores only the download URL — the raw SVG
+  // text never touches the database, so a viewer only fetches a design's
+  // picture through the ordinary cached <img> fetch that draws it.
+  async function onFiles(e) {
     const files = [...e.target.files];
     e.target.value = ""; // let the same file be picked again after a fix
-    const errs = [];
-    let pending = files.length;
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const text = String(reader.result || "");
-        const err = validateSvg(text, file.size);
-        if (err) errs.push(`${file.name} — ${err}`);
-        else addArt(file.name.replace(/\.svg$/i, "").trim() || "Untitled", text);
-        if (--pending === 0) setErrors(errs);
-      };
-      reader.onerror = () => {
-        errs.push(`${file.name} — could not be read`);
-        if (--pending === 0) setErrors(errs);
-      };
-      reader.readAsText(file);
-    });
     if (files.length) setOpen(true);
+    const errs = [];
+    for (const file of files) {
+      let text;
+      try {
+        text = await file.text();
+      } catch {
+        errs.push(`${file.name} — could not be read`);
+        continue;
+      }
+      const err = validateSvg(text, file.size);
+      if (err) { errs.push(`${file.name} — ${err}`); continue; }
+      const id = uid("art");
+      try {
+        const svgUrl = await uploadText(`art/${SECTOR_ID}/${id}.svg`, text, "image/svg+xml");
+        addArt(id, file.name.replace(/\.svg$/i, "").trim() || "Untitled", svgUrl);
+      } catch {
+        errs.push(`${file.name} — could not be uploaded`);
+      }
+    }
+    setErrors(errs);
   }
 
   const thumb = (a, size) => {
-    const uri = artDataUri(a.svg);
+    const uri = a.svgUrl;
     return (
       <div style={{ width: size, height: size, flexShrink: 0, background: T.panel3,
         border: `1px solid ${T.line}`, display: "flex", alignItems: "center", justifyContent: "center",

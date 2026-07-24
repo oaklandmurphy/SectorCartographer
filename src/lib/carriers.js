@@ -43,6 +43,45 @@ export function knownModels(fleets) {
   return [...seen].sort((a, b) => a.localeCompare(b));
 }
 
+// Commit craft to a squadron mission: decrement each named squadron by its
+// detachment's count. Counts are clamped to what was available when the
+// mission was built (see App.jsx submitMission), so this never goes negative.
+export function commitDetachments(fleets, fleetId, detachments) {
+  return fleets.map((f) => (f.id !== fleetId ? f : {
+    ...f,
+    ships: f.ships.map((s) => {
+      const dets = detachments.filter((d) => d.shipId === s.id);
+      if (dets.length === 0) return s;
+      return { ...s, squadrons: squadronsOf(s).map((sq) => {
+        const d = dets.find((x) => x.squadronId === sq.id);
+        return d ? { ...sq, count: Math.max(0, (Number(sq.count) || 0) - d.count) } : sq;
+      }) };
+    }),
+  }));
+}
+
+// Return craft from a mission — either survivors after a resolved strike, or
+// the full detachment if the request is withdrawn before resolution. Adds each
+// detachment's count back onto its source squadron, or recreates the squadron
+// (by the model it flew as) if the hangar slot was removed while it was away.
+export function returnDetachments(fleets, fleetId, detachments) {
+  return fleets.map((f) => (f.id !== fleetId ? f : {
+    ...f,
+    ships: f.ships.map((s) => {
+      const backs = detachments.filter((d) => d.shipId === s.id && d.count > 0);
+      if (backs.length === 0) return s;
+      let squadrons = squadronsOf(s);
+      for (const d of backs) {
+        const idx = squadrons.findIndex((q) => q.id === d.squadronId);
+        squadrons = idx === -1
+          ? [...squadrons, { id: d.squadronId, count: d.count, model: d.model }]
+          : squadrons.map((q, i) => (i === idx ? { ...q, count: (Number(q.count) || 0) + d.count } : q));
+      }
+      return { ...s, squadrons };
+    }),
+  }));
+}
+
 // A carrier's optional `model` is its design ("Gorb-class Carrier") — what sister
 // ships share and what the art library matches on. Distinct from the old `cls`
 // field, which sorted hulls into Frigate/Cruiser/… and became meaningless once

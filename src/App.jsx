@@ -3,10 +3,10 @@ import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Zap, Bell, Ga
 import { T, panelStyle, cut } from "./theme.js";
 import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
 import { storage } from "./lib/storage.js";
-import { subscribeSector, saveSector, emptySector } from "./lib/sectorRepo.js";
-import { buildSectorUpdates } from "./lib/sectorSchema.js";
-import { resolveViewer, canSee, canSeeSubmission, visibleFleets, friendlyFactionIds, visibleAgents, visibleOrders, visibleActions } from "./lib/visibility.js";
-import { craftInCarrier, withSquadrons } from "./lib/carriers.js";
+import { subscribeSector, saveSector, subscribeNotes, saveNotes, emptySector } from "./lib/sectorRepo.js";
+import { buildSectorUpdates, buildCollectionUpdates } from "./lib/sectorSchema.js";
+import { resolveViewer, canSee, canSeeSubmission, visibleFleets, friendlyFactionIds, visibleAgents, visibleOrders, visibleActions, visibleMissions } from "./lib/visibility.js";
+import { craftInCarrier, withSquadrons, squadronsOf, commitDetachments, returnDetachments } from "./lib/carriers.js";
 import { uid } from "./utils/id.js";
 import { useResponsive } from "./hooks/useResponsive.js";
 import { useMapInteractions } from "./hooks/useMapInteractions.js";
@@ -44,6 +44,7 @@ export default function GalaxySectorMap() {
   const [agents, setAgents] = useState([]); // covert operatives, one optional character each, own-faction only
   const [orders, setOrders] = useState([]); // fleet/agent move-order proposals the GM resolves by hand
   const [actions, setActions] = useState([]); // text action requests players raise through an agent for the GM to resolve
+  const [missions, setMissions] = useState([]); // squadron mission requests players raise from a fleet's hangar for the GM to resolve
 
   const [mode, setMode] = useState("select"); // select | link | draw | orders
   const [showOrders, setShowOrders] = useState(true); // personal: show/hide the move-order overlay on the map
@@ -104,9 +105,11 @@ export default function GalaxySectorMap() {
   // last save is diffed against. The lock code lives here too — it's shared state
   // like any other, and once, when it had its own write path, a migration left it
   // behind and silently unlocked the sector.
+  // `notes` is deliberately not part of this — it lives at its own path and is
+  // saved on its own schedule below, so it's never part of the root diff/save.
   const sector = useMemo(
-    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, notes, agents, orders, actions, lockCode, fleetsPublic }),
-    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, notes, agents, orders, actions, lockCode, fleetsPublic],
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, missions, lockCode, fleetsPublic }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, missions, lockCode, fleetsPublic],
   );
   // The sector as the database currently has it. Null until the load below fills
   // it in, which is also what stops an autosave from firing against an empty
@@ -136,16 +139,18 @@ export default function GalaxySectorMap() {
       setFactions(data.factions); setRelations(data.relations); setLayers(data.layers);
       setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
       setStrokes(data.strokes); setWiki(data.wiki); setWikiReads(data.wikiReads); setRoles(data.roles); setArt(data.art);
-      setModifiers(data.modifiers); setNotes(data.notes); setAgents(data.agents); setOrders(data.orders); setActions(data.actions);
+      setModifiers(data.modifiers); setAgents(data.agents); setOrders(data.orders); setActions(data.actions);
+      setMissions(data.missions);
       setLockCode(data.lockCode); setFleetsPublic(data.fleetsPublic !== false);
     };
     const unsub = subscribeSector(
       ({ data, schema }) => {
         // Diffing against what was loaded means opening a sector writes nothing —
-        // except a v1-layout sector, where diffing against an empty one makes the
-        // first edit rewrite the whole tree, migrating it in place for anyone who
-        // never ran scripts/migrate-v2.mjs.
-        const asSaved = schema === 1 ? emptySector() : data;
+        // except a sector below the current schema, where diffing against an
+        // empty one makes the first edit rewrite the whole tree, migrating it in
+        // place for anyone who never ran the matching scripts/migrate-*.mjs
+        // (v1->v2, or v2->v3's ships split).
+        const asSaved = (schema === 1 || schema === 2) ? emptySector() : data;
         if (!opened) {
           opened = true;
           applyData(data);
@@ -391,10 +396,13 @@ export default function GalaxySectorMap() {
     updateSquadrons(fleetId, shipId, (qs) => qs.filter((q) => q.id !== sqId));
   }
 
-  /* ---- ship art (SVG drawings matched to carriers/squadrons by model name) ---- */
-  function addArt(name, svg) {
+  /* ---- ship art (SVGs matched to carriers/squadrons by model name, held in
+     Cloud Storage — see ArtLibrary.jsx — with just the download URL here). The
+     id is generated by the caller since it's needed to name the upload before
+     this runs. */
+  function addArt(id, name, svgUrl) {
     if (!canEdit) return;
-    setArt((as) => [...as, { id: uid("art"), name, svg }]);
+    setArt((as) => [...as, { id, name, svgUrl }]);
   }
   function patchArt(id, p) { if (canEdit) setArt((as) => as.map((a) => (a.id === id ? { ...a, ...p } : a))); }
   function removeArt(id) { if (!canEdit) return; setArt((as) => as.filter((a) => a.id !== id)); }
@@ -506,7 +514,38 @@ export default function GalaxySectorMap() {
 
   /* ---- GM Tools notes: freeform log entries, plus roll resolutions the GM
      chose to keep. GM-only, same as modifiers — a player never reaches this
-     tab (see the tab bar below), but the write paths are gated regardless. */
+     tab (see the tab bar below), but the write paths are gated regardless.
+     Notes live at their own database path (see sectorRepo.js) and are only
+     ever subscribed to once this browser actually opens GM Tools as the GM —
+     every player and anonymous viewer never fetches them at all. */
+  const notesLoadedRef = useRef(false);
+  const savedNotesRef = useRef(null);
+  useEffect(() => {
+    if (!isGM || activeTab !== "gmtools" || notesLoadedRef.current) return;
+    notesLoadedRef.current = true;
+    const unsub = subscribeNotes(
+      (ns) => {
+        if (savedNotesRef.current === null) savedNotesRef.current = ns;
+        setNotes(ns);
+      },
+      (e) => console.warn("[sector] notes subscription error", e),
+    );
+    return unsub;
+  }, [isGM, activeTab]);
+  useEffect(() => {
+    if (!isGM || savedNotesRef.current === null) return;
+    if (!Object.keys(buildCollectionUpdates("notes", savedNotesRef.current, notes)).length) return;
+    const t = setTimeout(async () => {
+      const prev = savedNotesRef.current;
+      try {
+        const ok = await saveNotes(prev, notes);
+        if (ok) savedNotesRef.current = notes;
+      } catch (e) {
+        console.warn("[sector] notes save error", e);
+      }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [notes, isGM]);
   function addNote(text, kind = "note", extra = {}) {
     if (!isGM || !text) return null;
     const entry = { id: uid("note"), kind, text, createdAt: Date.now(), ...extra };
@@ -668,6 +707,64 @@ export default function GalaxySectorMap() {
     if (!isGM) return;
     setActions((acts) => acts.map((a) => (a.id === id
       ? { ...a, status: "pending", resolvedAt: null } : a)));
+  }
+
+  /* ---- squadron missions: a player commits some of a fleet's fighters/bombers
+     (whole or partial squadrons) to a free-text mission, for the GM to adjudicate
+     against the mission odds table. Committing pulls the craft straight out of
+     their squadrons' counts — that's what makes them unavailable for another
+     mission. Submitting locks it in: unlike a move order, a player cannot pull a
+     squadron mission back once it's sent, only the GM can (see removeMission). */
+  function submitMission(fleetId, detachments, text) {
+    const fleet = fleets.find((f) => f.id === fleetId);
+    if (!fleet || !canOrderFor(fleet.factionId)) return;
+    const body = (text || "").trim();
+    if (!body) return;
+    // Re-derive each detachment against the fleet as it stands right now and clamp
+    // to what's actually available, rather than trusting counts the composer UI
+    // computed from a possibly-stale render.
+    const clean = (detachments || []).map((d) => {
+      const ship = fleet.ships.find((s) => s.id === d.shipId);
+      const sq = ship && squadronsOf(ship).find((q) => q.id === d.squadronId);
+      if (!sq) return null;
+      const avail = Number(sq.count) || 0;
+      const count = Math.min(avail, Math.max(0, Math.floor(Number(d.count) || 0)));
+      return count > 0 ? { shipId: ship.id, squadronId: sq.id, model: sq.model || "", count } : null;
+    }).filter(Boolean);
+    if (clean.length === 0) return;
+    setFleets((fs) => commitDetachments(fs, fleetId, clean));
+    setMissions((ms) => [...ms, {
+      id: uid("msn"), factionId: fleet.factionId, fleetId, text: body,
+      detachments: clean, status: "pending", resolution: null,
+      createdBy: viewer.roleId ? { roleId: viewer.roleId, roleName: viewer.roleName } : null,
+      createdAt: Date.now(), resolvedAt: null,
+    }]);
+  }
+  // GM only — a submitted mission is locked in, so there is no player-side
+  // withdraw (contrast removeAction, which a player can pull back while pending).
+  // Deleting a still-pending one returns its committed craft, since nothing
+  // happened to them yet; a resolved one's craft already came home at
+  // resolution, so deleting it returns nothing.
+  function removeMission(id) {
+    if (!isGM) return;
+    const m = missions.find((x) => x.id === id);
+    if (!m) return;
+    if (m.status === "pending") setFleets((fs) => returnDetachments(fs, m.fleetId, m.detachments || []));
+    setMissions((ms) => ms.filter((x) => x.id !== id));
+  }
+  // GM: adjudicate a pending mission against the odds table (see missionOdds.js)
+  // and return the survivors in the same step — `resolution.casualtyPct` says how
+  // many of each detachment came back, and those are added straight back onto
+  // their source squadron (or a fresh one, if it was deleted while they were away).
+  function resolveMission(id, resolution) {
+    if (!isGM) return;
+    const m = missions.find((x) => x.id === id);
+    if (!m || m.status !== "pending") return;
+    const cas = Number(resolution && resolution.casualtyPct) || 0;
+    const survivors = (m.detachments || []).map((d) => ({ ...d, count: Math.round(d.count * (1 - cas / 100)) }));
+    setFleets((fs) => returnDetachments(fs, m.fleetId, survivors));
+    setMissions((ms) => ms.map((x) => (x.id === id
+      ? { ...x, status: "resolved", resolution: resolution || null, resolvedAt: Date.now() } : x)));
   }
 
   /* ---- faction relationship edges (upsert; "none" removes the edge) ---- */
@@ -1054,6 +1151,9 @@ export default function GalaxySectorMap() {
   // GM-only: how many agent action requests are waiting to be resolved, for the
   // GM Tools tab badge.
   const pendingActionCount = useMemo(() => actions.filter((a) => a.status !== "resolved").length, [actions]);
+  // GM-only: how many squadron mission requests are waiting to be resolved,
+  // folded into the same GM Tools tab badge as agent action requests.
+  const pendingMissionCount = useMemo(() => missions.filter((m) => m.status !== "resolved").length, [missions]);
   // Fleet positions are gated both by faction (a player sees their own faction's
   // fleets plus allies'/vassals') and by the GM's public switch — see visibleFleets.
   const displayFleets = useMemo(
@@ -1065,6 +1165,7 @@ export default function GalaxySectorMap() {
   const displayAgents = useMemo(() => visibleAgents(agents, viewer), [agents, viewer]);
   const displayOrders = useMemo(() => visibleOrders(orders, viewer), [orders, viewer]);
   const displayActions = useMemo(() => visibleActions(actions, viewer), [actions, viewer]);
+  const displayMissions = useMemo(() => visibleMissions(missions, viewer), [missions, viewer]);
   // The Agents page's faction subtabs: every faction for the GM, only their own
   // for a player, none for an anonymous viewer.
   const displayAgentFactions = useMemo(() => {
@@ -1175,14 +1276,14 @@ export default function GalaxySectorMap() {
             <Dices size={14} /> {!isMobile && "Odds"}
           </Btn>
           {isGM && (
-            <Btn active={activeTab === "gmtools"} onClick={() => { setActiveTab("gmtools"); setAccessOpen(false); setMobileMenuOpen(false); }} title="GM tools: action requests, roll resolution & notes"
+            <Btn active={activeTab === "gmtools"} onClick={() => { setActiveTab("gmtools"); setAccessOpen(false); setMobileMenuOpen(false); }} title="GM tools: action & mission requests, roll resolution & notes"
               style={{ border: "none", borderRadius: 0, background: activeTab === "gmtools" ? undefined : "transparent" }}>
               <Gavel size={14} /> {!isMobile && "GM Tools"}
-              {pendingActionCount > 0 && (
+              {(pendingActionCount + pendingMissionCount) > 0 && (
                 <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 8,
                   minWidth: 15, height: 15, padding: "0 4px", display: "inline-flex", alignItems: "center",
                   justifyContent: "center", fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>
-                  {pendingActionCount}
+                  {pendingActionCount + pendingMissionCount}
                 </span>
               )}
             </Btn>
@@ -1252,6 +1353,7 @@ export default function GalaxySectorMap() {
               moveShip={moveShip} deleteFleet={deleteFleet} beginShipDrag={mapInt.beginShipDrag}
               addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
               patchAgent={patchAgent} removeAgent={removeAgent} canManageAgents={canManageAgents}
+              canOrderFor={canOrderFor} submitMission={submitMission}
               goToFleet={goToFleet} goToAgentAction={goToAgentAction} art={art}
               wiki={displayWiki} roles={roles} goToCodex={goToCodex} createEntry={createEntry}
             />
@@ -1269,6 +1371,7 @@ export default function GalaxySectorMap() {
             addShip={addShip} patchShip={patchShip} removeShip={removeShip}
             addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
             art={art} addArt={addArt} patchArt={patchArt} removeArt={removeArt}
+            missions={displayMissions} canOrderFor={canOrderFor} submitMission={submitMission}
           />
         )}
 
@@ -1334,6 +1437,8 @@ export default function GalaxySectorMap() {
             addNote={addNote} removeNote={removeNote}
             actions={actions} agents={agents}
             resolveAction={resolveAction} reopenAction={reopenAction} removeAction={removeAction}
+            fleets={fleets} missions={missions}
+            resolveMission={resolveMission} removeMission={removeMission}
           />
         )}
       </Suspense>

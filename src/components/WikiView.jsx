@@ -7,6 +7,8 @@ import { WIKI_CATS } from "../constants.js";
 import { isRestricted } from "../lib/visibility.js";
 import { bodyExcerpt, CSV_TEMPLATE, CSV_TEMPLATE_CAPTION } from "../lib/codexBody.js";
 import { processImage } from "../lib/codexImage.js";
+import { uploadDataUri } from "../lib/firebaseStorage.js";
+import { SECTOR_ID } from "../lib/sectorRepo.js";
 import Btn from "./ui/Btn.jsx";
 import CodexBody from "./CodexBody.jsx";
 import CodexDiff, { DiffLegend } from "./CodexDiff.jsx";
@@ -93,10 +95,13 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
   // Typing a query leaves the queue (results are live articles, not submissions).
   const onSearch = (v) => { setQuery(v); if (v) setQueueMode(false); };
 
-  // Downscale/re-encode a picked raster file, then store it on the entry as a
-  // data URI. Rejects (with a message) rather than pushing an oversized image.
-  // `patch` is whichever write path the current viewer has (GM or the entry's
-  // own submitter) — see editForm below.
+  // Downscale/re-encode a picked raster file, upload it to Cloud Storage, and
+  // store the download URL on the entry (not the image bytes themselves) — so
+  // the picture only reaches a browser when this entry is actually opened,
+  // instead of riding along in every session's sector sync. Rejects (with a
+  // message) rather than pushing an oversized or unreachable image. `patch` is
+  // whichever write path the current viewer has (GM or the entry's own
+  // submitter) — see editForm below.
   async function onPickImage(entry, e, patch) {
     const file = e.target.files && e.target.files[0];
     e.target.value = ""; // let the same file be re-picked after an error
@@ -104,7 +109,12 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
     setImgError(null);
     const res = await processImage(file);
     if (res.error) { setImgError(res.error); return; }
-    patch(entry.id, { image: res.dataUri });
+    try {
+      const imageUrl = await uploadDataUri(`wikiImages/${SECTOR_ID}/${entry.id}.webp`, res.dataUri);
+      patch(entry.id, { image: imageUrl });
+    } catch (err) {
+      setImgError("could not upload image — try again");
+    }
   }
 
   // Drops a starter CSV block in at the caret. Only reachable while the textarea

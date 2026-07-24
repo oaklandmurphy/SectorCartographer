@@ -8,10 +8,17 @@
         "wiki": {
           "$id": {
             "image": {
-              ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 1400000)"
+              ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 600)"
             }
           }
         }
+      }
+    },
+
+    "sectorNotes": {
+      "$sector": {
+        ".read": true,
+        ".write": "auth != null"
       }
     }
   }

@@ -1,11 +1,13 @@
-import { useMemo } from "react";
-import { Ship, Anchor, Plus, X, Columns2, StickyNote } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Ship, Anchor, Plus, X, Columns2, StickyNote, Rocket, Clock, Check } from "lucide-react";
 import { T, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import { squadronsOf, craftInCarrier, craftInFleet, knownModels, knownCarrierModels } from "../lib/carriers.js";
 import { mergeNames } from "../lib/shipArt.js";
 import Btn from "./ui/Btn.jsx";
 import ShipArt from "./ui/ShipArt.jsx";
 import ArtLibrary from "./ArtLibrary.jsx";
+import SquadronOrderModal from "./SquadronOrderModal.jsx";
+import MissionResolution from "./ui/MissionResolution.jsx";
 
 // A whole fleet at a glance: carriers stacked down a scrolling column, each
 // carrier's hangar laid out to its right. A second fleet can be pinned beside
@@ -20,7 +22,11 @@ export default function FleetView({
   addShip, patchShip, removeShip,
   addSquadron, patchSquadron, removeSquadron,
   art = [], addArt, patchArt, removeArt,
+  missions = [], canOrderFor, submitMission,
 }) {
+  // Which fleet's squadron-order composer is open, if any (by fleet id).
+  const [orderFleetId, setOrderFleetId] = useState(null);
+  const orderFleet = fleets.find((f) => f.id === orderFleetId) || null;
   const artNames = useMemo(() => art.map((a) => a.name), [art]);
   // suggest library entries alongside names already in use, so picking a model
   // that has a picture is the path of least resistance
@@ -174,6 +180,7 @@ export default function FleetView({
     const fac = factionById(fleet.factionId) || {};
     const home = fleet.systemId ? systems.find((s) => s.id === fleet.systemId) : null;
     const n = fleet.ships.length;
+    const canGiveOrder = !!canOrderFor && canOrderFor(fleet.factionId);
     return (
       <div style={{ padding: "10px 12px", borderBottom: `1px solid ${T.line}`, background: T.panel,
         flexShrink: 0, display: "flex", flexDirection: "column", gap: 5 }}>
@@ -183,6 +190,13 @@ export default function FleetView({
             color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {fleet.name}
           </span>
+          {canGiveOrder && (
+            <Btn kind="primary" onClick={() => setOrderFleetId(fleet.id)} disabled={craftInFleet(fleet) === 0}
+              title={craftInFleet(fleet) === 0 ? "No craft in this fleet's hangars" : "Send fighters/bombers on a mission"}
+              style={{ marginLeft: "auto", flexShrink: 0 }}>
+              <Rocket size={12} /> {!isMobile && "Squadron order"}
+            </Btn>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
           fontSize: 10.5, color: T.mut }}>
@@ -199,9 +213,44 @@ export default function FleetView({
     );
   };
 
+  /* ------------------------------------------------ one squadron mission request */
+  const detachmentSummary = (m) => (m.detachments || [])
+    .map((d) => `${d.count}×${d.model || "unnamed"}`).join(", ");
+  const missionCard = (fleet, m) => {
+    const resolved = m.status === "resolved";
+    return (
+      <div key={m.id} style={{ border: `1px solid ${resolved ? T.line : T.accent}`, borderRadius: 2,
+        background: T.panel3, display: "flex", flexDirection: "column", gap: 6, padding: 9 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
+            fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
+            color: resolved ? T.accent : T.amber }}>
+            {resolved ? <Check size={11} /> : <Clock size={11} />}{resolved ? "Resolved" : "On mission"}
+          </span>
+          <span className="mono" style={{ fontSize: 10.5, color: T.mut }}>{detachmentSummary(m)}</span>
+        </div>
+        <div style={{ fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace",
+          fontSize: 13, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>{m.text}</div>
+        {resolved && (
+          <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 6 }}>
+            {m.resolution
+              ? <MissionResolution resolution={m.resolution} />
+              : <div style={{ fontSize: 11.5, color: T.mut }}>Resolved (no ruling recorded).</div>}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   /* ------------------------------------------------ one fleet column */
   const fleetColor = (fleet) => (factionById(fleet.factionId) || {}).color;
-  const pane = (fleet, isCompare) => (
+  const pane = (fleet, isCompare) => {
+    const fleetMissions = missions.filter((m) => m.fleetId === fleet.id);
+    const pendingMissions = fleetMissions.filter((m) => m.status !== "resolved")
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const resolvedMissions = fleetMissions.filter((m) => m.status === "resolved")
+      .sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0));
+    return (
     <div key={isCompare ? "cmp" : "pri"}
       style={{ flex: 1, minWidth: 0, minHeight: isMobile ? "auto" : 0, display: "flex",
         flexDirection: "column",
@@ -211,6 +260,16 @@ export default function FleetView({
       <div className={isMobile ? "" : "scroll"}
         style={{ flex: 1, minHeight: 0, overflowY: isMobile ? "visible" : "auto", padding: 10,
           display: "flex", flexDirection: "column", gap: 8 }}>
+        {fleetMissions.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingBottom: 4,
+            borderBottom: `1px solid ${T.line}` }}>
+            <span style={{ ...lbl, display: "flex", alignItems: "center", gap: 5 }}>
+              <Rocket size={11} /> Squadron missions
+            </span>
+            {pendingMissions.map((m) => missionCard(fleet, m))}
+            {resolvedMissions.map((m) => missionCard(fleet, m))}
+          </div>
+        )}
         {fleet.ships.length === 0 && (
           <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
             border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
@@ -225,7 +284,8 @@ export default function FleetView({
         )}
       </div>
     </div>
-  );
+    );
+  };
 
   /* ------------------------------------------------ fleet pickers */
   const bar = (
@@ -291,6 +351,11 @@ export default function FleetView({
           {pane(primary, false)}
           {compare && pane(compare, true)}
         </div>
+      )}
+      {orderFleet && (
+        <SquadronOrderModal fleet={orderFleet} isMobile={isMobile}
+          onClose={() => setOrderFleetId(null)}
+          onSubmit={(detachments, text) => { submitMission(orderFleet.id, detachments, text); setOrderFleetId(null); }} />
       )}
     </div>
   );

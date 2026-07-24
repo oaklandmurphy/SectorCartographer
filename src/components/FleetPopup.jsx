@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { Ship, Anchor, GripVertical, Plus, Trash2, X, Maximize2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Ship, Anchor, GripVertical, Plus, Trash2, X, Maximize2, Rocket } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { squadronsOf, craftInCarrier, craftInFleet, knownModels, knownCarrierModels } from "../lib/carriers.js";
 import { mergeNames } from "../lib/shipArt.js";
@@ -7,18 +7,23 @@ import Btn from "./ui/Btn.jsx";
 import MapPopup from "./ui/MapPopup.jsx";
 import ShipArt from "./ui/ShipArt.jsx";
 import VisibilityRow from "./VisibilityRow.jsx";
+import SquadronOrderModal from "./SquadronOrderModal.jsx";
 
 export default function FleetPopup({
   fleet, anchor, containerSize, isMobile, canEdit, factions, fleets, factionColor, home,
   patchFleet, addShip, patchShip, removeShip, moveShip, deleteFleet, onClose, onShipDragStart,
   addSquadron, patchSquadron, removeSquadron, goToFleet, roles, art = [],
+  canOrderFor, submitMission,
 }) {
+  const [orderOpen, setOrderOpen] = useState(false);
   const artNames = useMemo(() => art.map((a) => a.name), [art]);
   const models = useMemo(() => mergeNames(knownModels(fleets), artNames), [fleets, artNames]);
   const carrierModels = useMemo(() => mergeNames(knownCarrierModels(fleets), artNames), [fleets, artNames]);
   const modelsId = `sqn-models-${fleet.id}`; // only one roster is open at a time, but keep it fleet-scoped anyway
   const carrierModelsId = `car-models-${fleet.id}`;
+  const canGiveOrder = !!canOrderFor && canOrderFor(fleet.factionId);
   return (
+    <>
     <MapPopup anchor={anchor} containerSize={containerSize} isMobile={isMobile} width={306} gap={11}
       color={factionColor} icon={<Ship size={13} />} title="FLEET ROSTER" onClose={onClose}>
         <div>
@@ -45,6 +50,14 @@ export default function FleetPopup({
           style={{ width: "100%", justifyContent: "center" }}>
           <Maximize2 size={13} /> Open in Fleet view
         </Btn>
+
+        {canGiveOrder && (
+          <Btn kind="primary" onClick={() => setOrderOpen(true)} disabled={craftInFleet(fleet) === 0}
+            title={craftInFleet(fleet) === 0 ? "No craft in this fleet's hangars" : "Send fighters/bombers on a mission"}
+            style={{ width: "100%", justifyContent: "center" }}>
+            <Rocket size={13} /> Squadron order
+          </Btn>
+        )}
 
 
         {/* every model already flying in the sector — shared by every model field below */}
@@ -193,5 +206,11 @@ export default function FleetPopup({
           </Btn>
         )}
     </MapPopup>
+    {orderOpen && (
+      <SquadronOrderModal fleet={fleet} isMobile={isMobile}
+        onClose={() => setOrderOpen(false)}
+        onSubmit={(detachments, text) => { submitMission(fleet.id, detachments, text); setOrderOpen(false); }} />
+    )}
+    </>
   );
 }

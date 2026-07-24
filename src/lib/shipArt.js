@@ -5,15 +5,20 @@
 // and every hangar flying that model shows the same drawing from one upload.
 // Model fields stay free text; the library is an optional layer on top.
 //
-// An entry is { id, name, svg } where `svg` is the raw file text.
+// An entry is { id, name, svgUrl } — the SVG itself lives in Cloud Storage
+// (uploaded by ArtLibrary.jsx via lib/firebaseStorage.js); `svgUrl` is just its
+// download URL, so a viewer only fetches a design's picture through the
+// ordinary cached <img> fetch that draws it, not as part of every session's
+// database sync.
 //
 // SECURITY — read before changing how art is rendered:
-// Uploaded SVG is only ever displayed through <img src="data:image/svg+xml,…">.
-// An <img> will not run scripts or fetch external resources from the SVG, which
-// matters here because the Firebase path is world-writable — anyone who finds
-// the database can drop a file into this library. Do NOT switch this to an
-// inline <svg> or dangerouslySetInnerHTML without real sanitizing first; that
-// would turn the library into a stored-XSS vector against every visitor.
+// Uploaded SVG is only ever displayed through <img src={svgUrl}>. An <img>
+// will not run scripts or fetch external resources from the SVG, which
+// matters here because the upload path is world-writable given a valid auth
+// token — anyone who finds the project can drop a file into this library. Do
+// NOT switch this to an inline <svg> or dangerouslySetInnerHTML without real
+// sanitizing first; that would turn the library into a stored-XSS vector
+// against every visitor.
 
 export const MAX_ART_BYTES = 128 * 1024; // a ship silhouette needs nowhere near this
 
@@ -25,11 +30,6 @@ export function findArt(art, name) {
   const k = norm(name);
   if (!k) return null;
   return (art || []).find((a) => norm(a.name) === k) || null;
-}
-
-export function artDataUri(svg) {
-  if (!svg) return null;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 // Gate a picked file before it can enter the library. Returns an error string,

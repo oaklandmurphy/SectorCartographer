@@ -38,7 +38,7 @@ export default function MapCanvas({
   patchSystem, addMarker, patchMarker, removeMarker, deployFleetAt, deleteSystem,
   patchFleet, addShip, patchShip, removeShip, moveShip, deleteFleet, beginShipDrag,
   addSquadron, patchSquadron, removeSquadron, goToFleet, goToAgentAction, art,
-  patchAgent, removeAgent, canManageAgents,
+  patchAgent, removeAgent, canManageAgents, canOrderFor, submitMission,
   wiki, roles, goToCodex, createEntry,
 }) {
   const overview = view.scale <= OVERVIEW_ZOOM; // zoomed out far enough — simplify systems to plain markers
@@ -319,6 +319,7 @@ export default function MapCanvas({
           addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
           onShipDragStart={(ship, e) => beginShipDrag(ship, selFleetObj.id, e)}
           goToFleet={goToFleet} roles={roles} art={art}
+          canOrderFor={canOrderFor} submitMission={submitMission}
         />
       )}
 

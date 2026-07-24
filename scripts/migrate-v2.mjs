@@ -67,9 +67,16 @@ async function main() {
   const raw = await req("GET", `sectors/${SECTOR}`);
   if (!raw) throw new Error(`sectors/${SECTOR} does not exist — nothing to migrate`);
 
-  const already = raw.meta && Number(raw.meta.schema) >= SCHEMA_VERSION;
+  // This script's job is specifically v1 (single JSON blob) -> tree — so the
+  // guard checks "is this already a tree at all" (schema >= 2), not "is this
+  // already exactly SCHEMA_VERSION". Otherwise, once SCHEMA_VERSION moved on
+  // to 3 (see scripts/migrate-v3.mjs), this would treat a schema-2 sector as
+  // still-unmigrated and — if the old v1 keys are still sitting around as a
+  // backup, which is the documented normal case — silently overwrite it with
+  // whatever the sector looked like back when v1 was last true.
+  const already = raw.meta && Number(raw.meta.schema) >= 2;
   if (already && !FORCE) {
-    console.log(`Already at schema ${raw.meta.schema}. Nothing to do (use --force to rewrite).`);
+    console.log(`Already at schema ${raw.meta.schema} (tree shape). Nothing to do (use --force to rewrite from the v1 blob anyway).`);
     return;
   }
   if (!raw[V1_STATE_KEY]) throw new Error(`no ${V1_STATE_KEY} found — is this the right sector?`);

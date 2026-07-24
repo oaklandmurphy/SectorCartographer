@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Gavel, NotebookPen, Copy, Trash2, Plus, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6,
-  ClipboardList, VenetianMask, Flag, Check, Clock, RotateCcw, Wand2, Users } from "lucide-react";
+import { Gavel, Copy, Trash2, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6,
+  ClipboardList, VenetianMask, Flag, Check, Clock, RotateCcw, Wand2, Users, Rocket } from "lucide-react";
 import { T, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
 import ActionResolution from "./ui/ActionResolution.jsx";
+import GMNotesPanel from "./ui/GMNotesPanel.jsx";
+import SquadronMissionsPanel from "./SquadronMissionsPanel.jsx";
 
 const sign = (n) => (n >= 0 ? `+${n}` : `${n}`);
 const rollDie = () => 1 + Math.floor(Math.random() * 6);
@@ -20,22 +22,31 @@ const OUTCOME_LABEL = {
 };
 
 // GM-only workbench (App.jsx gates the tab and the render — see there for why
-// nothing here re-checks isGM). Three stacked tools:
+// nothing here re-checks isGM). A section switch up top picks between two
+// otherwise-independent request queues, each with its own resolution tool:
 //
-//   1. ACTION REQUESTS — the queue of things players have asked their agents to
+//   AGENT ACTIONS — the queue of things players have asked their agents to
 //      attempt, split into a tab per player. Each pending request can be pushed
 //      straight into the resolution tool below, pre-filled with that player's
-//      faction and the modifiers they flagged.
-//   2. ROLL RESOLUTION — resolve a roll against a faction's modifiers. When it's
-//      driven from a request it writes the full result (roll, mods, verdict, and
-//      the GM's outcome text) back onto that request and closes it; used
-//      standalone it just produces the Discord-ready text as before.
-//   3. NOTES — freeform log plus any tracked roll resolutions.
+//      faction and the modifiers they flagged. Resolution here is a free
+//      success/failure call, not gated by any table.
+//   SQUADRON MISSIONS — the queue of fighters/bombers players have committed to
+//      a mission from the Fleet tab (see SquadronMissionsPanel.jsx). Resolution
+//      runs the mission odds table (lib/missionOdds.js): a force ratio plus an
+//      independently-shifted roll for outcome and for casualties, and resolving
+//      immediately returns the surviving craft to their fleet.
+//
+// NOTES — a freeform log plus any tracked roll resolutions — sits underneath
+// whichever section is active; it's one shared log, not per-section.
 //
 // A modifier's point value is situational (the same modifier might swing +1 one
 // week and +2 the next), so it's typed in at the moment of use, not stored.
 export default function GMToolsView({ roles, factions, modifiers, notes, isMobile, addNote, removeNote,
-  actions, agents, resolveAction, reopenAction, removeAction }) {
+  actions, agents, resolveAction, reopenAction, removeAction,
+  fleets, missions, resolveMission, removeMission }) {
+  const [section, setSection] = useState("actions"); // "actions" | "missions"
+  const pendingMissionTotal = (missions || []).filter((m) => m.status !== "resolved").length;
+
   /* ------------------------------------------------ resolution tool state */
   const [roleId, setRoleId] = useState(roles[0]?.id || "");
   const [targetId, setTargetId] = useState(""); // the action being resolved, or "" for standalone use
@@ -153,18 +164,6 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   async function copyOutput() {
     try { await navigator.clipboard.writeText(output); } catch (e) { /* clipboard unavailable */ }
   }
-
-  const [noteInput, setNoteInput] = useState("");
-  function submitNote() {
-    const text = noteInput.trim();
-    if (!text) return;
-    addNote(text, "note");
-    setNoteInput("");
-  }
-  const sortedNotes = useMemo(
-    () => [...notes].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
-    [notes],
-  );
 
   /* ------------------------------------------------ action-request queue, split per player */
   // One group per player who has raised a request (keyed by their role id; a
@@ -425,101 +424,89 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     </div>
   );
 
-  const notesPane = () => (
-    <div>
-      <div className="stencil" style={{ fontSize: 16, letterSpacing: ".06em", color: T.text,
-        display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
-        <NotebookPen size={15} color={T.accent} /> NOTES
-      </div>
-
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <input value={noteInput} onChange={(e) => setNoteInput(e.target.value)}
-          placeholder="Add a note…" style={{ ...inputStyle, flex: 1 }}
-          onKeyDown={(e) => { if (e.key === "Enter") submitNote(); }} />
-        <Btn kind="primary" onClick={submitNote} disabled={!noteInput.trim()}>
-          <Plus size={13} /> Add
-        </Btn>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {sortedNotes.length === 0 && (
-          <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
-            border: `1px dashed ${T.line}` }}>
-            No notes yet.
-          </div>
-        )}
-        {sortedNotes.map((n) => (
-          <div key={n.id} style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel2,
-            padding: 9, display: "flex", flexDirection: "column", gap: 5 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 9.5, letterSpacing: ".1em", textTransform: "uppercase",
-                color: n.kind === "roll" ? T.accent : T.faint, fontWeight: 700 }}>
-                {n.kind === "roll" ? `Roll${n.playerName ? ` · ${n.playerName}` : ""}` : "Note"}
-              </span>
-              <span style={{ fontSize: 9.5, color: T.faint, marginLeft: "auto" }}>
-                {n.createdAt ? new Date(n.createdAt).toLocaleString() : ""}
-              </span>
-              <button onClick={() => removeNote(n.id)} title="Remove note"
-                style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", padding: 2 }}>
-                <Trash2 size={13} />
-              </button>
-            </div>
-            <div className={n.kind === "roll" ? "mono" : undefined}
-              style={{ fontSize: 12.5, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>
-              {n.text}
-            </div>
-          </div>
-        ))}
-      </div>
+  // The section switch: agent actions vs. squadron missions. Each owns its own
+  // queue + resolution tool; Notes stays shared underneath either one.
+  const sectionBar = () => (
+    <div style={{ display: "flex", gap: 3, background: T.panel3, padding: 3, border: `1px solid ${T.line}`,
+      margin: isMobile ? "0 0 14px" : "12px 12px 0", alignSelf: isMobile ? "stretch" : "flex-start" }}>
+      <Btn active={section === "actions"} onClick={() => setSection("actions")} title="Agent action requests"
+        style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
+        <ClipboardList size={13} /> Agent Actions {countBadge(pendingTotal)}
+      </Btn>
+      <Btn active={section === "missions"} onClick={() => setSection("missions")} title="Squadron mission requests"
+        style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
+        <Rocket size={13} /> Squadron Missions {countBadge(pendingMissionTotal)}
+      </Btn>
     </div>
   );
+  const notes_ = <GMNotesPanel notes={notes} addNote={addNote} removeNote={removeNote} />;
 
-  // Mobile: one scroll column — the player strip and its requests, then the tool,
-  // then notes. `toolRef` rides the tool so "Resolve with tool" can scroll to it.
+  // Mobile: one scroll column — the section switch, then the active section's
+  // queue + tool, then notes. `toolRef` rides the agent-action tool so "Resolve
+  // with tool" can scroll to it (squadron missions manage their own scroll).
   if (isMobile) {
     return (
       <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", background: T.void, padding: 12 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div>
-            <div className="stencil" style={{ fontSize: 16, letterSpacing: ".06em", color: T.text,
-              display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
-              <ClipboardList size={15} color={T.accent} /> ACTION REQUESTS {countBadge(pendingTotal, true)}
+        {sectionBar()}
+        {section === "missions" ? (
+          <SquadronMissionsPanel roles={roles} factions={factions} fleets={fleets} missions={missions}
+            isMobile={isMobile} resolveMission={resolveMission} removeMission={removeMission} />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <div>
+              <div className="stencil" style={{ fontSize: 16, letterSpacing: ".06em", color: T.text,
+                display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
+                <ClipboardList size={15} color={T.accent} /> ACTION REQUESTS {countBadge(pendingTotal, true)}
+              </div>
+              {playerGroups.length > 0 && <div style={{ marginBottom: 10 }}>{playerRail(false)}</div>}
+              {requestsPane()}
             </div>
-            {playerGroups.length > 0 && <div style={{ marginBottom: 10 }}>{playerRail(false)}</div>}
-            {requestsPane()}
+            <div ref={toolRef}>{toolPane()}</div>
           </div>
-          <div ref={toolRef}>{toolPane()}</div>
-          {notesPane()}
-        </div>
+        )}
+        <div style={{ marginTop: 20 }}>{notes_}</div>
       </div>
     );
   }
 
   // Desktop: the workspace — vertical player rail, the active player's request
   // stack, and the resolution tool (+ notes) pinned on the right, all in view.
+  if (section === "missions") {
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.void }}>
+        {sectionBar()}
+        <SquadronMissionsPanel roles={roles} factions={factions} fleets={fleets} missions={missions}
+          isMobile={isMobile} resolveMission={resolveMission} removeMission={removeMission}
+          notesPane={notes_} />
+      </div>
+    );
+  }
   return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", background: T.void }}>
-      <div style={{ width: 212, flexShrink: 0, borderRight: `2px solid ${T.line}`, background: T.panel,
-        display: "flex", flexDirection: "column", minHeight: 0 }}>
-        <div className="stencil" style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5,
-          letterSpacing: ".08em", color: T.text, padding: "12px 12px 8px", flexShrink: 0 }}>
-          <ClipboardList size={14} color={T.accent} /> REQUESTS {countBadge(pendingTotal)}
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.void }}>
+      {sectionBar()}
+      <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+        <div style={{ width: 212, flexShrink: 0, borderRight: `2px solid ${T.line}`, background: T.panel,
+          display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div className="stencil" style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5,
+            letterSpacing: ".08em", color: T.text, padding: "12px 12px 8px", flexShrink: 0 }}>
+            <ClipboardList size={14} color={T.accent} /> REQUESTS {countBadge(pendingTotal)}
+          </div>
+          <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 8px 10px" }}>
+            {playerGroups.length === 0
+              ? <div style={{ fontSize: 10.5, color: T.faint, padding: "8px 4px", lineHeight: 1.5 }}>No requests yet.</div>
+              : playerRail(true)}
+          </div>
         </div>
-        <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 8px 10px" }}>
-          {playerGroups.length === 0
-            ? <div style={{ fontSize: 10.5, color: T.faint, padding: "8px 4px", lineHeight: 1.5 }}>No requests yet.</div>
-            : playerRail(true)}
+
+        <div className="scroll" style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18 }}>
+          {requestsPane()}
         </div>
-      </div>
 
-      <div className="scroll" style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18 }}>
-        {requestsPane()}
-      </div>
-
-      <div ref={toolRef} className="scroll" style={{ width: 392, flexShrink: 0, borderLeft: `2px solid ${T.line}`,
-        background: T.void, overflowY: "auto", padding: 18, display: "flex", flexDirection: "column", gap: 22 }}>
-        {toolPane()}
-        {notesPane()}
+        <div ref={toolRef} className="scroll" style={{ width: 392, flexShrink: 0, borderLeft: `2px solid ${T.line}`,
+          background: T.void, overflowY: "auto", padding: 18, display: "flex", flexDirection: "column", gap: 22 }}>
+          {toolPane()}
+          {notes_}
+        </div>
       </div>
     </div>
   );

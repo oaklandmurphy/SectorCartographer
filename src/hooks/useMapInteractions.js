@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { uid } from "../utils/id.js";
 import { MIN_ZOOM, MAX_ZOOM } from "../constants.js";
+import { simplifyPath } from "../lib/simplifyPath.js";
 
 // Owns everything about the map surface: panning/zooming the view, dragging
 // systems/fleets/ships, and the freehand-drawing canvas. This is the one part
@@ -300,7 +301,7 @@ export function useMapInteractions({
   function canvasUp() {
     const st = activeStrokeRef.current; if (!st) return;
     activeStrokeRef.current = null;
-    setStrokes((s) => [...s, st]);
+    setStrokes((s) => [...s, { ...st, pts: simplifyPath(st.pts) }]);
   }
   const undoStroke = () => { if (canEdit) setStrokes((s) => s.slice(0, -1)); };
   const clearStrokes = () => { if (canEdit) setStrokes([]); };

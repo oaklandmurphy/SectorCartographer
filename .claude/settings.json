@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/aidan/AppData/Local/Temp/claude/c--Users-aidan-sector-cartographer/ee407c98-edf7-47c8-99ff-fa7f2c967e21/scratchpad/**)",
+      "Bash(node verify8.js)",
+      "Bash(curl -s \"https://sector-cartographer-default-rtdb.firebaseio.com/sectors/claude-verify-test-1.json\")",
+      "Bash(node -e ' *)"
+    ]
+  }
+}

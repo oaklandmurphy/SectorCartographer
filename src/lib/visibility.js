@@ -161,6 +161,15 @@ export function visibleActions(actions, viewer) {
   return (actions || []).filter((a) => a.factionId === viewer.roleFactionId);
 }
 
+// Squadron mission requests a non-GM viewer renders on the Fleet tab: only
+// their own faction's, same rule as an agent's action requests. The GM sees
+// every faction's, which is how they collect and resolve them in GM Tools.
+export function visibleMissions(missions, viewer) {
+  if (viewer.seesAll) return missions || [];
+  if (!viewer.roleFactionId) return [];
+  return (missions || []).filter((m) => m.factionId === viewer.roleFactionId);
+}
+
 // Short human summary of an item's visibility, for the GM's editing UI.
 export function visibilitySummary(item, roles) {
   const vis = item && item.visibility;

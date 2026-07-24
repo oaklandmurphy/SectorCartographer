@@ -55,4 +55,4 @@ if (firebaseReady) {
   console.warn("[firebase] VITE_FIREBASE_DATABASE_URL is not set — shared sector data will not load or save. See README.md.");
 }
 
-export { db };
+export { db, app };

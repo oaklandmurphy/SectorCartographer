@@ -11,7 +11,13 @@
 //               leaves simply doesn't exist. Reads restore them from `defaults`.
 //   visibility  `[]` (GM-only) and absent (public) mean opposite things, and an
 //               empty array does not survive the trip. See encodeVisibility.
-export const SCHEMA_VERSION = 2;
+// v3 split a fleet's ships out into their own collection (see flattenFleets/
+// nestFleets below) so editing one carrier no longer rewrites every other
+// carrier in its fleet. A schema-2 sector (ships still embedded in
+// fleets/{id}/ships) is read via the decodeV2Fleets compatibility path in
+// sectorRepo.js and migrates to v3 in place on its first save after that,
+// same as v1->v2 before it.
+export const SCHEMA_VERSION = 3;
 
 // Legacy v1 keys: the whole sector as one JSON string per key. Still read as a
 // fallback (see sectorRepo.loadSector) so a browser that has not seen the new
@@ -23,11 +29,23 @@ export const V1_ACCESS_KEY = "galaxy-sector-access:v1";
 // The collections that make up a sector, each a child of sectors/{id}/.
 // Art is one of them now; under v1 it needed its own key to keep SVGs from
 // being re-uploaded on every keystroke, which per-entity writes solve for free.
+// "ships" holds the carriers that used to be embedded on each fleet as
+// fleets/{id}/ships — see flattenFleets/nestFleets below. Every other consumer
+// in the app still sees them nested at sector.fleets[].ships[] exactly as
+// before; only sectorSchema.js and sectorRepo.js know the DB stores them apart.
 export const COLLECTIONS = [
   "factions", "relations", "layers", "systems",
-  "links", "fleets", "strokes", "wiki", "wikiReads", "roles", "art", "modifiers", "notes",
-  "agents", "orders", "actions",
+  "links", "fleets", "ships", "strokes", "wiki", "wikiReads", "roles", "art", "modifiers",
+  "agents", "orders", "actions", "missions",
 ];
+
+// GM Tools notes live at their own top-level path (sectorNotes/{sectorId}, see
+// sectorRepo.js) rather than under sectors/{id} — they're the one collection
+// nobody but the GM ever reads, so keeping them out of the root subtree means
+// a listener at sectors/{id} never has to carry them past every player and
+// anonymous viewer on every load. Still just another collection as far as
+// encode/decode/diff are concerned.
+export const NOTES_COLLECTION = "notes";
 
 // Fields RTDB will not give back as stored: empty arrays vanish, and explicit
 // nulls come back undefined. Reads merge these in so callers can keep doing
@@ -35,13 +53,14 @@ export const COLLECTIONS = [
 const defaults = {
   factions: { members: [], wikiId: null },
   systems: { markers: [], factionId: "fac_none" },
-  fleets: { ships: [], systemId: null },
+  fleets: { systemId: null },
   strokes: { pts: [] },
   wiki: { body: "", title: "", factionId: null },
   agents: { memberId: null, notes: "", systemId: null, actionCap: 0 },
   orders: { path: [], committed: false },
   actions: { modifierIds: [], text: "", status: "pending", resolution: null },
-  relations: {}, layers: {}, links: {}, wikiReads: {}, roles: {}, art: {}, modifiers: {}, notes: { text: "" },
+  missions: { detachments: [], text: "", status: "pending", resolution: null },
+  relations: {}, layers: {}, links: {}, wikiReads: {}, roles: {}, art: {}, modifiers: {}, notes: { text: "" }, ships: {},
 };
 
 /* ------------------------------------------------ visibility
@@ -98,15 +117,13 @@ const asArray = (v) => (Array.isArray(v) ? v : v && typeof v === "object" ? Obje
    Only collections with nested lists or visibility need one; the rest are flat
    and round-trip as themselves. */
 const codecs = {
-  fleets: {
-    encode: (f) => ({
-      ...f,
-      ships: (f.ships || []).map((s) => withVis({ ...s, squadrons: s.squadrons || [] })),
-    }),
-    decode: (f) => ({
-      ...f,
-      ships: asArray(f.ships).map((s) => ({ ...readVis(s), squadrons: asArray(s.squadrons) })),
-    }),
+  // A carrier: visibility (GM-only/role-restricted, same as a wiki entry) plus
+  // its squadrons list, same empty-array/sparse-object treatment as everywhere
+  // else. `fleetId` (which fleet it belongs to) rides along as a plain field —
+  // see flattenFleets/nestFleets, which is the only code that reads it.
+  ships: {
+    encode: (s) => withVis({ ...s, squadrons: s.squadrons || [] }),
+    decode: (s) => ({ ...readVis(s), squadrons: asArray(s.squadrons) }),
   },
   systems: {
     encode: (s) => ({ ...s, markers: s.markers || [] }),
@@ -147,6 +164,13 @@ const codecs = {
     }),
   },
   wiki: { encode: withVis, decode: readVis },
+  // A squadron mission's `detachments` is the list of committed craft ({ shipId,
+  // squadronId, model, count }) snapshotted off their source squadrons at submit
+  // time — same empty-array/sparse-object treatment as an action's modifierIds.
+  missions: {
+    encode: (m) => ({ ...m, detachments: m.detachments || [] }),
+    decode: (m) => ({ ...m, detachments: asArray(m.detachments) }),
+  },
 };
 
 // One entity -> the object stored at sectors/{id}/{collection}/{entityId}.
@@ -186,6 +210,62 @@ export function encodeCollection(collection, list) {
   return out;
 }
 
+/* ------------------------------------------------ fleets <-> ships split
+
+   The app thinks in sector.fleets[].ships[], same as it always has — these two
+   functions are the only place that knows the database keeps ships apart, so
+   nothing above this file (App.jsx, every component) had to change for it.
+   flattenFleets runs right before a diff/encode; nestFleets runs right after a
+   decode. Both are plain data transforms, safe to call as often as needed. */
+export function flattenFleets(sector) {
+  const ships = [];
+  const fleets = (sector.fleets || []).map((f) => {
+    const { ships: fShips, ...meta } = f;
+    (fShips || []).forEach((s) => ships.push({ ...s, fleetId: f.id }));
+    return meta;
+  });
+  return { ...sector, fleets, ships };
+}
+
+export function nestFleets(sector) {
+  const byFleet = new Map();
+  for (const s of sector.ships || []) {
+    const { fleetId, ...rest } = s;
+    if (!byFleet.has(fleetId)) byFleet.set(fleetId, []);
+    byFleet.get(fleetId).push(rest);
+  }
+  const { ships, ...rest } = sector;
+  const fleets = (sector.fleets || []).map((f) => ({ ...f, ships: byFleet.get(f.id) || [] }));
+  return { ...rest, fleets };
+}
+
+// Schema-2 compatibility only: before v3, a fleet carried its ships embedded
+// at fleets/{id}/ships (a plain array, encoded/decoded by what was then the
+// fleets codec) and no separate ships collection existed. Used by
+// sectorRepo.js to read a sector that hasn't been through the v3 migration
+// yet — it migrates to the split shape in place on its first save after that,
+// same as v1->v2 before it (see decode() there).
+export function decodeV2Fleets(rawFleetsNode) {
+  if (!rawFleetsNode || typeof rawFleetsNode !== "object") return [];
+  return Object.entries(rawFleetsNode)
+    .map(([id, raw], i) => ({
+      id,
+      raw: raw && typeof raw === "object" ? raw : {},
+      ord: raw && typeof raw._ord === "number" ? raw._ord : Number.MAX_SAFE_INTEGER,
+      i,
+    }))
+    .sort((a, b) => a.ord - b.ord || a.i - b.i)
+    .map(({ id, raw }) => {
+      const { _ord, ships, id: rawId, ...rest } = raw;
+      return {
+        systemId: null,
+        ...rest,
+        id: rawId || id,
+        ships: asArray(ships).map((s) => ({ ...readVis(s), squadrons: asArray(s.squadrons) })),
+      };
+    });
+}
+
 /* ------------------------------------------------ diffing
 
    Kept here, next to the encoders and free of any Firebase import, so both the
@@ -209,32 +289,49 @@ function deepEqual(a, b) {
   return ka.every((k) => Object.prototype.hasOwnProperty.call(b, k) && deepEqual(a[k], b[k]));
 }
 
-// The multi-path update that turns `prev` into `next`. Entities are compared as
+// One collection's slice of a multi-path update: entities are compared as
 // stored, so an untouched one costs nothing; a reordered one writes just its
 // `_ord` rather than the whole node, which keeps a delete near the top of a long
-// list from rewriting every entity below it.
-export function buildSectorUpdates(prev, next) {
-  const updates = {};
-  for (const c of COLLECTIONS) {
-    const before = encodeCollection(c, prev[c]);
-    const after = encodeCollection(c, next[c]);
-    for (const [id, node] of Object.entries(after)) {
-      const was = before[id];
-      if (!was) { updates[`${c}/${id}`] = node; continue; }
-      const { _ord: wasOrd, ...wasRest } = was;
-      const { _ord: nowOrd, ...nowRest } = node;
-      if (!deepEqual(wasRest, nowRest)) updates[`${c}/${id}`] = node;
-      else if (wasOrd !== nowOrd) updates[`${c}/${id}/_ord`] = nowOrd;
-    }
-    for (const id of Object.keys(before)) if (!after[id]) updates[`${c}/${id}`] = null;
+// list from rewriting every entity below it. Shared by buildSectorUpdates (the
+// COLLECTIONS loop) and buildCollectionUpdates (notes, diffed on its own since
+// it lives at its own path — see sectorRepo.js).
+function diffCollectionInto(updates, collection, prevList, nextList) {
+  const before = encodeCollection(collection, prevList);
+  const after = encodeCollection(collection, nextList);
+  for (const [id, node] of Object.entries(after)) {
+    const was = before[id];
+    if (!was) { updates[`${collection}/${id}`] = node; continue; }
+    const { _ord: wasOrd, ...wasRest } = was;
+    const { _ord: nowOrd, ...nowRest } = node;
+    if (!deepEqual(wasRest, nowRest)) updates[`${collection}/${id}`] = node;
+    else if (wasOrd !== nowOrd) updates[`${collection}/${id}/_ord`] = nowOrd;
   }
+  for (const id of Object.keys(before)) if (!after[id]) updates[`${collection}/${id}`] = null;
+}
+
+// The multi-path update that turns `prev` into `next`. Both are flattened
+// first — callers (App.jsx, sectorRepo.js, the migration scripts) always deal
+// in sector.fleets[].ships[]; this is the one place that splits it into the
+// fleets/ships collections actually diffed and written.
+export function buildSectorUpdates(prev, next) {
+  const p = flattenFleets(prev), n = flattenFleets(next);
+  const updates = {};
+  for (const c of COLLECTIONS) diffCollectionInto(updates, c, p[c], n[c]);
   // Its own node, so setting the lock never rewrites sector content — but still
   // diffed here, so migrating a sector always carries its lock across.
-  if ((prev.lockCode || "") !== (next.lockCode || "")) updates["access/lockCode"] = next.lockCode || "";
+  if ((p.lockCode || "") !== (n.lockCode || "")) updates["access/lockCode"] = n.lockCode || "";
   // Whether fleet positions are public. Absent means the default, true, so we
   // compare normalized and only write the exception (false) or a return to true.
-  const pubBefore = prev.fleetsPublic !== false;
-  const pubAfter = next.fleetsPublic !== false;
+  const pubBefore = p.fleetsPublic !== false;
+  const pubAfter = n.fleetsPublic !== false;
   if (pubBefore !== pubAfter) updates["access/fleetsPublic"] = pubAfter;
+  return updates;
+}
+
+// Same idea for a single collection that lives at its own root (just notes,
+// today) rather than under sectors/{id} alongside the rest.
+export function buildCollectionUpdates(collection, prevList, nextList) {
+  const updates = {};
+  diffCollectionInto(updates, collection, prevList, nextList);
   return updates;
 }
