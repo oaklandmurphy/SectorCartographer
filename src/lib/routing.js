@@ -15,6 +15,7 @@
 //   #/politics
 //   #/codex · #/codex/<category> · #/codex/<category>/<entryId>
 //   #/modifiers · #/modifiers/<factionId>
+//   #/agents · #/agents/<factionId>
 //   #/odds
 //   #/gmtools
 //
@@ -25,7 +26,7 @@
 
 import { WIKI_CATS } from "../constants.js";
 
-export const TABS = ["map", "fleet", "politics", "codex", "updates", "modifiers", "odds", "gmtools"];
+export const TABS = ["map", "fleet", "politics", "codex", "updates", "modifiers", "agents", "odds", "gmtools"];
 
 export const DEFAULT_ROUTE = {
   tab: "map",
@@ -34,6 +35,7 @@ export const DEFAULT_ROUTE = {
   fleetId: null,   // null = whichever fleet FleetView falls back to
   compareId: null,
   modFactionId: null, // null = whichever faction ModifiersView falls back to
+  agentFactionId: null, // null = whichever faction AgentsView falls back to
 };
 
 const isTab = (t) => TABS.includes(t);
@@ -64,6 +66,9 @@ export function parseHash(hash) {
   if (tab === "modifiers") {
     return { tab, modFactionId: rest[0] || null };
   }
+  if (tab === "agents") {
+    return { tab, agentFactionId: rest[0] || null };
+  }
   return { tab };
 }
 
@@ -77,6 +82,8 @@ export function formatHash(route) {
     if (route.compareId) seg.push("vs", route.compareId);
   } else if (route.tab === "modifiers" && route.modFactionId) {
     seg.push(route.modFactionId);
+  } else if (route.tab === "agents" && route.agentFactionId) {
+    seg.push(route.agentFactionId);
   }
   return `#/${seg.map(encodeURIComponent).join("/")}`;
 }

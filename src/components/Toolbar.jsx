@@ -9,7 +9,7 @@ import Btn from "./ui/Btn.jsx";
 import { ModeToggle, DrawPalette } from "./ui/MapTools.jsx";
 
 export default function Toolbar({
-  mode, setMode, setLinkSource, canEdit,
+  mode, setMode, setLinkSource, canEdit, canOrder,
   addSystemCenter, addFleetCenter,
   drawColor, setDrawColor, drawWidth, setDrawWidth,
   strokes, undoStroke, clearStrokes,
@@ -30,7 +30,7 @@ export default function Toolbar({
         </div>
       </div>
 
-      <ModeToggle mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} />
+      <ModeToggle mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} canOrder={canOrder} />
 
       <Btn onClick={addSystemCenter} disabled={!canEdit} title={canEdit ? "Add a star system (or double-click the map)" : "View only"}><Plus size={14} /> System</Btn>
       <Btn onClick={addFleetCenter} disabled={!canEdit} title={canEdit ? "Add a fleet" : "View only"}><Rocket size={14} /> Fleet</Btn>

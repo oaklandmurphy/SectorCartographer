@@ -1,4 +1,4 @@
-import { Star } from "lucide-react";
+import { Star, VenetianMask } from "lucide-react";
 import { T, cut, sceneBackdrop, floatingPanel } from "../theme.js";
 import { ICONS, OVERVIEW_ZOOM } from "../constants.js";
 import { craftInFleet } from "../lib/carriers.js";
@@ -6,24 +6,56 @@ import TargetBrackets from "./ui/TargetBrackets.jsx";
 import Starfield from "./ui/Starfield.jsx";
 import SystemPopup from "./SystemPopup.jsx";
 import FleetPopup from "./FleetPopup.jsx";
+import AgentPopup from "./AgentPopup.jsx";
+import OrdersPanel from "./OrdersPanel.jsx";
+
+// Move-order routes are drawn in their faction's own color, lightened toward
+// white so the path stands out against that same faction's (darker) pieces and
+// its systems underneath.
+function brightenColor(hex, amt = 0.5) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+  if (!m) return "#ffe000"; // malformed — fall back to a bright yellow
+  const n = parseInt(m[1], 16);
+  const up = (c) => Math.round(c + (255 - c) * amt);
+  const r = up((n >> 16) & 255), g = up((n >> 8) & 255), b = up(n & 255);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+}
 
 export default function MapCanvas({
   mapRef, canvasRef, containerSize, isMobile,
   mode, canEdit, view, w2s,
   systems, fleets, links, fleetPos,
+  agents, agentPos, orders,
   factions, layers, factionById, layerById,
-  selSystem, selFleet, linkSource, hoverFleet,
+  selSystem, selFleet, selAgent, linkSource, hoverFleet,
+  routing, routingOrder,
   onMapPointerDown, onMapDoubleClick,
   startPieceDrag, canvasDown, canvasMove, canvasUp,
-  setSelSystem, setSelFleet,
+  onAgentTap, undoOrderStop, clearRoutingOrder, commitRoutingOrder,
+  setSelSystem, setSelFleet, setSelAgent,
   patchSystem, addMarker, patchMarker, removeMarker, deployFleetAt, deleteSystem,
   patchFleet, addShip, patchShip, removeShip, moveShip, deleteFleet, beginShipDrag,
   addSquadron, patchSquadron, removeSquadron, goToFleet, art,
+  patchAgent, removeAgent, canManageAgents,
   wiki, roles, goToCodex, createEntry,
 }) {
   const overview = view.scale <= OVERVIEW_ZOOM; // zoomed out far enough — simplify systems to plain markers
   const selSystemObj = systems.find((s) => s.id === selSystem);
   const selFleetObj = fleets.find((f) => f.id === selFleet);
+  const selAgentObj = (agents || []).find((a) => a.id === selAgent);
+
+  // The map position a move order starts from — where its piece currently sits.
+  const pieceOrigin = (o) => (o.pieceType === "fleet" ? fleetPos[o.pieceId] : agentPos[o.pieceId]) || null;
+  const systemById = (id) => systems.find((s) => s.id === id);
+  // The world-space polyline for an order: its piece's position, then each stop's
+  // system center. Null if we can't anchor it (e.g. an unplaced agent).
+  const orderPoints = (o) => {
+    const origin = pieceOrigin(o);
+    if (!origin) return null;
+    const pts = [origin];
+    for (const sid of o.path) { const s = systemById(sid); if (s) pts.push({ x: s.x, y: s.y }); }
+    return pts.length >= 2 ? pts : null;
+  };
 
   return (
     <div ref={mapRef} style={{ ...sceneBackdrop, cursor: mode === "select" ? "grab" : "crosshair" }}>
@@ -54,6 +86,53 @@ export default function MapCanvas({
             stroke="#7a6a48" strokeOpacity={0.6} strokeWidth={1.4} strokeDasharray="6 5" />;
         })}
       </svg>
+
+      {/* move-order paths — drawn in the ordering faction's (brightened) color,
+          with an arrow on every segment's midpoint pointing the way of travel.
+          Dashed while a route is still a draft, solid once submitted as ready. The
+          arrow shape says what kind of piece is moving: a solid triangle for a
+          fleet, an open chevron on a slimmer line for an agent. Sits above the
+          hyperlanes but below the pieces so a marker draws over its own route. */}
+      {orders && orders.length > 0 && (
+        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 5 }}>
+          {orders.map((o) => {
+            const pts = orderPoints(o);
+            if (!pts) return null;
+            const scr = pts.map((p) => w2s(p.x, p.y));
+            const draft = !o.committed;
+            const isAgent = o.pieceType === "agent";
+            const color = brightenColor(factionById(o.factionId).color);
+            return (
+              <g key={o.id}>
+                {scr.slice(1).map((b, i) => {
+                  const a = scr[i];
+                  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+                  const deg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+                  const xf = `translate(${mx} ${my}) rotate(${deg})`;
+                  return (
+                    <g key={i}>
+                      <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                        stroke={color} strokeOpacity={draft ? 0.75 : 1}
+                        strokeWidth={isAgent ? (draft ? 1.6 : 2.4) : (draft ? 2 : 3)}
+                        strokeDasharray={draft ? "7 6" : undefined} strokeLinecap="round" />
+                      {isAgent ? (
+                        // agent — open chevron
+                        <polyline points="-7,-9 11,0 -7,9" fill="none" stroke={color}
+                          strokeOpacity={draft ? 0.85 : 1} strokeWidth={3.2}
+                          strokeLinecap="round" strokeLinejoin="round" transform={xf} />
+                      ) : (
+                        // fleet — solid triangle
+                        <polygon points="-8,-8 11,0 -8,8" fill={color} fillOpacity={draft ? 0.85 : 1}
+                          stroke="#14110b" strokeWidth={0.9} strokeLinejoin="round" transform={xf} />
+                      )}
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          })}
+        </svg>
+      )}
 
       {/* systems */}
       {systems.map((s) => {
@@ -113,6 +192,7 @@ export default function MapCanvas({
       {fleets.map((f) => {
         const pos = fleetPos[f.id]; const p = w2s(pos.x, pos.y); const fac = factionById(f.factionId);
         const isSel = f.id === selFleet; const isHover = f.id === hoverFleet;
+        const isRouting = routing && routing.type === "fleet" && routing.id === f.id;
         // badge counts carriers (the named hulls); the craft they carry only fit in the tooltip
         const nCarriers = f.ships.length;
         const tip = `${f.name} · ${nCarriers} carrier${nCarriers === 1 ? "" : "s"} · ${craftInFleet(f)} craft`;
@@ -121,11 +201,11 @@ export default function MapCanvas({
             onPointerDown={(e) => startPieceDrag(e, "fleet", f.id, pos.x, pos.y)}
             onDoubleClick={(e) => e.stopPropagation()}
             style={{ position: "absolute", left: p.x, top: p.y, transform: "translate(-50%,-50%)", touchAction: "none",
-              cursor: mode === "draw" ? "crosshair" : (canEdit ? "grab" : "pointer"), zIndex: isSel ? 24 : 18 }}>
+              cursor: mode === "draw" ? "crosshair" : (canEdit ? "grab" : "pointer"), zIndex: isSel || isRouting ? 24 : 18 }}>
             <div style={{ position: "relative", width: 30, height: 30,
               filter: `drop-shadow(0 2px 3px rgba(0,0,0,.7)) drop-shadow(0 0 3px ${fac.color}77)`,
               transform: isHover ? "scale(1.18)" : "none", transition: "transform .1s" }}>
-              {isSel && <TargetBrackets color={T.accent} inset={-6} armLen={8} thick={2} />}
+              {(isSel || isRouting) && <TargetBrackets color={isRouting ? T.amber : T.accent} inset={-6} armLen={8} thick={2} />}
               <svg width="30" height="30" viewBox="0 0 30 30">
                 <polygon points="15,2 27,26 15,20 3,26" fill={fac.color} stroke="#14110b" strokeWidth="1.6" strokeLinejoin="round" />
                 <polygon points="15,3 15,20 3,26" fill="#000000" opacity="0.22" />
@@ -135,6 +215,38 @@ export default function MapCanvas({
                 padding: "0 3px", background: "#14110b", border: `1px solid ${fac.color}`,
                 color: fac.color, fontSize: 9.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {nCarriers}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* agents — covert operatives parked at a system, only ever rendered for
+          their own faction (the caller passes the already-filtered list). They
+          fan out just below their system so they never sit under a fleet. */}
+      {(agents || []).map((a) => {
+        const pos = agentPos[a.id];
+        if (!pos) return null; // unplaced, or its system is gone — page-only
+        const p = w2s(pos.x, pos.y); const fac = factionById(a.factionId);
+        const isSel = a.id === selAgent;
+        const isRouting = routing && routing.type === "agent" && routing.id === a.id;
+        const fac2 = factions.find((f) => f.id === a.factionId);
+        const member = fac2 ? (fac2.members || []).find((m) => m.id === a.memberId) : null;
+        const label = member ? member.name : "Agent";
+        const tip = a.notes ? `${label} · ${a.notes}` : label;
+        return (
+          <div key={a.id} data-piece="1" title={tip}
+            onPointerDown={(e) => e.stopPropagation()} onClick={() => onAgentTap(a.id)}
+            style={{ position: "absolute", left: p.x, top: p.y, transform: "translate(-50%,-50%)", touchAction: "none",
+              cursor: "pointer", zIndex: isSel || isRouting ? 24 : 17 }}>
+            <div style={{ position: "relative", width: 24, height: 24,
+              filter: `drop-shadow(0 2px 3px rgba(0,0,0,.7)) drop-shadow(0 0 3px ${fac.color}77)` }}>
+              {(isSel || isRouting) && <TargetBrackets color={isRouting ? T.amber : T.accent} inset={-5} armLen={7} thick={2} />}
+              <div style={{ position: "absolute", inset: 0, ...cut(4),
+                background: `radial-gradient(circle at 50% 32%, ${fac.color}, ${fac.color}bb 60%, #000 150%)`,
+                border: "1.5px solid #14110b", display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "inset 0 1px 2px rgba(255,255,255,.18)" }}>
+                <VenetianMask size={13} color="#14110b" />
               </div>
             </div>
           </div>
@@ -156,6 +268,7 @@ export default function MapCanvas({
         {mode === "select" && !canEdit && <span><b style={{ color: T.amber }}>View only</b> · click a system or fleet to see its details · drag empty space to pan · scroll to zoom · unlock editing from the toolbar{overview && <> · <b style={{ color: T.amber }}>zoomed out</b>, names & status icons hidden</>}</span>}
         {mode === "link" && <span><b style={{ color: T.amber }}>Link</b> · click one system, then another to connect or disconnect their hyperlane</span>}
         {mode === "draw" && <span><b style={{ color: T.accent }}>Draw</b> · sketch freely · pieces are locked · use Undo / Clear above</span>}
+        {mode === "orders" && <span><b style={{ color: T.amber }}>Orders</b> · click a fleet or agent you own, then click systems to plot its route · <b style={{ color: T.text }}>Submit</b> to signal the GM you're ready (still editable after)</span>}
       </div>
 
       {/* ---------------- system editor popup ---------------- */}
@@ -185,6 +298,44 @@ export default function MapCanvas({
           goToFleet={goToFleet} roles={roles} art={art}
         />
       )}
+
+      {/* ---------------- agent popup ---------------- */}
+      {selAgentObj && agentPos[selAgentObj.id] && (
+        <AgentPopup
+          agent={selAgentObj} faction={factions.find((f) => f.id === selAgentObj.factionId)}
+          anchor={w2s(agentPos[selAgentObj.id].x, agentPos[selAgentObj.id].y)}
+          containerSize={containerSize} isMobile={isMobile}
+          canManage={canManageAgents ? canManageAgents(selAgentObj.factionId) : false}
+          systems={systems} patchAgent={patchAgent} removeAgent={removeAgent}
+          onClose={() => setSelAgent(null)}
+        />
+      )}
+
+      {/* ---------------- move-order plotting console ---------------- */}
+      {mode === "orders" && (() => {
+        if (!routing) return <OrdersPanel />;
+        const fac = factionById(routing.factionId);
+        let pieceLabel = "", originName = "";
+        if (routing.type === "fleet") {
+          const f = fleets.find((x) => x.id === routing.id);
+          pieceLabel = f ? f.name : "Fleet";
+          originName = f && f.systemId ? (systemById(f.systemId) || {}).name : "in transit";
+        } else {
+          const a = (agents || []).find((x) => x.id === routing.id);
+          const fac2 = a ? factions.find((f) => f.id === a.factionId) : null;
+          const member = a && fac2 ? (fac2.members || []).find((m) => m.id === a.memberId) : null;
+          pieceLabel = member ? member.name : "Agent";
+          originName = a && a.systemId ? (systemById(a.systemId) || {}).name : "unplaced";
+        }
+        const stops = (routingOrder ? routingOrder.path : []).map((id) => ({ id, name: (systemById(id) || {}).name || "—" }));
+        return (
+          <OrdersPanel
+            pieceLabel={pieceLabel} factionColor={fac && fac.color} originName={originName}
+            stops={stops} committed={!!(routingOrder && routingOrder.committed)}
+            onUndo={undoOrderStop} onClear={clearRoutingOrder} onCommit={commitRoutingOrder}
+          />
+        );
+      })()}
     </div>
   );
 }

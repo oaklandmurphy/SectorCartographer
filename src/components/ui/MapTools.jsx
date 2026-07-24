@@ -1,12 +1,13 @@
-import { MousePointer2, Share2, Pencil } from "lucide-react";
+import { MousePointer2, Share2, Pencil, Route } from "lucide-react";
 import { T } from "../../theme.js";
 import { DRAW_COLORS } from "../../constants.js";
 import Btn from "./Btn.jsx";
 
-// The Select / Link / Draw mode switch, shared by the desktop and mobile map
-// toolbars. `fill` stretches the buttons to share the row (mobile), otherwise
-// they hug their labels (desktop).
-export function ModeToggle({ mode, setMode, setLinkSource, canEdit, fill }) {
+// The Select / Link / Draw / Orders mode switch, shared by the desktop and mobile
+// map toolbars. `fill` stretches the buttons to share the row (mobile), otherwise
+// they hug their labels (desktop). Link/Draw are GM-only (`canEdit`); Orders is
+// open to players plotting their own moves (`canOrder`).
+export function ModeToggle({ mode, setMode, setLinkSource, canEdit, canOrder, fill }) {
   const seg = (m) => ({
     border: "none", borderRadius: 0, background: mode === m ? undefined : "transparent",
     ...(fill ? { flex: 1, justifyContent: "center" } : {}),
@@ -24,6 +25,12 @@ export function ModeToggle({ mode, setMode, setLinkSource, canEdit, fill }) {
         title={canEdit ? "Freehand draw on the map" : "View only"} style={seg("draw")}>
         <Pencil size={14} /> Draw
       </Btn>
+      {canOrder && (
+        <Btn active={mode === "orders"} onClick={() => { setMode("orders"); setLinkSource(null); }}
+          title="Plot move orders for your fleets & agents" style={seg("orders")}>
+          <Route size={14} /> Orders
+        </Btn>
+      )}
     </div>
   );
 }

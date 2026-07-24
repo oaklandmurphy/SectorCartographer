@@ -26,6 +26,7 @@ export const V1_ACCESS_KEY = "galaxy-sector-access:v1";
 export const COLLECTIONS = [
   "factions", "relations", "layers", "systems",
   "links", "fleets", "strokes", "wiki", "wikiReads", "roles", "art", "modifiers", "notes",
+  "agents", "orders",
 ];
 
 // Fields RTDB will not give back as stored: empty arrays vanish, and explicit
@@ -37,6 +38,8 @@ const defaults = {
   fleets: { ships: [], systemId: null },
   strokes: { pts: [] },
   wiki: { body: "", title: "", factionId: null },
+  agents: { memberId: null, notes: "", systemId: null },
+  orders: { path: [], committed: false },
   relations: {}, layers: {}, links: {}, wikiReads: {}, roles: {}, art: {}, modifiers: {}, notes: { text: "" },
 };
 
@@ -115,6 +118,13 @@ const codecs = {
   strokes: {
     encode: (s) => ({ ...s, pts: s.pts || [] }),
     decode: (s) => ({ ...s, pts: asArray(s.pts) }),
+  },
+  // A move order's `path` is a list of system ids; RTDB drops an empty one and
+  // returns a sparse one as a numeric-keyed object, so normalize it back — same
+  // treatment as a stroke's points.
+  orders: {
+    encode: (o) => ({ ...o, path: o.path || [] }),
+    decode: (o) => ({ ...o, path: asArray(o.path) }),
   },
   wiki: { encode: withVis, decode: readVis },
 };

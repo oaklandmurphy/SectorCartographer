@@ -10,7 +10,7 @@ import { ModeToggle, DrawPalette } from "./ui/MapTools.jsx";
 import { SaveStatus } from "./Toolbar.jsx";
 
 export default function MobileToolbar({
-  mode, setMode, setLinkSource, canEdit,
+  mode, setMode, setLinkSource, canEdit, canOrder,
   addSystemCenter, addFleetCenter,
   drawColor, setDrawColor, drawWidth, setDrawWidth,
   strokes, undoStroke, clearStrokes,
@@ -41,7 +41,7 @@ export default function MobileToolbar({
           style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 55, maxHeight: "70vh", overflowY: "auto",
             background: T.panel, borderBottom: `2px solid ${T.line}`, boxShadow: "0 14px 30px rgba(0,0,0,.6)",
             padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-          <ModeToggle mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} fill />
+          <ModeToggle mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} canOrder={canOrder} fill />
 
           <div style={{ display: "flex", gap: 8 }}>
             <Btn onClick={addSystemCenter} disabled={!canEdit} title={canEdit ? "Add a star system" : "View only"} style={{ flex: 1, justifyContent: "center" }}>

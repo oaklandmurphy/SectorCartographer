@@ -129,6 +129,29 @@ export function visibleFleets(fleets, viewer, { relations, fleetsPublic }) {
   return out;
 }
 
+/* ------------------------------------------------ agents & move orders
+
+   Both are strictly own-faction, unlike fleets: an agent is a covert operative,
+   so even an ally never sees it — only the owning faction's players and the GM.
+   Move orders are the same, and are player *proposals* the GM resolves by hand;
+   a player only ever sees their own faction's, committed or still being drafted. */
+
+// The agents a non-GM viewer renders on the map and the Agents page: only their
+// own faction's. Anonymous viewers (no faction) see none.
+export function visibleAgents(agents, viewer) {
+  if (viewer.seesAll) return agents || [];
+  if (!viewer.roleFactionId) return [];
+  return (agents || []).filter((a) => a.factionId === viewer.roleFactionId);
+}
+
+// The move orders a non-GM viewer renders: only their own faction's. The GM sees
+// every faction's, which is how they resolve committed movement.
+export function visibleOrders(orders, viewer) {
+  if (viewer.seesAll) return orders || [];
+  if (!viewer.roleFactionId) return [];
+  return (orders || []).filter((o) => o.factionId === viewer.roleFactionId);
+}
+
 // Short human summary of an item's visibility, for the GM's editing UI.
 export function visibilitySummary(item, roles) {
   const vis = item && item.visibility;

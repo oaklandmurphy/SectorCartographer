@@ -251,7 +251,9 @@ export function useMapInteractions({
     setShipDrag({ ship, fromFleetId, x: e.clientX, y: e.clientY });
   }
   function onMapPointerDown(e) {
-    if (modeRef.current === "select") {
+    // Orders mode pans the same as select — a player plotting a long route still
+    // needs to drag the map around between stops.
+    if (modeRef.current === "select" || modeRef.current === "orders") {
       dragRef.current = { kind: "pan", startX: e.clientX, startY: e.clientY, origOx: viewRef.current.ox, origOy: viewRef.current.oy, moved: false };
       document.body.style.userSelect = "none";
     } else if (modeRef.current === "link") {

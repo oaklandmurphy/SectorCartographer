@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react";
-import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Zap, Bell, Gavel } from "lucide-react";
+import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Zap, Bell, Gavel, VenetianMask } from "lucide-react";
 import { T, panelStyle, cut } from "./theme.js";
 import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
 import { storage } from "./lib/storage.js";
 import { subscribeSector, saveSector, emptySector } from "./lib/sectorRepo.js";
 import { buildSectorUpdates } from "./lib/sectorSchema.js";
-import { resolveViewer, canSee, canSeeSubmission, visibleFleets, friendlyFactionIds } from "./lib/visibility.js";
+import { resolveViewer, canSee, canSeeSubmission, visibleFleets, friendlyFactionIds, visibleAgents, visibleOrders } from "./lib/visibility.js";
 import { craftInCarrier, withSquadrons } from "./lib/carriers.js";
 import { uid } from "./utils/id.js";
 import { useResponsive } from "./hooks/useResponsive.js";
@@ -23,6 +23,7 @@ const PoliticsView = lazy(() => import("./components/PoliticsView.jsx"));
 const ModifiersView = lazy(() => import("./components/ModifiersView.jsx"));
 const OddsView = lazy(() => import("./components/OddsView.jsx"));
 const UpdatesView = lazy(() => import("./components/UpdatesView.jsx"));
+const AgentsView = lazy(() => import("./components/AgentsView.jsx"));
 const GMToolsView = lazy(() => import("./components/GMToolsView.jsx"));
 
 export default function GalaxySectorMap() {
@@ -40,13 +41,17 @@ export default function GalaxySectorMap() {
   const [art, setArt] = useState([]);     // ship-art library
   const [modifiers, setModifiers] = useState([]); // per-faction event snippets (Modifiers tab)
   const [notes, setNotes] = useState([]); // GM Tools: freeform notes + tracked roll resolutions
+  const [agents, setAgents] = useState([]); // covert operatives, one optional character each, own-faction only
+  const [orders, setOrders] = useState([]); // fleet/agent move-order proposals the GM resolves by hand
 
-  const [mode, setMode] = useState("select"); // select | link | draw
+  const [mode, setMode] = useState("select"); // select | link | draw | orders
   const [view, setView] = useState({ scale: 1, ox: 60, oy: 40 });
   const [strokes, setStrokes] = useState([]);
 
   const [selSystem, setSelSystem] = useState(null);
   const [selFleet, setSelFleet] = useState(null);
+  const [selAgent, setSelAgent] = useState(null); // agent whose popup is open on the map
+  const [routing, setRouting] = useState(null);   // { type, id, factionId } — the piece being plotted in orders mode
   const [linkSource, setLinkSource] = useState(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -72,7 +77,7 @@ export default function GalaxySectorMap() {
      so pages are shareable and Back works. */
   const [route, navigate] = useHashRoute();
   const { tab: activeTab, cat: activeCat, wikiId: selectedWikiId,
-    fleetId: fleetPrimaryId, compareId: fleetCompareId, modFactionId } = route;
+    fleetId: fleetPrimaryId, compareId: fleetCompareId, modFactionId, agentFactionId } = route;
 
   // Setters keeping the useState signature (a value or an updater) that the
   // views below already call them with, so only their plumbing changed.
@@ -87,6 +92,7 @@ export default function GalaxySectorMap() {
   });
   const setFleetCompareId = (v) => navigate((r) => ({ compareId: fromSetter(v, r.compareId) }));
   const setModFactionId = (v) => navigate((r) => ({ modFactionId: fromSetter(v, r.modFactionId) }));
+  const setAgentFactionId = (v) => navigate((r) => ({ agentFactionId: fromSetter(v, r.agentFactionId) }));
 
   useEffect(() => { if (isMobile) setPanelOpen(false); }, [isMobile]); // avoid opening full-screen on first mobile load
 
@@ -95,8 +101,8 @@ export default function GalaxySectorMap() {
   // like any other, and once, when it had its own write path, a migration left it
   // behind and silently unlocked the sector.
   const sector = useMemo(
-    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, notes, lockCode, fleetsPublic }),
-    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, notes, lockCode, fleetsPublic],
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, notes, agents, orders, lockCode, fleetsPublic }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, notes, agents, orders, lockCode, fleetsPublic],
   );
   // The sector as the database currently has it. Null until the load below fills
   // it in, which is also what stops an autosave from firing against an empty
@@ -126,7 +132,7 @@ export default function GalaxySectorMap() {
       setFactions(data.factions); setRelations(data.relations); setLayers(data.layers);
       setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
       setStrokes(data.strokes); setWiki(data.wiki); setWikiReads(data.wikiReads); setRoles(data.roles); setArt(data.art);
-      setModifiers(data.modifiers); setNotes(data.notes);
+      setModifiers(data.modifiers); setNotes(data.notes); setAgents(data.agents); setOrders(data.orders);
       setLockCode(data.lockCode); setFleetsPublic(data.fleetsPublic !== false);
     };
     const unsub = subscribeSector(
@@ -175,10 +181,11 @@ export default function GalaxySectorMap() {
      along on every keystroke the way the old one-blob-per-key layout forced. */
   useEffect(() => {
     // A signed-in player can also write now — see submitWikiEntry etc. below,
-    // plus patchMemberTitle for their own faction's characters — but every
-    // other setter in the app stays canEdit-gated, so a player session's diff
-    // can only ever touch `wiki` or a member's `role`. Anyone else (anon, or
-    // no GM code set yet) never writes.
+    // patchMemberTitle for their own faction's characters, and the agents/orders
+    // setters (each gated to the player's own faction) — but every other setter
+    // in the app stays canEdit-gated, so a player session's diff can only ever
+    // touch `wiki`, a member's `role`, or their own faction's `agents`/`orders`.
+    // Anyone else (anon, or no GM code set yet) never writes.
     const canWrite = canEdit || viewer.kind === "player";
     if (!loaded || !canWrite || !savedRef.current) return;
     // Nothing changed (a re-render, or the load settling) — stay quiet rather
@@ -296,9 +303,18 @@ export default function GalaxySectorMap() {
     setFleets((fs) => fs.map((f) => (f.systemId === id ? { ...f, systemId: null, x: sys.x + 40, y: sys.y + 40 } : f)));
     setLinks((ls) => ls.filter((l) => l.a !== id && l.b !== id));
     setSystems((ss) => ss.filter((s) => s.id !== id));
+    // An agent parked at this system becomes unplaced; any order routing through
+    // it drops that stop so no path points at a system that's gone.
+    setAgents((as) => as.map((a) => (a.systemId === id ? { ...a, systemId: null } : a)));
+    setOrders((os) => os.map((o) => (o.path.includes(id) ? { ...o, path: o.path.filter((s) => s !== id) } : o)));
     setSelSystem(null);
   }
-  function deleteFleet(id) { if (!canEdit) return; setFleets((fs) => fs.filter((f) => f.id !== id)); setSelFleet(null); }
+  function deleteFleet(id) {
+    if (!canEdit) return;
+    setFleets((fs) => fs.filter((f) => f.id !== id));
+    setOrders((os) => os.filter((o) => !(o.pieceType === "fleet" && o.pieceId === id)));
+    setSelFleet(null);
+  }
   const patchSystem = (id, p) => {
     if (!canEdit) return;
     setSystems((ss) => ss.map((s) => (s.id === id ? { ...s, ...p } : s)));
@@ -411,6 +427,9 @@ export default function GalaxySectorMap() {
     // gate doesn't silently dangle on a faction that no longer exists.
     setRoles((rs) => rs.map((r) => (r.factionId === id ? { ...r, factionId: undefined } : r)));
     setModifiers((ms) => ms.filter((m) => m.factionId !== id));
+    // A faction's agents and move orders go with it.
+    setAgents((as) => as.filter((a) => a.factionId !== id));
+    setOrders((os) => os.filter((o) => o.factionId !== id));
     // Its own article outlives it, but shouldn't keep pointing at a faction gone.
     if (gone && gone.wikiId) {
       setWiki((w) => w.map((e) => (e.id === gone.wikiId ? { ...e, factionId: undefined, updatedAt: Date.now() } : e)));
@@ -487,6 +506,98 @@ export default function GalaxySectorMap() {
   function removeNote(id) {
     if (!isGM) return;
     setNotes((ns) => ns.filter((n) => n.id !== id));
+  }
+
+  /* ---- agents: covert operatives, capped per faction by the GM (faction.agentCap).
+     Managed by the GM (any faction) or a player of the owning faction — like
+     patchMemberTitle, this is one of the few write paths a signed-in player has,
+     and it's gated to their own faction so a player can't touch anyone else's. */
+  function canManageAgents(factionId) {
+    return canEdit || (viewer.kind === "player" && viewer.roleFactionId === factionId);
+  }
+  function addAgent(factionId) {
+    if (!canManageAgents(factionId)) return;
+    const fac = factions.find((f) => f.id === factionId);
+    const cap = Number(fac && fac.agentCap) || 0;
+    const count = agents.filter((a) => a.factionId === factionId).length;
+    if (count >= cap) return; // at or over the GM's cap — no new slot
+    setAgents((as) => [...as, { id: uid("agt"), factionId, memberId: null, notes: "", systemId: null }]);
+  }
+  function patchAgent(id, p) {
+    const a = agents.find((x) => x.id === id);
+    if (!a || !canManageAgents(a.factionId)) return;
+    setAgents((as) => as.map((x) => (x.id === id ? { ...x, ...p } : x)));
+  }
+  function removeAgent(id) {
+    const a = agents.find((x) => x.id === id);
+    if (!a || !canManageAgents(a.factionId)) return;
+    setAgents((as) => as.filter((x) => x.id !== id));
+    setOrders((os) => os.filter((o) => !(o.pieceType === "agent" && o.pieceId === id)));
+  }
+
+  /* ---- move orders: a player plots a fleet's or agent's route through systems
+     and commits it. Committing is a *proposal* — the piece doesn't move; it locks
+     the path and the GM (who sees every faction's orders) resolves movement by
+     hand. One order per piece; editing replaces the piece's uncommitted order. */
+  function canOrderFor(factionId) {
+    return viewer.seesAll || (viewer.kind === "player" && viewer.roleFactionId === factionId);
+  }
+  const orderForPiece = (type, id) => orders.find((o) => o.pieceType === type && o.pieceId === id) || null;
+  // Ensure an uncommitted order exists for a piece and return through `mutate`.
+  // A committed order is left untouched (it's locked until uncommitted).
+  function upsertOrder(type, id, factionId, mutate) {
+    if (!canOrderFor(factionId)) return;
+    setOrders((os) => {
+      const idx = os.findIndex((o) => o.pieceType === type && o.pieceId === id);
+      if (idx === -1) {
+        const base = { id: uid("ord"), factionId, pieceType: type, pieceId: id, path: [], committed: false,
+          createdBy: viewer.roleId ? { roleId: viewer.roleId, roleName: viewer.roleName } : null,
+          updatedAt: Date.now(), committedAt: null };
+        return [...os, mutate(base)];
+      }
+      return os.map((o, i) => (i === idx ? mutate(o) : o));
+    });
+  }
+  // Select a piece for plotting. The order itself is created lazily on the first
+  // stop (addOrderStop), so merely selecting a piece and changing your mind never
+  // leaves an empty order behind.
+  function beginOrder(type, id, factionId) {
+    if (!canOrderFor(factionId)) return;
+    setRouting({ type, id, factionId });
+  }
+  // Append the next system stop to the routing piece's order, creating that order
+  // on the first stop. Editing an already-submitted order un-marks it as ready —
+  // the GM's "ready" signal should reflect the route as it stands now — so the
+  // player re-submits when done. No-op on an immediate repeat of the same stop.
+  function addOrderStop(systemId) {
+    if (!routing) return;
+    upsertOrder(routing.type, routing.id, routing.factionId, (o) => {
+      if (o.path[o.path.length - 1] === systemId) return o;
+      return { ...o, path: [...o.path, systemId], committed: false, committedAt: null, updatedAt: Date.now() };
+    });
+  }
+  function undoOrderStop() {
+    if (!routing) return;
+    const o = orderForPiece(routing.type, routing.id);
+    if (!o || o.path.length === 0 || !canOrderFor(o.factionId)) return;
+    setOrders((os) => os.map((x) => (x.id === o.id
+      ? { ...x, path: x.path.slice(0, -1), committed: false, committedAt: null, updatedAt: Date.now() } : x)));
+  }
+  // Discard the routing piece's draft order entirely and drop the selection.
+  function clearRoutingOrder() {
+    if (!routing) return;
+    const gone = orderForPiece(routing.type, routing.id);
+    if (gone && canOrderFor(gone.factionId)) setOrders((os) => os.filter((o) => o.id !== gone.id));
+    setRouting(null);
+  }
+  // Mark the routing piece's order as ready (needs at least one stop). This only
+  // signals the GM the player is done — it does NOT lock the order; the piece
+  // stays selected and every stop remains editable, which flips it back to draft.
+  function commitRoutingOrder() {
+    if (!routing) return;
+    const o = orderForPiece(routing.type, routing.id);
+    if (!o || o.path.length === 0 || !canOrderFor(o.factionId)) return;
+    setOrders((os) => os.map((x) => (x.id === o.id ? { ...x, committed: true, committedAt: Date.now(), updatedAt: Date.now() } : x)));
   }
 
   /* ---- faction relationship edges (upsert; "none" removes the edge) ---- */
@@ -718,6 +829,7 @@ export default function GalaxySectorMap() {
 
   /* ------------------------------------------------ map gesture handlers (mode-aware click/tap/drop routing) */
   function onSystemTap(id) {
+    if (mode === "orders") { addOrderStop(id); return; } // plotting a route — a system is the next stop
     if (mode === "link") {
       if (!canEdit) { setLinkSource(null); return; }
       if (!linkSource) { setLinkSource(id); return; }
@@ -733,8 +845,20 @@ export default function GalaxySectorMap() {
     setSelFleet(null); setSelSystem(id);
   }
   function onFleetTap(id) {
+    if (mode === "orders") { // select this fleet to plot its route
+      const f = fleets.find((x) => x.id === id);
+      if (f) beginOrder("fleet", id, f.factionId);
+      return;
+    }
     if (mode === "link") return;
-    setSelSystem(null); setSelFleet(id);
+    setSelSystem(null); setSelFleet(id); setSelAgent(null);
+  }
+  function onAgentTap(id) {
+    const a = agents.find((x) => x.id === id);
+    if (!a) return;
+    if (mode === "orders") { beginOrder("agent", id, a.factionId); return; }
+    if (mode === "link") return;
+    setSelSystem(null); setSelFleet(null); setSelAgent(id);
   }
   function onFleetSnap(id, systemsSnapshot) {
     if (!canEdit) return;
@@ -748,7 +872,7 @@ export default function GalaxySectorMap() {
       return best ? { ...f, systemId: best.id } : { ...f, systemId: null };
     }));
   }
-  function onDeselectAll() { setSelSystem(null); setSelFleet(null); setLinkSource(null); }
+  function onDeselectAll() { setSelSystem(null); setSelFleet(null); setSelAgent(null); setLinkSource(null); }
 
   const mapInt = useMapInteractions({
     activeTab, mode, canEdit,
@@ -785,6 +909,26 @@ export default function GalaxySectorMap() {
     });
     return out;
   }, [fleets, systems]);
+
+  /* ------------------------------------------------ derived agent positions.
+     Agents sit at a system, stacked in a vertical column just to its left so they
+     never cover the system name (which hangs below the plate) or the fleets that
+     fan out around it. An unplaced agent (no systemId, or one whose system is
+     gone) has no map position. */
+  const agentPos = useMemo(() => {
+    const grouping = {};
+    agents.forEach((a) => { if (a.systemId) (grouping[a.systemId] = grouping[a.systemId] || []).push(a.id); });
+    const out = {};
+    const COL_X = 36, ROW_GAP = 24; // world units: how far left, and the row pitch
+    agents.forEach((a) => {
+      if (!a.systemId) return;
+      const sys = systems.find((s) => s.id === a.systemId);
+      if (!sys) return;
+      const arr = grouping[a.systemId]; const idx = arr.indexOf(a.id); const n = arr.length;
+      out[a.id] = { x: sys.x - COL_X, y: sys.y + (idx - (n - 1) / 2) * ROW_GAP };
+    });
+    return out;
+  }, [agents, systems]);
 
   /* ------------------------------------------------ visibility-filtered views (what non-GM viewers render).
      The full arrays stay in state; only the GM/open mode writes, so a narrow player view never overwrites the master. */
@@ -835,6 +979,21 @@ export default function GalaxySectorMap() {
     () => visibleFleets(fleets, viewer, { relations, fleetsPublic }),
     [fleets, viewer, relations, fleetsPublic]
   );
+  // Agents and move orders are strictly own-faction (the GM sees all) — see
+  // visibleAgents/visibleOrders. Unlike fleets, allies never see them.
+  const displayAgents = useMemo(() => visibleAgents(agents, viewer), [agents, viewer]);
+  const displayOrders = useMemo(() => visibleOrders(orders, viewer), [orders, viewer]);
+  // The Agents page's faction subtabs: every faction for the GM, only their own
+  // for a player, none for an anonymous viewer.
+  const displayAgentFactions = useMemo(() => {
+    if (viewer.seesAll) return factions;
+    return viewer.roleFactionId ? factions.filter((f) => f.id === viewer.roleFactionId) : [];
+  }, [factions, viewer]);
+  // Whether this viewer can plot move orders at all — a player with a faction, or
+  // the GM. Gates the map's Orders toggle.
+  const canOrder = viewer.seesAll || !!viewer.roleFactionId;
+  // The order currently being plotted, resolved from the routing selection.
+  const routingOrder = routing ? orderForPiece(routing.type, routing.id) : null;
   // Modifiers tab: GM sees every faction's subtab; a player sees their own
   // faction's plus any allied/vassal to it; anyone with no faction tied to
   // their login (anon, or a role the GM hasn't assigned a faction) sees none.
@@ -923,6 +1082,12 @@ export default function GalaxySectorMap() {
             style={{ border: "none", borderRadius: 0, background: activeTab === "modifiers" ? undefined : "transparent" }}>
             <Zap size={14} /> {!isMobile && "Modifiers"}
           </Btn>
+          {canOrder && (
+            <Btn active={activeTab === "agents"} onClick={() => { setActiveTab("agents"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Agents & operatives"
+              style={{ border: "none", borderRadius: 0, background: activeTab === "agents" ? undefined : "transparent" }}>
+              <VenetianMask size={14} /> {!isMobile && "Agents"}
+            </Btn>
+          )}
           <Btn active={activeTab === "odds"} onClick={() => { setActiveTab("odds"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Mission odds table"
             style={{ border: "none", borderRadius: 0, background: activeTab === "odds" ? undefined : "transparent" }}>
             <Dices size={14} /> {!isMobile && "Odds"}
@@ -944,7 +1109,7 @@ export default function GalaxySectorMap() {
         <>
           {!isMobile && (
             <Toolbar
-              mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit}
+              mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} canOrder={canOrder}
               addSystemCenter={addSystemCenter} addFleetCenter={addFleetCenter}
               drawColor={mapInt.drawColor} setDrawColor={mapInt.setDrawColor}
               drawWidth={mapInt.drawWidth} setDrawWidth={mapInt.setDrawWidth}
@@ -954,7 +1119,7 @@ export default function GalaxySectorMap() {
           )}
           {isMobile && (
             <MobileToolbar
-              mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit}
+              mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} canOrder={canOrder}
               addSystemCenter={addSystemCenter} addFleetCenter={addFleetCenter}
               drawColor={mapInt.drawColor} setDrawColor={mapInt.setDrawColor}
               drawWidth={mapInt.drawWidth} setDrawWidth={mapInt.setDrawWidth}
@@ -978,16 +1143,21 @@ export default function GalaxySectorMap() {
               mapRef={mapInt.mapRef} canvasRef={mapInt.canvasRef} containerSize={mapInt.containerSize}
               isMobile={isMobile} mode={mode} canEdit={canEdit} view={view} w2s={w2s}
               systems={systems} fleets={displayFleets} links={links} fleetPos={fleetPos}
+              agents={displayAgents} agentPos={agentPos} orders={displayOrders}
               factions={factions} layers={layers} factionById={factionById} layerById={layerById}
-              selSystem={selSystem} selFleet={selFleet} linkSource={linkSource} hoverFleet={mapInt.hoverFleet}
+              selSystem={selSystem} selFleet={selFleet} selAgent={selAgent} linkSource={linkSource} hoverFleet={mapInt.hoverFleet}
+              routing={routing} routingOrder={routingOrder}
               onMapPointerDown={mapInt.onMapPointerDown} onMapDoubleClick={mapInt.onMapDoubleClick}
               startPieceDrag={mapInt.startPieceDrag} canvasDown={mapInt.canvasDown} canvasMove={mapInt.canvasMove} canvasUp={mapInt.canvasUp}
-              setSelSystem={setSelSystem} setSelFleet={setSelFleet}
+              onAgentTap={onAgentTap}
+              undoOrderStop={undoOrderStop} clearRoutingOrder={clearRoutingOrder} commitRoutingOrder={commitRoutingOrder}
+              setSelSystem={setSelSystem} setSelFleet={setSelFleet} setSelAgent={setSelAgent}
               patchSystem={patchSystem} addMarker={addMarker} patchMarker={patchMarker} removeMarker={removeMarker}
               deployFleetAt={deployFleetAt} deleteSystem={deleteSystem}
               patchFleet={patchFleet} addShip={addShip} patchShip={patchShip} removeShip={removeShip}
               moveShip={moveShip} deleteFleet={deleteFleet} beginShipDrag={mapInt.beginShipDrag}
               addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
+              patchAgent={patchAgent} removeAgent={removeAgent} canManageAgents={canManageAgents}
               goToFleet={goToFleet} art={art}
               wiki={displayWiki} roles={roles} goToCodex={goToCodex} createEntry={createEntry}
             />
@@ -1041,6 +1211,16 @@ export default function GalaxySectorMap() {
             activeFactionId={modFactionId} setActiveFactionId={setModFactionId}
             addModifier={addModifier} patchModifier={patchModifier} removeModifier={removeModifier}
             reorderModifiers={reorderModifiers}
+          />
+        )}
+
+        {activeTab === "agents" && (
+          <AgentsView
+            factions={displayAgentFactions} agents={agents} systems={systems}
+            canEdit={canEdit} isMobile={isMobile} viewer={viewer}
+            activeFactionId={agentFactionId} setActiveFactionId={setAgentFactionId}
+            addAgent={addAgent} patchAgent={patchAgent} removeAgent={removeAgent}
+            patchFaction={patchFaction}
           />
         )}
 
