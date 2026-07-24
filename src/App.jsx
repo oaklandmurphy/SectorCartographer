@@ -383,11 +383,26 @@ export default function GalaxySectorMap() {
     setFactions((fx) => [...fx, { id: uid("fac"), name: "New Faction", color: c,
       px: Math.random() * 180 - 90, py: Math.random() * 180 - 90, wikiId: null, members: [] }]);
   }
-  function patchFaction(id, p) { if (canEdit) setFactions((fx) => fx.map((f) => (f.id === id ? { ...f, ...p } : f))); }
+  function patchFaction(id, p) {
+    if (!canEdit) return;
+    setFactions((fx) => fx.map((f) => (f.id === id ? { ...f, ...p } : f)));
+    // A faction's article is the other end of `wikiId` — keep the entry's own
+    // factionId copy in sync so it colors/filters in the codex the same way a
+    // character's or system's entry does, instead of a reverse lookup at render time.
+    if ("wikiId" in p) {
+      const prevWikiId = (factions.find((f) => f.id === id) || {}).wikiId;
+      setWiki((w) => w.map((e) => {
+        if (e.id === prevWikiId && e.id !== p.wikiId) return { ...e, factionId: undefined, updatedAt: Date.now() };
+        if (e.id === p.wikiId) return { ...e, factionId: id, updatedAt: Date.now() };
+        return e;
+      }));
+    }
+  }
   function deleteFaction(id) {
     if (!canEdit) return;
     if (factions.length <= 1) return;
     const fallback = factions.find((f) => f.id !== id).id;
+    const gone = factions.find((f) => f.id === id);
     setSystems((ss) => ss.map((s) => (s.factionId === id ? { ...s, factionId: fallback } : s)));
     setFleets((fs) => fs.map((f) => (f.factionId === id ? { ...f, factionId: fallback } : f)));
     setRelations((rs) => rs.filter((r) => r.a !== id && r.b !== id));
@@ -395,6 +410,10 @@ export default function GalaxySectorMap() {
     // gate doesn't silently dangle on a faction that no longer exists.
     setRoles((rs) => rs.map((r) => (r.factionId === id ? { ...r, factionId: undefined } : r)));
     setModifiers((ms) => ms.filter((m) => m.factionId !== id));
+    // Its own article outlives it, but shouldn't keep pointing at a faction gone.
+    if (gone && gone.wikiId) {
+      setWiki((w) => w.map((e) => (e.id === gone.wikiId ? { ...e, factionId: undefined, updatedAt: Date.now() } : e)));
+    }
     setFactions((fx) => fx.filter((f) => f.id !== id));
   }
 
@@ -433,6 +452,19 @@ export default function GalaxySectorMap() {
   function removeModifier(id) {
     if (!isGM) return;
     setModifiers((ms) => ms.filter((m) => m.id !== id));
+  }
+  // Drag-reorder within a faction's kind group: `orderedIds` is the full,
+  // reordered list of ids for that faction+kind slice. Splice that slice
+  // back into the master array in its new order, leaving everything else
+  // (other factions, other kinds) at its original position.
+  function reorderModifiers(orderedIds) {
+    if (!isGM) return;
+    setModifiers((ms) => {
+      const idSet = new Set(orderedIds);
+      const byId = new Map(ms.map((m) => [m.id, m]));
+      let cursor = 0;
+      return ms.map((m) => (idSet.has(m.id) ? byId.get(orderedIds[cursor++]) : m));
+    });
   }
 
   /* ---- GM Tools notes: freeform log entries, plus roll resolutions the GM
@@ -1000,6 +1032,7 @@ export default function GalaxySectorMap() {
             factions={displayModifierFactions} modifiers={displayModifiers} canEdit={isGM} isMobile={isMobile}
             activeFactionId={modFactionId} setActiveFactionId={setModFactionId}
             addModifier={addModifier} patchModifier={patchModifier} removeModifier={removeModifier}
+            reorderModifiers={reorderModifiers}
           />
         )}
 

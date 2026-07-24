@@ -1,20 +1,22 @@
-// One-shot backfill: give existing "characters" and "locations" codex entries a
-// `factionId`, inferred from whatever politics-view member / map system already
-// links to them — so the new codex-is-the-source-of-truth sync (see
-// App.syncFactionNode) starts from the affiliations already on record instead of
-// wiping them back to "Unassigned".
+// One-shot backfill: give existing "characters", "locations", and "factions"
+// codex entries a `factionId`, inferred from whatever politics-view member /
+// map system / faction already links to them — so the new codex-is-the-
+// source-of-truth sync (see App.syncFactionNode and patchFaction) starts from
+// the affiliations already on record instead of wiping them back to
+// "Unassigned".
 //
 //   node scripts/backfill-faction-tags.mjs --dry-run          # show the plan, write nothing
 //   node scripts/backfill-faction-tags.mjs                     # backfill ?sector=default
 //   node scripts/backfill-faction-tags.mjs --sector=campaign-two
 //
-// Direction of inference (mirrors syncFactionNode's reverse lookup):
+// Direction of inference (mirrors syncFactionNode's / patchFaction's reverse lookup):
 //   characters -> faction that has a member with member.wikiId === entry.id
 //   locations  -> system that has system.wikiId === entry.id, using its factionId
+//   factions   -> the faction itself, via faction.wikiId === entry.id
 //
-// An entry with no matching member/system, or one that already carries the
-// correct factionId, is left untouched. A full snapshot is written to scripts/
-// before anything changes, same as rename-ids.mjs.
+// An entry with no matching member/system/faction, or one that already carries
+// the correct factionId, is left untouched. A full snapshot is written to
+// scripts/ before anything changes, same as rename-ids.mjs.
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -111,6 +113,17 @@ async function main() {
     }
     sysFaction[s.wikiId] = s.factionId;
   }
+  const facFaction = {}; // wikiId -> the faction the article is itself about
+  const facConflicts = [];
+  for (const [facKey, f] of Object.entries(factions)) {
+    if (!f.wikiId) continue;
+    const id = f.id || facKey;
+    if (facFaction[f.wikiId] && facFaction[f.wikiId] !== id) {
+      facConflicts.push(`wiki/${f.wikiId} is linked from both factions ${facFaction[f.wikiId]} and ${id} — keeping the first`);
+      continue;
+    }
+    facFaction[f.wikiId] = id;
+  }
 
   // --- build the plan ---------------------------------------------------------
   const updates = {};
@@ -120,6 +133,7 @@ async function main() {
     let to = null;
     if (e.category === "characters") to = charFaction[id] || null;
     else if (e.category === "locations") to = sysFaction[id] || null;
+    else if (e.category === "factions") to = facFaction[id] || null;
     if (!to) continue;
     if (e.factionId === to) continue; // already correct
     updates[`wiki/${wikiKey}/factionId`] = to;
@@ -129,8 +143,10 @@ async function main() {
   // --- report ------------------------------------------------------------------
   console.log(`characters checked: ${Object.values(wiki).filter((e) => e.category === "characters").length}`);
   console.log(`locations checked : ${Object.values(wiki).filter((e) => e.category === "locations").length}`);
+  console.log(`factions checked  : ${Object.values(wiki).filter((e) => e.category === "factions").length}`);
   if (charConflicts.length) { console.log("\ncharacter conflicts:"); charConflicts.forEach((c) => console.log("  ! " + c)); }
   if (sysConflicts.length) { console.log("\nlocation conflicts:"); sysConflicts.forEach((c) => console.log("  ! " + c)); }
+  if (facConflicts.length) { console.log("\nfaction conflicts:"); facConflicts.forEach((c) => console.log("  ! " + c)); }
   console.log(`\nentries to update: ${plan.length}`);
   plan.forEach((p) => console.log(`  [${p.category}] "${p.title}"  ${p.from || "(none)"} -> ${p.to}`));
 

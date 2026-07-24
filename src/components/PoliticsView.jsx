@@ -189,8 +189,8 @@ export default function PoliticsView({
                             : <User size={34} />}
                           <Star size={13} style={{ position: "absolute", top: 3, right: 3, color: T.amber, fill: T.amber }} />
                         </div>
-                        <div className="mono" style={{ marginTop: 5, fontSize: 12, lineHeight: 1.3,
-                          color: sel ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <div style={{ marginTop: 5, fontSize: 12, lineHeight: 1.3,
+                          color: sel ? T.accent : T.text, overflow: "hidden", wordBreak: "break-word", whiteSpace: "normal" }}>
                           {m.name}
                         </div>
                       </div>

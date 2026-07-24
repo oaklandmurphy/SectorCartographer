@@ -21,8 +21,8 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
   publishEntry, unpublishEntry, proposeEdit }) {
   const catMeta = WIKI_CATS.find((c) => c.id === activeCat) || WIKI_CATS[0];
   const catLabel = (id) => (WIKI_CATS.find((c) => c.id === id) || {}).label || id;
-  // A character/location entry's faction tint — a quick visual cue in the list
-  // for which faction an entry belongs to, without opening it.
+  // A character/location/faction entry's faction tint — a quick visual cue in
+  // the list for which faction an entry belongs to, without opening it.
   const factionColor = (id) => (factions.find((f) => f.id === id) || {}).color || null;
   // A signed-in player (not the GM, not anonymous) can submit a new entry.
   const canSubmit = !!(viewer && viewer.kind === "player");

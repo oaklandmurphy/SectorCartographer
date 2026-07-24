@@ -1,4 +1,5 @@
-import { Lock, Plus, Trash2, Users, Zap } from "lucide-react";
+import { useState } from "react";
+import { GripVertical, Lock, Plus, Trash2, Users, Zap } from "lucide-react";
 import { T, inputStyle } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
 
@@ -17,13 +18,45 @@ const LEVELS = [
 // renders whatever faction list it's handed, same as WikiView renders
 // whatever wiki entries it's handed.
 export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
-  activeFactionId, setActiveFactionId, addModifier, patchModifier, removeModifier }) {
+  activeFactionId, setActiveFactionId, addModifier, patchModifier, removeModifier, reorderModifiers }) {
   const activeId = factions.some((f) => f.id === activeFactionId)
     ? activeFactionId : (factions[0] && factions[0].id) || null;
   const activeFaction = factions.find((f) => f.id === activeId) || null;
   const entries = activeId ? modifiers.filter((m) => m.factionId === activeId) : [];
+  const sliderEntries = entries.filter((m) => (m.kind || "text") === "slider");
+  const textEntries = entries.filter((m) => (m.kind || "text") !== "slider");
 
   const selectFaction = (id) => setActiveFactionId(id);
+
+  // Drag-to-reorder: a card is only reorderable against others of the same
+  // kind (sliders vs. the rest), since those render as separate groups.
+  // Dropping a card onto another one moves it to that position within its
+  // own group's id list, then hands the whole group's new order up to the
+  // caller to splice back into the master array.
+  const [dragId, setDragId] = useState(null);
+  const dropOn = (list, targetId) => {
+    if (!dragId || dragId === targetId) return;
+    const ids = list.map((m) => m.id);
+    const from = ids.indexOf(dragId);
+    const to = ids.indexOf(targetId);
+    if (from === -1 || to === -1) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    reorderModifiers(ids);
+    setDragId(null);
+  };
+  // Split in two: the grip icon is the actual drag source (draggable lives
+  // there, not on the card), so clicking/dragging inside the name input to
+  // place a cursor or select text isn't hijacked as a card drag. The card
+  // itself only needs to be a drop target.
+  const dragHandleProps = (id) => canEdit ? {
+    draggable: true,
+    onDragStart: (e) => { e.stopPropagation(); setDragId(id); },
+    onDragEnd: () => setDragId(null),
+  } : {};
+  const dropTargetProps = (list, id) => canEdit ? {
+    onDragOver: (e) => e.preventDefault(),
+    onDrop: () => dropOn(list, id),
+  } : {};
 
   const factionRail = (vertical) => (
     <div className={vertical ? "" : "scroll"} style={{ display: "flex", flexDirection: vertical ? "column" : "row",
@@ -48,6 +81,105 @@ export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
     </div>
   );
 
+  const renderCard = (m, list, { packed } = {}) => {
+    const kind = m.kind || "text";
+    const level = LEVELS.find((l) => l.id === m.level) || LEVELS[0];
+    const dragging = dragId === m.id;
+    return (
+      <div key={m.id} {...dropTargetProps(list, m.id)}
+        style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel2, padding: 10,
+          display: "flex", flexDirection: "column", gap: 6, opacity: dragging ? 0.4 : 1,
+          ...(packed ? { flex: `0 1 ${isMobile ? "100%" : "380px"}`, maxWidth: isMobile ? "100%" : 440 } : {}) }}>
+        <div style={{ display: "flex", alignItems: "stretch", margin: "-10px -10px 0",
+          background: `${activeFaction.color}1f`, borderBottom: `2px solid ${activeFaction.color}` }}>
+          {canEdit && (
+            <span {...dragHandleProps(m.id)} title="Drag to reorder"
+              style={{ display: "flex", alignItems: "center", padding: "0 4px 0 8px",
+                cursor: "grab", color: activeFaction.color, opacity: 0.7 }}>
+              <GripVertical size={14} />
+            </span>
+          )}
+          {canEdit ? (
+            <input value={m.name} onChange={(e) => patchModifier(m.id, { name: e.target.value })}
+              placeholder="MODIFIER NAME…"
+              style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", borderRadius: 0,
+                padding: "9px 10px", outline: "none",
+                fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", letterSpacing: ".07em",
+                textTransform: "uppercase", color: activeFaction.color }} />
+          ) : (
+            <div style={{ flex: 1, minWidth: 0, padding: "9px 10px",
+              fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif",
+              letterSpacing: ".07em", textTransform: "uppercase", color: activeFaction.color }}>
+              {m.name || "Untitled modifier"}
+            </div>
+          )}
+        </div>
+        {kind === "slider" && (
+          <div style={{ display: "flex", gap: 4 }}>
+            {LEVELS.map((l) => {
+              const on = l.id === level.id;
+              return (
+                <button key={l.id} onClick={canEdit ? () => patchModifier(m.id, { level: l.id }) : undefined}
+                  style={{ flex: 1, cursor: canEdit ? "pointer" : "default",
+                    border: `1px solid ${on ? l.color : T.line}`,
+                    borderRadius: 2, padding: "6px 4px", background: on ? `${l.color}26` : T.panel3,
+                    color: on ? l.color : T.faint, opacity: on ? 1 : 0.75,
+                    fontFamily: "'Oswald', sans-serif", fontSize: 11,
+                    fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase" }}>
+                  {l.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {/* Private toggle: a private modifier drops the ally/vassal grant,
+            so only this faction (and the GM) can see it. The GM toggles it;
+            the owning faction just sees the badge. */}
+        {canEdit ? (
+          <button onClick={() => patchModifier(m.id, { private: !m.private })}
+            title={m.private
+              ? "Private — only this faction can see it. Click to also share with its allies/vassals."
+              : "Visible to this faction and its allies/vassals. Click to make it private."}
+            style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+              border: `1px solid ${m.private ? T.amber : T.line}`, borderRadius: 2, padding: "5px 9px",
+              background: m.private ? `${T.amber}22` : T.panel3, color: m.private ? T.amber : T.faint,
+              fontFamily: "'Oswald', sans-serif", fontSize: 10.5, fontWeight: 700,
+              letterSpacing: ".05em", textTransform: "uppercase" }}>
+            {m.private ? <Lock size={12} /> : <Users size={12} />}
+            {m.private ? "Private" : "Allies can see"}
+          </button>
+        ) : m.private ? (
+          <div style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6,
+            border: `1px solid ${T.amber}`, borderRadius: 2, padding: "4px 8px",
+            background: `${T.amber}22`, color: T.amber, fontFamily: "'Oswald', sans-serif",
+            fontSize: 10, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>
+            <Lock size={11} /> Private
+          </div>
+        ) : null}
+        {canEdit ? (
+          <>
+            <textarea value={m.text} onChange={(e) => patchModifier(m.id, { text: e.target.value })}
+              placeholder="Description…"
+              style={{ ...inputStyle, minHeight: packed ? 56 : 70, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 10 }} />
+            <Btn kind="danger" onClick={() => removeModifier(m.id)} style={{ alignSelf: "flex-start" }}>
+              <Trash2 size={13} /> Remove
+            </Btn>
+          </>
+        ) : (
+          <div style={{ fontSize: 12.5, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>
+            {m.text || "—"}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const sectionLabel = (text) => (
+    <div className="stencil" style={{ fontSize: 10.5, letterSpacing: ".08em", color: T.faint, marginTop: 2 }}>
+      {text}
+    </div>
+  );
+
   const content = () => {
     if (!activeFaction) {
       return (
@@ -65,7 +197,7 @@ export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
     }
     return (
       <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: isMobile ? 14 : 22,
-        display: "flex", flexDirection: "column", gap: 12 }}>
+        display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ width: 11, height: 11, borderRadius: "50%", background: activeFaction.color, flexShrink: 0 }} />
           <div className="stencil" style={{ fontSize: 20, fontWeight: 800, letterSpacing: ".03em", color: T.text }}>
@@ -78,88 +210,22 @@ export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
             No modifiers recorded for this faction yet.{canEdit ? " Add one below." : ""}
           </div>
         )}
-        {entries.map((m) => {
-          const kind = m.kind || "text";
-          const level = LEVELS.find((l) => l.id === m.level) || LEVELS[0];
-          return (
-            <div key={m.id} style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel2, padding: 10,
-              display: "flex", flexDirection: "column", gap: 6 }}>
-              {canEdit ? (
-                <input value={m.name} onChange={(e) => patchModifier(m.id, { name: e.target.value })}
-                  placeholder="MODIFIER NAME…"
-                  style={{ margin: "-10px -10px 0", width: "calc(100% + 20px)",
-                    background: `${activeFaction.color}1f`, border: "none",
-                    borderBottom: `2px solid ${activeFaction.color}`, borderRadius: 0,
-                    padding: "9px 10px", outline: "none",
-                    fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", letterSpacing: ".07em",
-                    textTransform: "uppercase", color: activeFaction.color }} />
-              ) : (
-                <div style={{ margin: "-10px -10px 0", padding: "9px 10px",
-                  background: `${activeFaction.color}1f`, borderBottom: `2px solid ${activeFaction.color}`,
-                  fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif",
-                  letterSpacing: ".07em", textTransform: "uppercase", color: activeFaction.color }}>
-                  {m.name || "Untitled modifier"}
-                </div>
-              )}
-              {kind === "slider" && (
-                <div style={{ display: "flex", gap: 4 }}>
-                  {LEVELS.map((l) => {
-                    const on = l.id === level.id;
-                    return (
-                      <button key={l.id} onClick={canEdit ? () => patchModifier(m.id, { level: l.id }) : undefined}
-                        style={{ flex: 1, cursor: canEdit ? "pointer" : "default",
-                          border: `1px solid ${on ? l.color : T.line}`,
-                          borderRadius: 2, padding: "6px 4px", background: on ? `${l.color}26` : T.panel3,
-                          color: on ? l.color : T.faint, opacity: on ? 1 : 0.75,
-                          fontFamily: "'Oswald', sans-serif", fontSize: 11,
-                          fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase" }}>
-                        {l.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {/* Private toggle: a private modifier drops the ally/vassal grant,
-                  so only this faction (and the GM) can see it. The GM toggles it;
-                  the owning faction just sees the badge. */}
-              {canEdit ? (
-                <button onClick={() => patchModifier(m.id, { private: !m.private })}
-                  title={m.private
-                    ? "Private — only this faction can see it. Click to also share with its allies/vassals."
-                    : "Visible to this faction and its allies/vassals. Click to make it private."}
-                  style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
-                    border: `1px solid ${m.private ? T.amber : T.line}`, borderRadius: 2, padding: "5px 9px",
-                    background: m.private ? `${T.amber}22` : T.panel3, color: m.private ? T.amber : T.faint,
-                    fontFamily: "'Oswald', sans-serif", fontSize: 10.5, fontWeight: 700,
-                    letterSpacing: ".05em", textTransform: "uppercase" }}>
-                  {m.private ? <Lock size={12} /> : <Users size={12} />}
-                  {m.private ? "Private" : "Allies can see"}
-                </button>
-              ) : m.private ? (
-                <div style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6,
-                  border: `1px solid ${T.amber}`, borderRadius: 2, padding: "4px 8px",
-                  background: `${T.amber}22`, color: T.amber, fontFamily: "'Oswald', sans-serif",
-                  fontSize: 10, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>
-                  <Lock size={11} /> Private
-                </div>
-              ) : null}
-              {canEdit ? (
-                <>
-                  <textarea value={m.text} onChange={(e) => patchModifier(m.id, { text: e.target.value })}
-                    placeholder="Description…"
-                    style={{ ...inputStyle, minHeight: 70, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 10 }} />
-                  <Btn kind="danger" onClick={() => removeModifier(m.id)} style={{ alignSelf: "flex-start" }}>
-                    <Trash2 size={13} /> Remove
-                  </Btn>
-                </>
-              ) : (
-                <div style={{ fontSize: 12.5, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>
-                  {m.text || "—"}
-                </div>
-              )}
+        {sliderEntries.length > 0 && (
+          <>
+            {textEntries.length > 0 && sectionLabel("SLIDERS")}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {sliderEntries.map((m) => renderCard(m, sliderEntries))}
             </div>
-          );
-        })}
+          </>
+        )}
+        {textEntries.length > 0 && (
+          <>
+            {sliderEntries.length > 0 && sectionLabel("NOTES")}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {textEntries.map((m) => renderCard(m, textEntries, { packed: true }))}
+            </div>
+          </>
+        )}
         {canEdit && (
           <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
             <Btn kind="primary" onClick={() => addModifier(activeFaction.id, "text")} style={{ flex: 1, justifyContent: "center" }}>
