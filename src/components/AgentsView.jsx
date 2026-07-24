@@ -20,8 +20,9 @@ export default function AgentsView({
   factions, agents, systems, canEdit, isMobile, viewer,
   activeFactionId, setActiveFactionId, addAgent, patchAgent, removeAgent, patchFaction,
   actions, modifiers, submitAction, removeAction,
+  initialAgentId, // deep-link: open straight to this agent (e.g. "Request Action" from the map/politics view)
 }) {
-  const [selectedAgentId, setSelectedAgentId] = useState(null);
+  const [selectedAgentId, setSelectedAgentId] = useState(initialAgentId || null);
 
   const activeId = factions.some((f) => f.id === activeFactionId)
     ? activeFactionId : (factions[0] && factions[0].id) || null;
@@ -212,7 +213,7 @@ export default function AgentsView({
               <div style={{ ...lbl, display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
                 <MapPin size={12} /> Location
               </div>
-              {canManage ? (
+              {canEdit ? (
                 <select style={selStyle} value={a.systemId || ""}
                   onChange={(e) => patchAgent(a.id, { systemId: e.target.value || null })}>
                   <option value="">Unplaced (off-map)</option>
@@ -236,11 +237,13 @@ export default function AgentsView({
           </div>
 
           <AgentActions
+            key={a.id}
             agent={a} color={activeFaction.color} isMobile={isMobile}
             actions={(actions || []).filter((x) => x.agentId === a.id)}
             facModifiers={facModifiers} cap={Number(a.actionCap) || 0}
             canManage={canManage} canEdit={canEdit}
-            submitAction={submitAction} removeAction={removeAction} patchAgent={patchAgent} />
+            submitAction={submitAction} removeAction={removeAction} patchAgent={patchAgent}
+            startOpen={!!(initialAgentId && a.id === initialAgentId)} />
         </div>
       </div>
     );
@@ -291,10 +294,10 @@ export default function AgentsView({
 // raised — unresolved ones first, then those the GM has ruled on — and, while the
 // agent has slots left and the viewer may manage it, a composer to write the next
 // one and flag which of the faction's modifiers should bear on it.
-function AgentActions({ agent, color, isMobile, actions, facModifiers, cap, canManage, canEdit, submitAction, removeAction, patchAgent }) {
+function AgentActions({ agent, color, isMobile, actions, facModifiers, cap, canManage, canEdit, submitAction, removeAction, patchAgent, startOpen }) {
   const [text, setText] = useState("");
   const [picked, setPicked] = useState([]); // flagged modifier ids
-  const [open, setOpen] = useState(false);   // composer expanded
+  const [open, setOpen] = useState(!!startOpen);   // composer expanded — starts open when deep-linked here to raise a request
 
   const used = actions.length;
   const remaining = Math.max(0, cap - used);

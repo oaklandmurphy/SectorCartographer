@@ -1,8 +1,10 @@
+import { useMemo } from "react";
 import { Star, VenetianMask } from "lucide-react";
 import { T, cut, sceneBackdrop, floatingPanel } from "../theme.js";
 import { ICONS, OVERVIEW_ZOOM } from "../constants.js";
 import { craftInFleet } from "../lib/carriers.js";
 import TargetBrackets from "./ui/TargetBrackets.jsx";
+import SystemGlow from "./ui/SystemGlow.jsx";
 import Starfield from "./ui/Starfield.jsx";
 import SystemPopup from "./SystemPopup.jsx";
 import FleetPopup from "./FleetPopup.jsx";
@@ -31,11 +33,11 @@ export default function MapCanvas({
   routing, routingOrder,
   onMapPointerDown, onMapDoubleClick,
   startPieceDrag, canvasDown, canvasMove, canvasUp,
-  onAgentTap, undoOrderStop, clearRoutingOrder, commitRoutingOrder,
+  onAgentTap, undoOrderStop, clearRoutingOrder, commitRoutingOrder, setRoutingNotes,
   setSelSystem, setSelFleet, setSelAgent,
   patchSystem, addMarker, patchMarker, removeMarker, deployFleetAt, deleteSystem,
   patchFleet, addShip, patchShip, removeShip, moveShip, deleteFleet, beginShipDrag,
-  addSquadron, patchSquadron, removeSquadron, goToFleet, art,
+  addSquadron, patchSquadron, removeSquadron, goToFleet, goToAgentAction, art,
   patchAgent, removeAgent, canManageAgents,
   wiki, roles, goToCodex, createEntry,
 }) {
@@ -43,6 +45,19 @@ export default function MapCanvas({
   const selSystemObj = systems.find((s) => s.id === selSystem);
   const selFleetObj = fleets.find((f) => f.id === selFleet);
   const selAgentObj = (agents || []).find((a) => a.id === selAgent);
+
+  // While an agent's popup is open: glow its home system and every system one
+  // hyperlane hop away, so a player can see at a glance where it could move.
+  const agentGlow = useMemo(() => {
+    if (!selAgentObj || !selAgentObj.systemId) return null;
+    const homeId = selAgentObj.systemId;
+    const adjacent = new Set();
+    links.forEach((l) => {
+      if (l.a === homeId) adjacent.add(l.b);
+      else if (l.b === homeId) adjacent.add(l.a);
+    });
+    return { homeId, adjacent, color: factionById(selAgentObj.factionId).color };
+  }, [selAgentObj, links, factionById]);
 
   // The map position a move order starts from — where its piece currently sits.
   const pieceOrigin = (o) => (o.pieceType === "fleet" ? fleetPos[o.pieceId] : agentPos[o.pieceId]) || null;
@@ -140,6 +155,8 @@ export default function MapCanvas({
       {systems.map((s) => {
         const p = w2s(s.x, s.y); const fac = factionById(s.factionId);
         const isSel = s.id === selSystem; const isSrc = s.id === linkSource;
+        const isAgentHome = agentGlow && s.id === agentGlow.homeId;
+        const isAgentAdjacent = agentGlow && agentGlow.adjacent.has(s.id);
         const visMarkers = overview ? [] : s.markers.filter((m) => { const L = layerById(m.layerId); return L && L.visible; });
         const plate = overview ? 14 : 34; const half = plate / 2;
         return (
@@ -147,8 +164,10 @@ export default function MapCanvas({
             onPointerDown={(e) => startPieceDrag(e, "system", s.id, s.x, s.y)}
             onDoubleClick={(e) => e.stopPropagation()}
             style={{ position: "absolute", left: p.x, top: p.y - half, transform: "translateX(-50%)", touchAction: "none",
-              cursor: mode === "draw" ? "crosshair" : "pointer", zIndex: isSel ? 22 : 12, textAlign: "center" }}>
+              cursor: mode === "draw" ? "crosshair" : "pointer", zIndex: (isSel || isAgentHome) ? 22 : 12, textAlign: "center" }}>
             <div style={{ position: "relative", width: plate, height: plate, margin: "0 auto" }}>
+              {isAgentHome && <SystemGlow color={agentGlow.color} pulse size={overview ? 0.55 : 1} />}
+              {isAgentAdjacent && <SystemGlow color={agentGlow.color} size={overview ? 0.4 : 0.7} />}
               {(isSel || isSrc) && (
                 <TargetBrackets color={isSrc ? T.amber : T.accent} pulse={isSrc}
                   inset={overview ? -4 : -6} armLen={overview ? 6 : 9} thick={overview ? 1.5 : 2} />
@@ -308,9 +327,10 @@ export default function MapCanvas({
         <AgentPopup
           agent={selAgentObj} faction={factions.find((f) => f.id === selAgentObj.factionId)}
           anchor={w2s(agentPos[selAgentObj.id].x, agentPos[selAgentObj.id].y)}
-          containerSize={containerSize} isMobile={isMobile}
+          containerSize={containerSize} isMobile={isMobile} canEdit={canEdit}
           canManage={canManageAgents ? canManageAgents(selAgentObj.factionId) : false}
           systems={systems} patchAgent={patchAgent} removeAgent={removeAgent}
+          onRequestAction={goToAgentAction ? () => goToAgentAction(selAgentObj.id, selAgentObj.factionId) : undefined}
           onClose={() => setSelAgent(null)}
         />
       )}
@@ -336,6 +356,7 @@ export default function MapCanvas({
           <OrdersPanel
             pieceLabel={pieceLabel} factionColor={fac && fac.color} originName={originName}
             stops={stops} committed={!!(routingOrder && routingOrder.committed)}
+            notes={(routingOrder && routingOrder.notes) || ""} onNotesChange={setRoutingNotes}
             onUndo={undoOrderStop} onClear={clearRoutingOrder} onCommit={commitRoutingOrder}
           />
         );

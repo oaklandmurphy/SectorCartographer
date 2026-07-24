@@ -1,5 +1,5 @@
 import { Route, Undo2, Trash2, Check, MousePointerClick } from "lucide-react";
-import { T, cut, floatingPanel } from "../theme.js";
+import { T, cut, inputStyle, lbl, floatingPanel } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
 
 // The floating console shown on the map while plotting move orders. With nothing
@@ -9,7 +9,7 @@ import Btn from "./ui/Btn.jsx";
 // it as a draft, and the player re-submits when done.
 export default function OrdersPanel({
   pieceLabel, factionColor, originName, stops, committed,
-  onUndo, onClear, onCommit,
+  notes, onNotesChange, onUndo, onClear, onCommit,
 }) {
   const color = factionColor || T.accent;
   return (
@@ -48,6 +48,13 @@ export default function OrdersPanel({
               </div>
             )}
             {stops.map((s, i) => <Stop key={`${s.id}_${i}`} index={i + 1} name={s.name} color={color} />)}
+          </div>
+
+          <div style={{ marginBottom: 10 }}>
+            <div style={lbl}>Notes</div>
+            <textarea value={notes || ""} onChange={(e) => onNotesChange && onNotesChange(e.target.value)}
+              placeholder="What should happen along the way, or once it arrives…"
+              style={{ ...inputStyle, marginTop: 4, minHeight: 56, resize: "vertical", lineHeight: 1.5, fontSize: 12, padding: 8 }} />
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>

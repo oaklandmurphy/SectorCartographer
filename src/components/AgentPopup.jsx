@@ -1,4 +1,4 @@
-import { VenetianMask, User, MapPin, Trash2 } from "lucide-react";
+import { VenetianMask, User, MapPin, Trash2, Send } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
 import MapPopup from "./ui/MapPopup.jsx";
@@ -7,10 +7,12 @@ import MapPopup from "./ui/MapPopup.jsx";
 // beside the agent's marker. Only the owning faction's players (and the GM) ever
 // reach it, since agents are strictly own-faction and only they render on the
 // map. `canManage` gates editing; a read-only viewer never sees this popup in
-// practice, but the fields fall back to plain text just in case.
+// practice, but the fields fall back to plain text just in case. Location is
+// the one field `canManage` does NOT unlock — only the GM places an agent on
+// the map; a player requests a move instead, same as a fleet.
 export default function AgentPopup({
-  agent, faction, anchor, containerSize, isMobile, canManage,
-  patchAgent, removeAgent, systems, onClose,
+  agent, faction, anchor, containerSize, isMobile, canManage, canEdit,
+  patchAgent, removeAgent, systems, onClose, onRequestAction,
 }) {
   const members = (faction && faction.members) || [];
   const member = members.find((m) => m.id === agent.memberId) || null;
@@ -37,7 +39,7 @@ export default function AgentPopup({
         <div style={{ ...lbl, display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
           <MapPin size={12} /> Location
         </div>
-        {canManage ? (
+        {canEdit ? (
           <select style={selStyle} value={agent.systemId || ""}
             onChange={(e) => patchAgent(agent.id, { systemId: e.target.value || null })}>
             <option value="">Unplaced (off-map)</option>
@@ -58,6 +60,12 @@ export default function AgentPopup({
           <div style={{ fontSize: 12.5, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>{agent.notes || "—"}</div>
         )}
       </div>
+
+      {canManage && onRequestAction && (
+        <Btn kind="primary" onClick={onRequestAction} style={{ alignSelf: "flex-start" }}>
+          <Send size={13} /> Request Action
+        </Btn>
+      )}
 
       {canManage && (
         <Btn kind="danger" onClick={() => { removeAgent(agent.id); onClose(); }} style={{ alignSelf: "flex-start" }}>

@@ -81,7 +81,7 @@ export default function GalaxySectorMap() {
      so pages are shareable and Back works. */
   const [route, navigate] = useHashRoute();
   const { tab: activeTab, cat: activeCat, wikiId: selectedWikiId,
-    fleetId: fleetPrimaryId, compareId: fleetCompareId, modFactionId, agentFactionId } = route;
+    fleetId: fleetPrimaryId, compareId: fleetCompareId, modFactionId, agentFactionId, agentId: initialAgentId } = route;
 
   // Setters keeping the useState signature (a value or an updater) that the
   // views below already call them with, so only their plumbing changed.
@@ -563,7 +563,7 @@ export default function GalaxySectorMap() {
     setOrders((os) => {
       const idx = os.findIndex((o) => o.pieceType === type && o.pieceId === id);
       if (idx === -1) {
-        const base = { id: uid("ord"), factionId, pieceType: type, pieceId: id, path: [], committed: false,
+        const base = { id: uid("ord"), factionId, pieceType: type, pieceId: id, path: [], committed: false, notes: "",
           createdBy: viewer.roleId ? { roleId: viewer.roleId, roleName: viewer.roleName } : null,
           updatedAt: Date.now(), committedAt: null };
         return [...os, mutate(base)];
@@ -588,6 +588,13 @@ export default function GalaxySectorMap() {
       if (o.path[o.path.length - 1] === systemId) return o;
       return { ...o, path: [...o.path, systemId], committed: false, committedAt: null, updatedAt: Date.now() };
     });
+  }
+  // Free-text notes accompanying the routing piece's order (e.g. what it should
+  // do once it arrives). Same "editing reopens it as a draft" rule as a stop.
+  function setRoutingNotes(text) {
+    if (!routing) return;
+    upsertOrder(routing.type, routing.id, routing.factionId, (o) =>
+      ({ ...o, notes: text, committed: false, committedAt: null, updatedAt: Date.now() }));
   }
   function undoOrderStop() {
     if (!routing) return;
@@ -746,6 +753,14 @@ export default function GalaxySectorMap() {
   // One navigate() per jump, not one per field — the whole jump is a single Back.
   function goToFleet(fleetId) {
     navigate((r) => ({ tab: "fleet", fleetId, compareId: r.compareId === fleetId ? null : r.compareId }));
+    setAccessOpen(false);
+    setMobileMenuOpen(false);
+  }
+  // jump from an agent's map popup, or its character's politics popup, straight
+  // to the Agents tab with that agent open and ready to raise a request.
+  function goToAgentAction(agentId, factionId) {
+    navigate(() => ({ tab: "agents", agentFactionId: factionId, agentId }));
+    setSelAgent(null);
     setAccessOpen(false);
     setMobileMenuOpen(false);
   }
@@ -1121,6 +1136,12 @@ export default function GalaxySectorMap() {
             style={{ border: "none", borderRadius: 0, background: activeTab === "fleet" ? undefined : "transparent" }}>
             <Ship size={14} /> {!isMobile && "Fleets"}
           </Btn>
+          {canOrder && (
+            <Btn active={activeTab === "agents"} onClick={() => { setActiveTab("agents"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Agents & operatives"
+              style={{ border: "none", borderRadius: 0, background: activeTab === "agents" ? undefined : "transparent" }}>
+              <VenetianMask size={14} /> {!isMobile && "Agents"}
+            </Btn>
+          )}
           <Btn active={activeTab === "politics"} onClick={() => { setActiveTab("politics"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Faction politics"
             style={{ border: "none", borderRadius: 0, background: activeTab === "politics" ? undefined : "transparent" }}>
             <Network size={14} /> {!isMobile && "Politics"}
@@ -1149,12 +1170,6 @@ export default function GalaxySectorMap() {
             style={{ border: "none", borderRadius: 0, background: activeTab === "modifiers" ? undefined : "transparent" }}>
             <Zap size={14} /> {!isMobile && "Modifiers"}
           </Btn>
-          {canOrder && (
-            <Btn active={activeTab === "agents"} onClick={() => { setActiveTab("agents"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Agents & operatives"
-              style={{ border: "none", borderRadius: 0, background: activeTab === "agents" ? undefined : "transparent" }}>
-              <VenetianMask size={14} /> {!isMobile && "Agents"}
-            </Btn>
-          )}
           <Btn active={activeTab === "odds"} onClick={() => { setActiveTab("odds"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Mission odds table"
             style={{ border: "none", borderRadius: 0, background: activeTab === "odds" ? undefined : "transparent" }}>
             <Dices size={14} /> {!isMobile && "Odds"}
@@ -1229,6 +1244,7 @@ export default function GalaxySectorMap() {
               startPieceDrag={mapInt.startPieceDrag} canvasDown={mapInt.canvasDown} canvasMove={mapInt.canvasMove} canvasUp={mapInt.canvasUp}
               onAgentTap={onAgentTap}
               undoOrderStop={undoOrderStop} clearRoutingOrder={clearRoutingOrder} commitRoutingOrder={commitRoutingOrder}
+              setRoutingNotes={setRoutingNotes}
               setSelSystem={setSelSystem} setSelFleet={setSelFleet} setSelAgent={setSelAgent}
               patchSystem={patchSystem} addMarker={addMarker} patchMarker={patchMarker} removeMarker={removeMarker}
               deployFleetAt={deployFleetAt} deleteSystem={deleteSystem}
@@ -1236,7 +1252,7 @@ export default function GalaxySectorMap() {
               moveShip={moveShip} deleteFleet={deleteFleet} beginShipDrag={mapInt.beginShipDrag}
               addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
               patchAgent={patchAgent} removeAgent={removeAgent} canManageAgents={canManageAgents}
-              goToFleet={goToFleet} art={art}
+              goToFleet={goToFleet} goToAgentAction={goToAgentAction} art={art}
               wiki={displayWiki} roles={roles} goToCodex={goToCodex} createEntry={createEntry}
             />
           </div>
@@ -1262,6 +1278,7 @@ export default function GalaxySectorMap() {
             patchFaction={patchFaction} addFaction={addFaction} deleteFaction={deleteFaction} setRelation={setRelation}
             addMember={addMember} patchMember={patchMember} patchMemberTitle={patchMemberTitle} removeMember={removeMember}
             goToCodex={goToCodex} createEntry={createEntry}
+            agents={displayAgents} canManageAgents={canManageAgents} goToAgentAction={goToAgentAction}
           />
         )}
 
@@ -1301,6 +1318,7 @@ export default function GalaxySectorMap() {
             patchFaction={patchFaction}
             actions={displayActions} modifiers={modifiers}
             submitAction={submitAction} removeAction={removeAction}
+            initialAgentId={initialAgentId}
           />
         )}
 

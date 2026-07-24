@@ -25,6 +25,7 @@ export default function PoliticsView({
   patchFaction, addFaction, deleteFaction, setRelation,
   addMember, patchMember, patchMemberTitle, removeMember,
   goToCodex, createEntry,
+  agents, canManageAgents, goToAgentAction,
 }) {
   const [view, setView] = useState({ scale: 0.72, ox: 400, oy: 300 });
   const [selFac, setSelFac] = useState(null);
@@ -65,6 +66,12 @@ export default function PoliticsView({
   const selFacObj = factions.find((f) => f.id === selFac) || null;
   const selMemFac = selMem ? factions.find((f) => f.id === selMem.facId) : null;
   const selMemObj = selMemFac ? (selMemFac.members || []).find((m) => m.id === selMem.memId) : null;
+  // Whether the selected character is tied to an agent — `agents` here is
+  // already visibility-filtered (strictly own-faction, even for allies), so an
+  // enemy or allied viewer never learns a character is a covert operative.
+  const selMemAgent = selMemFac && selMemObj
+    ? (agents || []).find((a) => a.factionId === selMemFac.id && a.memberId === selMemObj.id)
+    : null;
 
   return (
     <div ref={mapRef} style={{ ...sceneBackdrop, cursor: "grab" }}>
@@ -299,6 +306,11 @@ export default function PoliticsView({
             containerHeight={containerSize.h} canEdit={canEdit} wiki={wiki}
             patchMember={patchMember} patchMemberTitle={patchMemberTitle} removeMember={removeMember}
             goToCodex={goToCodex} createEntry={createEntry} onClose={() => setSelMem(null)}
+            agent={selMemAgent}
+            canManageAgent={selMemAgent && canManageAgents ? canManageAgents(selMemFac.id) : false}
+            onRequestAction={selMemAgent && goToAgentAction
+              ? () => { goToAgentAction(selMemAgent.id, selMemFac.id); setSelMem(null); }
+              : undefined}
           />
         );
       })()}

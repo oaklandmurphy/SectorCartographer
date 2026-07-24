@@ -15,7 +15,7 @@
 //   #/politics
 //   #/codex · #/codex/<category> · #/codex/<category>/<entryId>
 //   #/modifiers · #/modifiers/<factionId>
-//   #/agents · #/agents/<factionId>
+//   #/agents · #/agents/<factionId> · #/agents/<factionId>/<agentId>
 //   #/odds
 //   #/gmtools
 //
@@ -36,6 +36,7 @@ export const DEFAULT_ROUTE = {
   compareId: null,
   modFactionId: null, // null = whichever faction ModifiersView falls back to
   agentFactionId: null, // null = whichever faction AgentsView falls back to
+  agentId: null, // null = whichever agent AgentsView falls back to; set when deep-linking to one (e.g. "Request Action" from the map or politics view)
 };
 
 const isTab = (t) => TABS.includes(t);
@@ -67,7 +68,7 @@ export function parseHash(hash) {
     return { tab, modFactionId: rest[0] || null };
   }
   if (tab === "agents") {
-    return { tab, agentFactionId: rest[0] || null };
+    return { tab, agentFactionId: rest[0] || null, agentId: rest[1] || null };
   }
   return { tab };
 }
@@ -84,6 +85,7 @@ export function formatHash(route) {
     seg.push(route.modFactionId);
   } else if (route.tab === "agents" && route.agentFactionId) {
     seg.push(route.agentFactionId);
+    if (route.agentId) seg.push(route.agentId);
   }
   return `#/${seg.map(encodeURIComponent).join("/")}`;
 }

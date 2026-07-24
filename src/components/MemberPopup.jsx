@@ -1,4 +1,4 @@
-import { Trash2, User, Star } from "lucide-react";
+import { Trash2, User, Star, Send } from "lucide-react";
 import { T, inputStyle, lbl } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
 import PanelPopup from "./ui/PanelPopup.jsx";
@@ -10,6 +10,7 @@ import CodexLink from "./CodexLink.jsx";
 export default function MemberPopup({
   faction, member, pos, containerHeight, canEdit, wiki, viewer,
   patchMember, patchMemberTitle, removeMember, goToCodex, createEntry, onClose,
+  agent, canManageAgent, onRequestAction,
 }) {
   const star = !!member.star;
   const canEditTitle = canEdit || (viewer && viewer.kind === "player" && viewer.roleFactionId === faction.id);
@@ -48,6 +49,11 @@ export default function MemberPopup({
           onChange={(id) => patchMember(faction.id, member.id, { wikiId: id })}
           onNavigate={goToCodex} onCreate={createEntry}
           createTitle={member.name} createCategory="characters" />
+        {agent && canManageAgent && onRequestAction && (
+          <Btn kind="primary" onClick={onRequestAction} style={{ width: "100%", justifyContent: "center" }}>
+            <Send size={14} /> Request Action
+          </Btn>
+        )}
         {canEdit && (
           <Btn kind="danger" onClick={() => removeMember(faction.id, member.id)} style={{ width: "100%", justifyContent: "center" }}>
             <Trash2 size={14} /> Remove character
