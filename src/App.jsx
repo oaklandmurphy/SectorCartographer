@@ -174,10 +174,11 @@ export default function GalaxySectorMap() {
      written (see lib/sectorSchema.js buildSectorUpdates) — so art's SVGs don't ride
      along on every keystroke the way the old one-blob-per-key layout forced. */
   useEffect(() => {
-    // A signed-in player can also write now — see submitWikiEntry etc. below —
-    // but only ever to their own pending codex entry; every other setter in
-    // the app stays canEdit-gated, so a player session's diff can only ever
-    // touch `wiki`. Anyone else (anon, or no GM code set yet) never writes.
+    // A signed-in player can also write now — see submitWikiEntry etc. below,
+    // plus patchMemberTitle for their own faction's characters — but every
+    // other setter in the app stays canEdit-gated, so a player session's diff
+    // can only ever touch `wiki` or a member's `role`. Anyone else (anon, or
+    // no GM code set yet) never writes.
     const canWrite = canEdit || viewer.kind === "player";
     if (!loaded || !canWrite || !savedRef.current) return;
     // Nothing changed (a re-render, or the load settling) — stay quiet rather
@@ -427,6 +428,13 @@ export default function GalaxySectorMap() {
     if (!canEdit) return;
     setFactions((fx) => fx.map((f) => f.id === facId
       ? { ...f, members: (f.members || []).map((m) => (m.id === memId ? { ...m, ...p } : m)) } : f));
+  }
+  // A signed-in player's one write onto the roster: their own faction's
+  // characters, title only — name, portrait status, and codex links stay GM-only.
+  function patchMemberTitle(facId, memId, role) {
+    if (!canEdit && !(viewer.kind === "player" && viewer.roleFactionId === facId)) return;
+    setFactions((fx) => fx.map((f) => f.id === facId
+      ? { ...f, members: (f.members || []).map((m) => (m.id === memId ? { ...m, role } : m)) } : f));
   }
   function removeMember(facId, memId) {
     if (!canEdit) return;
@@ -1002,9 +1010,9 @@ export default function GalaxySectorMap() {
 
         {activeTab === "politics" && (
           <PoliticsView
-            factions={factions} relations={relations} canEdit={canEdit} isMobile={isMobile} wiki={displayWiki}
+            factions={factions} relations={relations} canEdit={canEdit} isMobile={isMobile} wiki={displayWiki} viewer={viewer}
             patchFaction={patchFaction} addFaction={addFaction} deleteFaction={deleteFaction} setRelation={setRelation}
-            addMember={addMember} patchMember={patchMember} removeMember={removeMember}
+            addMember={addMember} patchMember={patchMember} patchMemberTitle={patchMemberTitle} removeMember={removeMember}
             goToCodex={goToCodex} createEntry={createEntry}
           />
         )}

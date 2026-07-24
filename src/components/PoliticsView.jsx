@@ -21,9 +21,9 @@ function popupPos(w2s, containerSize, wx, wy, cardW, cardH) {
 }
 
 export default function PoliticsView({
-  factions, relations, canEdit, isMobile, wiki,
+  factions, relations, canEdit, isMobile, wiki, viewer,
   patchFaction, addFaction, deleteFaction, setRelation,
-  addMember, patchMember, removeMember,
+  addMember, patchMember, patchMemberTitle, removeMember,
   goToCodex, createEntry,
 }) {
   const [view, setView] = useState({ scale: 0.72, ox: 400, oy: 300 });
@@ -280,11 +280,11 @@ export default function PoliticsView({
       {/* faction editor popup */}
       {selFacObj && !selMemObj && (
         <FactionPopup
-          faction={selFacObj} factions={factions} relations={relations}
+          faction={selFacObj} factions={factions} relations={relations} viewer={viewer}
           pos={popupPos(w2s, containerSize, nodePos[selFacObj.id].x, nodePos[selFacObj.id].y, 320, 470)}
           containerHeight={containerSize.h} canEdit={canEdit} wiki={wiki}
           patchFaction={patchFaction} deleteFaction={deleteFaction} setRelation={setRelation}
-          addMember={addMember} patchMember={patchMember} removeMember={removeMember}
+          addMember={addMember} patchMember={patchMember} patchMemberTitle={patchMemberTitle} removeMember={removeMember}
           goToCodex={goToCodex} createEntry={createEntry} onClose={() => setSelFac(null)}
         />
       )}
@@ -294,10 +294,10 @@ export default function PoliticsView({
         const c = nodePos[selMemFac.id];
         return (
           <MemberPopup
-            faction={selMemFac} member={selMemObj}
+            faction={selMemFac} member={selMemObj} viewer={viewer}
             pos={popupPos(w2s, containerSize, c.x, c.y, 288, 360)}
             containerHeight={containerSize.h} canEdit={canEdit} wiki={wiki}
-            patchMember={patchMember} removeMember={removeMember}
+            patchMember={patchMember} patchMemberTitle={patchMemberTitle} removeMember={removeMember}
             goToCodex={goToCodex} createEntry={createEntry} onClose={() => setSelMem(null)}
           />
         );

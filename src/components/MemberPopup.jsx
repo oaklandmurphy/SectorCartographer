@@ -8,10 +8,11 @@ import CodexLink from "./CodexLink.jsx";
 // politics map. Marking one "important" promotes it to the faction card's
 // portrait grid; the rest stay in the list below it.
 export default function MemberPopup({
-  faction, member, pos, containerHeight, canEdit, wiki,
-  patchMember, removeMember, goToCodex, createEntry, onClose,
+  faction, member, pos, containerHeight, canEdit, wiki, viewer,
+  patchMember, patchMemberTitle, removeMember, goToCodex, createEntry, onClose,
 }) {
   const star = !!member.star;
+  const canEditTitle = canEdit || (viewer && viewer.kind === "player" && viewer.roleFactionId === faction.id);
   return (
     <PanelPopup frame={{ left: pos.x, top: pos.y, width: 288 }} maxHeight={containerHeight - 20} zIndex={55}
       color={faction.color} icon={<User size={13} />} title="CHARACTER" onClose={onClose}>
@@ -40,8 +41,8 @@ export default function MemberPopup({
         </button>
         <div>
           <div style={lbl}>Role / title</div>
-          <input style={{ ...inputStyle, marginTop: 4 }} value={member.role || ""} disabled={!canEdit}
-            placeholder="e.g. Fleet Admiral" onChange={(e) => patchMember(faction.id, member.id, { role: e.target.value })} />
+          <input style={{ ...inputStyle, marginTop: 4 }} value={member.role || ""} disabled={!canEditTitle}
+            placeholder="e.g. Fleet Admiral" onChange={(e) => patchMemberTitle(faction.id, member.id, e.target.value)} />
         </div>
         <CodexLink wiki={wiki} value={member.wikiId} canEdit={canEdit}
           onChange={(id) => patchMember(faction.id, member.id, { wikiId: id })}

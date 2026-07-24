@@ -9,11 +9,12 @@ import CodexLink from "./CodexLink.jsx";
 const kindMeta = (id) => MEMBER_KINDS.find((k) => k.id === id) || MEMBER_KINDS[0];
 
 export default function FactionPopup({
-  faction, factions, relations, pos, containerHeight, canEdit, wiki,
+  faction, factions, relations, pos, containerHeight, canEdit, wiki, viewer,
   patchFaction, deleteFaction, setRelation,
-  addMember, patchMember, removeMember,
+  addMember, patchMember, patchMemberTitle, removeMember,
   goToCodex, createEntry, onClose,
 }) {
+  const canEditTitle = canEdit || (viewer && viewer.kind === "player" && viewer.roleFactionId === faction.id);
   const others = factions.filter((f) => f.id !== faction.id);
   const relOf = (otherId) => {
     const r = relations.find((x) => (x.a === faction.id && x.b === otherId) || (x.a === otherId && x.b === faction.id));
@@ -146,9 +147,9 @@ export default function FactionPopup({
                       </button>
                     )}
                   </div>
-                  {(canEdit || m.role) && (
-                    <input value={m.role || ""} disabled={!canEdit} placeholder="Role / title"
-                      onChange={(e) => patchMember(faction.id, m.id, { role: e.target.value })}
+                  {(canEditTitle || m.role) && (
+                    <input value={m.role || ""} disabled={!canEditTitle} placeholder="Role / title"
+                      onChange={(e) => patchMemberTitle(faction.id, m.id, e.target.value)}
                       style={{ ...inputStyle, padding: "3px 6px", fontSize: 11 }} />
                   )}
                   <CodexLink wiki={wiki} value={m.wikiId} canEdit={canEdit}
