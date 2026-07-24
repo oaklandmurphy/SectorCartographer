@@ -1,7 +1,10 @@
-import { X, Layers, Users, Plus, Eye, EyeOff } from "lucide-react";
+import { X, Layers, Users, Plus, Eye, EyeOff, Rocket, VenetianMask, Route } from "lucide-react";
 import { T, cut } from "../theme.js";
 
-export default function SidePanel({ factions, layers, systems, fleets, canEdit, isMobile, onClose, addFaction, patchFaction, deleteFaction, addLayer, patchLayer, toggleLayer }) {
+export default function SidePanel({
+  factions, layers, systems, fleets, canEdit, isMobile, onClose, addFaction, patchFaction, deleteFaction, addLayer, patchLayer, toggleLayer,
+  showFleets, setShowFleets, showAgents, setShowAgents, showOrders, setShowOrders, canOrder,
+}) {
   return (
     <div className="scroll" style={isMobile ? {
         position: "fixed", inset: 0, zIndex: 500, background: T.panel,
@@ -96,6 +99,50 @@ export default function SidePanel({ factions, layers, systems, fleets, canEdit, 
         </div>
         <div style={{ fontSize: 9.5, color: T.faint, marginTop: 9, lineHeight: 1.5 }}>
           Toggle the eye to show or hide every marker on a layer across the whole map. {!canEdit && "Everything else here is view only."}
+        </div>
+      </div>
+
+      <div style={{ height: 1, background: T.line, margin: "4px 0" }} />
+
+      {/* map visibility — personal, view-only toggles for what's drawn on the map */}
+      <div style={{ padding: "9px 12px 14px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
+          <Eye size={14} style={{ color: T.accent }} />
+          <span className="stencil" style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: ".06em", flex: 1 }}>MAP VISIBILITY</span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, background: T.panel2,
+            border: `1px solid ${T.line}`, borderRadius: 2, padding: "5px 6px", opacity: showFleets ? 1 : 0.5 }}>
+            <button onClick={() => setShowFleets((v) => !v)} title={showFleets ? "Hide fleets" : "Show fleets"}
+              style={{ background: "none", border: "none", color: showFleets ? T.accent : T.faint, cursor: "pointer", padding: 0, display: "flex", flexShrink: 0 }}>
+              {showFleets ? <Eye size={15} /> : <EyeOff size={15} />}
+            </button>
+            <Rocket size={13} style={{ color: T.mut, flexShrink: 0 }} />
+            <span style={{ fontSize: 11.5, color: T.text, flex: 1 }}>Fleets</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, background: T.panel2,
+            border: `1px solid ${T.line}`, borderRadius: 2, padding: "5px 6px", opacity: showAgents ? 1 : 0.5 }}>
+            <button onClick={() => setShowAgents((v) => !v)} title={showAgents ? "Hide agents" : "Show agents"}
+              style={{ background: "none", border: "none", color: showAgents ? T.accent : T.faint, cursor: "pointer", padding: 0, display: "flex", flexShrink: 0 }}>
+              {showAgents ? <Eye size={15} /> : <EyeOff size={15} />}
+            </button>
+            <VenetianMask size={13} style={{ color: T.mut, flexShrink: 0 }} />
+            <span style={{ fontSize: 11.5, color: T.text, flex: 1 }}>Agents</span>
+          </div>
+          {canOrder && (
+            <div style={{ display: "flex", alignItems: "center", gap: 7, background: T.panel2,
+              border: `1px solid ${T.line}`, borderRadius: 2, padding: "5px 6px", opacity: showOrders ? 1 : 0.5 }}>
+              <button onClick={() => setShowOrders((v) => !v)} title={showOrders ? "Hide move-order paths" : "Show move-order paths"}
+                style={{ background: "none", border: "none", color: showOrders ? T.accent : T.faint, cursor: "pointer", padding: 0, display: "flex", flexShrink: 0 }}>
+                {showOrders ? <Eye size={15} /> : <EyeOff size={15} />}
+              </button>
+              <Route size={13} style={{ color: T.mut, flexShrink: 0 }} />
+              <span style={{ fontSize: 11.5, color: T.text, flex: 1 }}>Orders</span>
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize: 9.5, color: T.faint, marginTop: 9, lineHeight: 1.5 }}>
+          Personal to you — hides pieces on your view of the map only.
         </div>
       </div>
     </div>

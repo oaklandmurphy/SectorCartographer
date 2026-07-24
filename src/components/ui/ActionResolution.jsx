@@ -1,5 +1,5 @@
 import { Check, X } from "lucide-react";
-import { T, lbl } from "../../theme.js";
+import { T } from "../../theme.js";
 
 // The read-only view of a resolved action request's outcome, shared by the
 // player's agent card and the GM's request queue so the two never drift. It
@@ -53,7 +53,7 @@ export default function ActionResolution({ resolution }) {
         {!isAuto && resolution.roll != null && (
           <Chip>Roll {resolution.roll}{resolution.dice ? ` (${resolution.dice.d1}+${resolution.dice.d2})` : ""}</Chip>
         )}
-        {!isAuto && <Chip>Total {sign(resolution.total || 0)}</Chip>}
+        {!isAuto && <Chip>Mod {sign(resolution.total || 0)}</Chip>}
       </div>
 
       {mods.length > 0 && (
@@ -66,8 +66,10 @@ export default function ActionResolution({ resolution }) {
       )}
 
       {resolution.text && (
-        <div style={{ fontSize: 12.5, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>
-          <span style={{ ...lbl, color: T.accent, marginRight: 6 }}>GM</span>{resolution.text}
+        <div style={{ fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace",
+          fontSize: 14, lineHeight: 1.65, color: T.text, whiteSpace: "pre-wrap",
+          borderLeft: `2px solid ${T.accent}`, paddingLeft: 12, marginTop: 2 }}>
+          {resolution.text}
         </div>
       )}
     </div>

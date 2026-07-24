@@ -25,7 +25,7 @@ export default function MapCanvas({
   mapRef, canvasRef, containerSize, isMobile,
   mode, canEdit, view, w2s,
   systems, fleets, links, fleetPos,
-  agents, agentPos, orders, showOrders,
+  agents, agentPos, orders, showOrders, showFleets = true, showAgents = true,
   factions, layers, factionById, layerById,
   selSystem, selFleet, selAgent, linkSource, hoverFleet,
   routing, routingOrder,
@@ -190,8 +190,8 @@ export default function MapCanvas({
         );
       })}
 
-      {/* fleets */}
-      {fleets.map((f) => {
+      {/* fleets — hidden when the viewer toggles them off from the toolbar */}
+      {showFleets && fleets.map((f) => {
         const pos = fleetPos[f.id]; const p = w2s(pos.x, pos.y); const fac = factionById(f.factionId);
         const isSel = f.id === selFleet; const isHover = f.id === hoverFleet;
         const isRouting = routing && routing.type === "fleet" && routing.id === f.id;
@@ -225,8 +225,9 @@ export default function MapCanvas({
 
       {/* agents — covert operatives parked at a system, only ever rendered for
           their own faction (the caller passes the already-filtered list). They
-          fan out just below their system so they never sit under a fleet. */}
-      {(agents || []).map((a) => {
+          fan out just below their system so they never sit under a fleet.
+          Hidden when the viewer toggles agents off from the toolbar. */}
+      {showAgents && (agents || []).map((a) => {
         const pos = agentPos[a.id];
         if (!pos) return null; // unplaced, or its system is gone — page-only
         const p = w2s(pos.x, pos.y); const fac = factionById(a.factionId);
@@ -244,10 +245,11 @@ export default function MapCanvas({
             <div style={{ position: "relative", width: 24, height: 24,
               filter: `drop-shadow(0 2px 3px rgba(0,0,0,.7)) drop-shadow(0 0 3px ${fac.color}77)` }}>
               {(isSel || isRouting) && <TargetBrackets color={isRouting ? T.amber : T.accent} inset={-5} armLen={7} thick={2} />}
-              <div style={{ position: "absolute", inset: 0, ...cut(4),
+              <div style={{ position: "absolute", inset: 4, transform: "rotate(45deg)",
                 background: `radial-gradient(circle at 50% 32%, ${fac.color}, ${fac.color}bb 60%, #000 150%)`,
-                border: "1.5px solid #14110b", display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: "inset 0 1px 2px rgba(255,255,255,.18)" }}>
+                border: "1.5px solid #14110b",
+                boxShadow: "inset 0 1px 2px rgba(255,255,255,.18)" }} />
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <VenetianMask size={13} color="#14110b" />
               </div>
             </div>

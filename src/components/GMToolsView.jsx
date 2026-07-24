@@ -189,15 +189,14 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   const activeGroup = playerGroups.find((g) => g.key === activeKey) || null;
   const pendingTotal = (actions || []).filter((a) => a.status !== "resolved").length;
 
-  // Within a player's tab: pending first (oldest first, the order they arrived),
-  // then resolved newest-first as a log.
-  const groupRequests = useMemo(() => {
-    if (!activeGroup) return [];
-    const rank = (a) => (a.status === "resolved" ? 1 : 0);
-    return [...activeGroup.items].sort((a, b) => {
-      if (rank(a) !== rank(b)) return rank(a) - rank(b);
-      return rank(a) === 0 ? (a.createdAt || 0) - (b.createdAt || 0) : (b.resolvedAt || 0) - (a.resolvedAt || 0);
-    });
+  // The active player's requests split for the two-tier stack: unresolved on top
+  // (oldest first, the order they arrived), resolved below (newest first, a log).
+  const { unresolved, resolved } = useMemo(() => {
+    const items = activeGroup ? activeGroup.items : [];
+    return {
+      unresolved: items.filter((a) => a.status !== "resolved").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)),
+      resolved: items.filter((a) => a.status === "resolved").sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0)),
+    };
   }, [activeGroup]);
 
   const describeAgent = (action) => {
@@ -209,243 +208,318 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   };
   const modName = (id) => (modifiers.find((m) => m.id === id) || {}).name || "";
 
-  return (
-    <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", background: T.void,
-      padding: isMobile ? 12 : 22 }}>
-      <div style={{ maxWidth: 820, margin: "0 auto", display: "flex", flexDirection: "column", gap: 22 }}>
+  /* ------------------------------------------------ render helpers, one per zone
+     so the same markup serves the desktop workspace (rail | requests | tool) and
+     the stacked mobile layout without duplicating it. */
+  const countBadge = (n, big) => (n > 0 ? (
+    <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: big ? 8 : 7,
+      minWidth: big ? 16 : 14, height: big ? 16 : 14, padding: big ? "0 5px" : "0 4px",
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      fontSize: big ? 10 : 9, fontWeight: 700 }}>{n}</span>
+  ) : null);
 
-        {/* ---------------------------------------- action requests ---------------------------------------- */}
-        <div>
-          <div className="stencil" style={{ fontSize: 16, letterSpacing: ".06em", color: T.text,
-            display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
-            <ClipboardList size={15} color={T.accent} /> ACTION REQUESTS
-            {pendingTotal > 0 && (
-              <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 8,
-                minWidth: 16, height: 16, padding: "0 5px", display: "inline-flex", alignItems: "center",
-                justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{pendingTotal}</span>
-            )}
+  const sectionLabel = (text) => (
+    <div className="stencil" style={{ fontSize: 11, letterSpacing: ".1em", color: T.faint, margin: "6px 0 1px" }}>
+      {text}
+    </div>
+  );
+
+  // A player tab — vertical fills the left rail, horizontal is the mobile strip.
+  const renderTab = (g, vertical) => {
+    const on = g.key === activeKey;
+    const pending = g.items.filter((a) => a.status !== "resolved").length;
+    return (
+      <button key={g.key || "_gm"} onClick={() => setPlayerTab(g.key)} title={g.name}
+        style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
+          border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 2, padding: "7px 10px",
+          background: on ? "rgba(159,194,58,.14)" : T.panel2, color: on ? T.accent : T.text,
+          fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
+          textTransform: "uppercase", justifyContent: vertical ? "flex-start" : "center",
+          flex: vertical ? "none" : "0 0 auto", width: vertical ? "100%" : "auto" }}>
+        <Users size={13} style={{ flexShrink: 0 }} />
+        <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>{g.name}</span>
+        {countBadge(pending)}
+      </button>
+    );
+  };
+  const playerRail = (vertical) => (
+    <div className={vertical ? "" : "scroll"} style={{ display: "flex", gap: 4,
+      flexDirection: vertical ? "column" : "row", overflowX: vertical ? "visible" : "auto",
+      ...(vertical ? {} : { paddingBottom: 2 }) }}>
+      {playerGroups.map((g) => renderTab(g, vertical))}
+    </div>
+  );
+
+  const renderCard = (action) => {
+    const { faction: fac, label } = describeAgent(action);
+    return (
+      <ActionCard key={action.id} action={action} faction={fac} agentLabel={label}
+        modName={modName} isTarget={action.id === targetId}
+        onResolveWithTool={() => startResolving(action)}
+        reopenAction={reopenAction} removeAction={removeAction} />
+    );
+  };
+
+  // The active player's two-tier stack: unresolved on top, resolved below.
+  const requestsPane = () => {
+    if (playerGroups.length === 0) {
+      return (
+        <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+          border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
+          No action requests yet. Players raise them through their agents on the Agents tab.
+        </div>
+      );
+    }
+    if (!activeGroup) return null;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Users size={16} color={T.accent} />
+          <div className="stencil" style={{ fontSize: 18, fontWeight: 800, letterSpacing: ".03em", color: T.text }}>
+            {activeGroup.name}
           </div>
+          <span className="mono" style={{ marginLeft: "auto", fontSize: 11, color: T.mut }}>
+            {unresolved.length} new · {resolved.length} resolved
+          </span>
+        </div>
+        {unresolved.length === 0 && resolved.length === 0 && (
+          <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+            border: `1px dashed ${T.line}` }}>
+            No requests from this player.
+          </div>
+        )}
+        {unresolved.length > 0 && sectionLabel("UNRESOLVED")}
+        {unresolved.map(renderCard)}
+        {resolved.length > 0 && sectionLabel("RESOLVED")}
+        {resolved.map(renderCard)}
+      </div>
+    );
+  };
 
-          {playerGroups.length === 0 ? (
-            <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
-              border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
-              No action requests yet. Players raise them through their agents on the Agents tab.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {/* player tabs */}
-              <div className="scroll" style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 2 }}>
-                {playerGroups.map((g) => {
-                  const on = g.key === activeKey;
-                  const pending = g.items.filter((a) => a.status !== "resolved").length;
-                  return (
-                    <button key={g.key || "_gm"} onClick={() => setPlayerTab(g.key)} title={g.name}
-                      style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", whiteSpace: "nowrap",
-                        border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 2, padding: "6px 10px",
-                        background: on ? "rgba(159,194,58,.14)" : T.panel2, color: on ? T.accent : T.text,
-                        fontFamily: "'Oswald', sans-serif", fontSize: 12, fontWeight: 600, letterSpacing: ".03em",
-                        textTransform: "uppercase", flex: "0 0 auto" }}>
-                      <Users size={12} /> {g.name}
-                      {pending > 0 && (
-                        <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 7,
-                          minWidth: 14, height: 14, padding: "0 4px", display: "inline-flex", alignItems: "center",
-                          justifyContent: "center", fontSize: 9, fontWeight: 700 }}>{pending}</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+  const toolPane = () => (
+    <div>
+      <div className="stencil" style={{ fontSize: 16, letterSpacing: ".06em", color: T.text,
+        display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
+        <Gavel size={15} color={T.accent} /> ROLL RESOLUTION
+      </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {groupRequests.map((action) => {
-                  const { faction: fac, label } = describeAgent(action);
-                  return (
-                    <ActionCard key={action.id} action={action} faction={fac} agentLabel={label}
-                      modName={modName} isTarget={action.id === targetId}
-                      onResolveWithTool={() => startResolving(action)}
-                      reopenAction={reopenAction} removeAction={removeAction} />
-                  );
-                })}
-              </div>
+      <div style={{ background: T.panel, border: `1px solid ${targetAction ? T.accent : T.line}`, ...cut(10),
+        padding: isMobile ? 12 : 16, display: "flex", flexDirection: "column", gap: 12 }}>
+
+        {/* When driven from a request, a banner ties the tool to it and offers a way out. */}
+        {targetAction && (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "rgba(159,194,58,.1)",
+            border: `1px solid ${T.accent}`, borderRadius: 2, padding: "8px 10px" }}>
+            <Wand2 size={14} style={{ color: T.accent, flexShrink: 0, marginTop: 1 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ ...lbl, color: T.accent, marginBottom: 3 }}>Resolving request</div>
+              <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5 }}>{targetAction.text}</div>
             </div>
+            <button onClick={() => { setTargetId(""); clearTool(); }} title="Detach from this request"
+              style={{ background: "none", border: "none", color: T.mut, cursor: "pointer", padding: 2 }}>
+              <Trash2 size={13} />
+            </button>
+          </div>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={lbl}>Player</span>
+          <select value={roleId} onChange={(e) => changePlayer(e.target.value)} style={selStyle}>
+            <option value="">— choose a player —</option>
+            {roles.map((r) => <option key={r.id} value={r.id}>{r.name || "Unnamed player"}</option>)}
+          </select>
+          {roles.length === 0 && (
+            <div style={{ fontSize: 10.5, color: T.faint }}>No player roles yet — add one from the access panel.</div>
           )}
         </div>
 
-        {/* ---------------------------------------- roll resolution tool ---------------------------------------- */}
-        <div ref={toolRef}>
-          <div className="stencil" style={{ fontSize: 16, letterSpacing: ".06em", color: T.text,
-            display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
-            <Gavel size={15} color={T.accent} /> ROLL RESOLUTION
+        {role && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={lbl}>Modifiers {faction ? `— ${faction.name}` : "(no faction assigned)"}</span>
+            {factionMods.length === 0 && (
+              <div style={{ fontSize: 10.5, color: T.faint, padding: "8px 0" }}>
+                No modifiers recorded for this player's faction yet.
+              </div>
+            )}
+            {factionMods.map((m) => {
+              const on = selectedIds.includes(m.id);
+              return (
+                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8,
+                  border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 2, padding: "6px 9px",
+                  background: on ? "rgba(159,194,58,.12)" : T.panel2 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, cursor: "pointer" }}>
+                    <input type="checkbox" checked={on} onChange={() => toggleMod(m.id)} />
+                    <span style={{ fontSize: 12.5, color: on ? T.accent : T.text }}>
+                      {m.name || "Unnamed modifier"}
+                    </span>
+                  </label>
+                  {on && (
+                    <input type="number" className="mono" value={modValues[m.id] ?? ""}
+                      onChange={(e) => setModValues((vs) => ({ ...vs, [m.id]: e.target.value }))}
+                      placeholder="value" style={{ ...inputStyle, width: 64 }} />
+                  )}
+                </div>
+              );
+            })}
           </div>
+        )}
 
-          <div style={{ background: T.panel, border: `1px solid ${targetAction ? T.accent : T.line}`, ...cut(10),
-            padding: isMobile ? 12 : 16, display: "flex", flexDirection: "column", gap: 12 }}>
-
-            {/* When driven from a request, a banner ties the tool to it and offers a way out. */}
-            {targetAction && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "rgba(159,194,58,.1)",
-                border: `1px solid ${T.accent}`, borderRadius: 2, padding: "8px 10px" }}>
-                <Wand2 size={14} style={{ color: T.accent, flexShrink: 0, marginTop: 1 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ ...lbl, color: T.accent, marginBottom: 3 }}>Resolving request</div>
-                  <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5 }}>{targetAction.text}</div>
-                </div>
-                <button onClick={() => { setTargetId(""); clearTool(); }} title="Detach from this request"
-                  style={{ background: "none", border: "none", color: T.mut, cursor: "pointer", padding: 2 }}>
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            )}
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={lbl}>Player</span>
-              <select value={roleId} onChange={(e) => changePlayer(e.target.value)} style={selStyle}>
-                <option value="">— choose a player —</option>
-                {roles.map((r) => <option key={r.id} value={r.id}>{r.name || "Unnamed player"}</option>)}
-              </select>
-              {roles.length === 0 && (
-                <div style={{ fontSize: 10.5, color: T.faint }}>No player roles yet — add one from the access panel.</div>
-              )}
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={lbl}>Roll</span>
+            <input className="mono" type="number" value={rollText}
+              onChange={(e) => { setRollText(e.target.value); setDice(null); }}
+              placeholder="0" style={{ ...inputStyle, width: 90 }} />
+          </div>
+          <Btn kind="primary" onClick={rollTwoD6} title="Roll 2d6">
+            <Dices size={14} /> Roll 2d6
+          </Btn>
+          {dice && (
+            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              {[dice.d1, dice.d2].map((face, i) => {
+                const Face = DIE_FACES[face];
+                return <Face key={i} size={30} color={T.text} strokeWidth={1.5} />;
+              })}
             </div>
-
-            {role && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={lbl}>Modifiers {faction ? `— ${faction.name}` : "(no faction assigned)"}</span>
-                {factionMods.length === 0 && (
-                  <div style={{ fontSize: 10.5, color: T.faint, padding: "8px 0" }}>
-                    No modifiers recorded for this player's faction yet.
-                  </div>
-                )}
-                {factionMods.map((m) => {
-                  const on = selectedIds.includes(m.id);
-                  return (
-                    <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8,
-                      border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 2, padding: "6px 9px",
-                      background: on ? "rgba(159,194,58,.12)" : T.panel2 }}>
-                      <label style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, cursor: "pointer" }}>
-                        <input type="checkbox" checked={on} onChange={() => toggleMod(m.id)} />
-                        <span style={{ fontSize: 12.5, color: on ? T.accent : T.text }}>
-                          {m.name || "Unnamed modifier"}
-                        </span>
-                      </label>
-                      {on && (
-                        <input type="number" className="mono" value={modValues[m.id] ?? ""}
-                          onChange={(e) => setModValues((vs) => ({ ...vs, [m.id]: e.target.value }))}
-                          placeholder="value" style={{ ...inputStyle, width: 64 }} />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={lbl}>Roll</span>
-                <input className="mono" type="number" value={rollText}
-                  onChange={(e) => { setRollText(e.target.value); setDice(null); }}
-                  placeholder="0" style={{ ...inputStyle, width: 90 }} />
-              </div>
-              <Btn kind="primary" onClick={rollTwoD6} title="Roll 2d6">
-                <Dices size={14} /> Roll 2d6
-              </Btn>
-              {dice && (
-                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  {[dice.d1, dice.d2].map((face, i) => {
-                    const Face = DIE_FACES[face];
-                    return <Face key={i} size={30} color={T.text} strokeWidth={1.5} />;
-                  })}
-                </div>
-              )}
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={lbl}>Total mod</span>
-                <input className="mono" type="number" value={totalModText} onChange={(e) => setTotalModText(e.target.value)}
-                  style={{ ...inputStyle, width: 90 }} />
-              </div>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={lbl}>Outcome text</span>
-              <textarea value={outcomeText} onChange={(e) => setOutcomeText(e.target.value)}
-                placeholder="What happens as a result… (appended after the success/failure line)"
-                style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9 }} />
-            </div>
-
-            <label style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 11.5, color: T.mut }}>
-              <input type="checkbox" checked={track} onChange={(e) => setTrack(e.target.checked)} />
-              Also log this resolution in the notes below
-            </label>
-
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {OUTCOMES.map((o) => (
-                <Btn key={o.id} kind={o.kind} onClick={() => resolve(o.id)} style={{ flex: "1 1 130px", justifyContent: "center" }}>
-                  {targetAction ? "Resolve: " : ""}{o.label}
-                </Btn>
-              ))}
-            </div>
-
-            {output && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={lbl}>Discord output</span>
-                <pre className="mono" style={{ margin: 0, background: T.panel2, border: `1px solid ${T.line}`,
-                  borderRadius: 2, padding: 10, fontSize: 12.5, color: T.text, whiteSpace: "pre-wrap" }}>
-                  {output}
-                </pre>
-                <Btn onClick={copyOutput} style={{ alignSelf: "flex-start" }}>
-                  <Copy size={13} /> Copy
-                </Btn>
-              </div>
-            )}
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={lbl}>Total mod</span>
+            <input className="mono" type="number" value={totalModText} onChange={(e) => setTotalModText(e.target.value)}
+              style={{ ...inputStyle, width: 90 }} />
           </div>
         </div>
 
-        {/* ---------------------------------------- notes ---------------------------------------- */}
-        <div>
-          <div className="stencil" style={{ fontSize: 16, letterSpacing: ".06em", color: T.text,
-            display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
-            <NotebookPen size={15} color={T.accent} /> NOTES
-          </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={lbl}>Outcome text</span>
+          <textarea value={outcomeText} onChange={(e) => setOutcomeText(e.target.value)}
+            placeholder="What happens as a result… (appended after the success/failure line)"
+            style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9 }} />
+        </div>
 
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <input value={noteInput} onChange={(e) => setNoteInput(e.target.value)}
-              placeholder="Add a note…" style={{ ...inputStyle, flex: 1 }}
-              onKeyDown={(e) => { if (e.key === "Enter") submitNote(); }} />
-            <Btn kind="primary" onClick={submitNote} disabled={!noteInput.trim()}>
-              <Plus size={13} /> Add
+        <label style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 11.5, color: T.mut }}>
+          <input type="checkbox" checked={track} onChange={(e) => setTrack(e.target.checked)} />
+          Also log this resolution in the notes below
+        </label>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {OUTCOMES.map((o) => (
+            <Btn key={o.id} kind={o.kind} onClick={() => resolve(o.id)} style={{ flex: "1 1 130px", justifyContent: "center" }}>
+              {targetAction ? "Resolve: " : ""}{o.label}
+            </Btn>
+          ))}
+        </div>
+
+        {output && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={lbl}>Discord output</span>
+            <pre className="mono" style={{ margin: 0, background: T.panel2, border: `1px solid ${T.line}`,
+              borderRadius: 2, padding: 10, fontSize: 12.5, color: T.text, whiteSpace: "pre-wrap" }}>
+              {output}
+            </pre>
+            <Btn onClick={copyOutput} style={{ alignSelf: "flex-start" }}>
+              <Copy size={13} /> Copy
             </Btn>
           </div>
+        )}
+      </div>
+    </div>
+  );
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {sortedNotes.length === 0 && (
-              <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
-                border: `1px dashed ${T.line}` }}>
-                No notes yet.
-              </div>
-            )}
-            {sortedNotes.map((n) => (
-              <div key={n.id} style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel2,
-                padding: 9, display: "flex", flexDirection: "column", gap: 5 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 9.5, letterSpacing: ".1em", textTransform: "uppercase",
-                    color: n.kind === "roll" ? T.accent : T.faint, fontWeight: 700 }}>
-                    {n.kind === "roll" ? `Roll${n.playerName ? ` · ${n.playerName}` : ""}` : "Note"}
-                  </span>
-                  <span style={{ fontSize: 9.5, color: T.faint, marginLeft: "auto" }}>
-                    {n.createdAt ? new Date(n.createdAt).toLocaleString() : ""}
-                  </span>
-                  <button onClick={() => removeNote(n.id)} title="Remove note"
-                    style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", padding: 2 }}>
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-                <div className={n.kind === "roll" ? "mono" : undefined}
-                  style={{ fontSize: 12.5, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>
-                  {n.text}
-                </div>
-              </div>
-            ))}
+  const notesPane = () => (
+    <div>
+      <div className="stencil" style={{ fontSize: 16, letterSpacing: ".06em", color: T.text,
+        display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
+        <NotebookPen size={15} color={T.accent} /> NOTES
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <input value={noteInput} onChange={(e) => setNoteInput(e.target.value)}
+          placeholder="Add a note…" style={{ ...inputStyle, flex: 1 }}
+          onKeyDown={(e) => { if (e.key === "Enter") submitNote(); }} />
+        <Btn kind="primary" onClick={submitNote} disabled={!noteInput.trim()}>
+          <Plus size={13} /> Add
+        </Btn>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {sortedNotes.length === 0 && (
+          <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+            border: `1px dashed ${T.line}` }}>
+            No notes yet.
           </div>
+        )}
+        {sortedNotes.map((n) => (
+          <div key={n.id} style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel2,
+            padding: 9, display: "flex", flexDirection: "column", gap: 5 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 9.5, letterSpacing: ".1em", textTransform: "uppercase",
+                color: n.kind === "roll" ? T.accent : T.faint, fontWeight: 700 }}>
+                {n.kind === "roll" ? `Roll${n.playerName ? ` · ${n.playerName}` : ""}` : "Note"}
+              </span>
+              <span style={{ fontSize: 9.5, color: T.faint, marginLeft: "auto" }}>
+                {n.createdAt ? new Date(n.createdAt).toLocaleString() : ""}
+              </span>
+              <button onClick={() => removeNote(n.id)} title="Remove note"
+                style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", padding: 2 }}>
+                <Trash2 size={13} />
+              </button>
+            </div>
+            <div className={n.kind === "roll" ? "mono" : undefined}
+              style={{ fontSize: 12.5, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>
+              {n.text}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Mobile: one scroll column — the player strip and its requests, then the tool,
+  // then notes. `toolRef` rides the tool so "Resolve with tool" can scroll to it.
+  if (isMobile) {
+    return (
+      <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", background: T.void, padding: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <div>
+            <div className="stencil" style={{ fontSize: 16, letterSpacing: ".06em", color: T.text,
+              display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
+              <ClipboardList size={15} color={T.accent} /> ACTION REQUESTS {countBadge(pendingTotal, true)}
+            </div>
+            {playerGroups.length > 0 && <div style={{ marginBottom: 10 }}>{playerRail(false)}</div>}
+            {requestsPane()}
+          </div>
+          <div ref={toolRef}>{toolPane()}</div>
+          {notesPane()}
         </div>
+      </div>
+    );
+  }
+
+  // Desktop: the workspace — vertical player rail, the active player's request
+  // stack, and the resolution tool (+ notes) pinned on the right, all in view.
+  return (
+    <div style={{ flex: 1, minHeight: 0, display: "flex", background: T.void }}>
+      <div style={{ width: 212, flexShrink: 0, borderRight: `2px solid ${T.line}`, background: T.panel,
+        display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div className="stencil" style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5,
+          letterSpacing: ".08em", color: T.text, padding: "12px 12px 8px", flexShrink: 0 }}>
+          <ClipboardList size={14} color={T.accent} /> REQUESTS {countBadge(pendingTotal)}
+        </div>
+        <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 8px 10px" }}>
+          {playerGroups.length === 0
+            ? <div style={{ fontSize: 10.5, color: T.faint, padding: "8px 4px", lineHeight: 1.5 }}>No requests yet.</div>
+            : playerRail(true)}
+        </div>
+      </div>
+
+      <div className="scroll" style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18 }}>
+        {requestsPane()}
+      </div>
+
+      <div ref={toolRef} className="scroll" style={{ width: 392, flexShrink: 0, borderLeft: `2px solid ${T.line}`,
+        background: T.void, overflowY: "auto", padding: 18, display: "flex", flexDirection: "column", gap: 22 }}>
+        {toolPane()}
+        {notesPane()}
       </div>
     </div>
   );

@@ -47,6 +47,8 @@ export default function GalaxySectorMap() {
 
   const [mode, setMode] = useState("select"); // select | link | draw | orders
   const [showOrders, setShowOrders] = useState(true); // personal: show/hide the move-order overlay on the map
+  const [showFleets, setShowFleets] = useState(true); // personal: show/hide fleet pieces on the map
+  const [showAgents, setShowAgents] = useState(true); // personal: show/hide agent pieces on the map
   const [view, setView] = useState({ scale: 1, ox: 60, oy: 40 });
   const [strokes, setStrokes] = useState([]);
 
@@ -1182,7 +1184,6 @@ export default function GalaxySectorMap() {
           {!isMobile && (
             <Toolbar
               mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} canOrder={canOrder}
-              showOrders={showOrders} setShowOrders={setShowOrders}
               addSystemCenter={addSystemCenter} addFleetCenter={addFleetCenter}
               drawColor={mapInt.drawColor} setDrawColor={mapInt.setDrawColor}
               drawWidth={mapInt.drawWidth} setDrawWidth={mapInt.setDrawWidth}
@@ -1193,7 +1194,6 @@ export default function GalaxySectorMap() {
           {isMobile && (
             <MobileToolbar
               mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} canOrder={canOrder}
-              showOrders={showOrders} setShowOrders={setShowOrders}
               addSystemCenter={addSystemCenter} addFleetCenter={addFleetCenter}
               drawColor={mapInt.drawColor} setDrawColor={mapInt.setDrawColor}
               drawWidth={mapInt.drawWidth} setDrawWidth={mapInt.setDrawWidth}
@@ -1210,6 +1210,9 @@ export default function GalaxySectorMap() {
                 isMobile={isMobile} onClose={() => setPanelOpen(false)}
                 addFaction={addFaction} patchFaction={patchFaction} deleteFaction={deleteFaction}
                 addLayer={addLayer} patchLayer={patchLayer} toggleLayer={toggleLayer}
+                showFleets={showFleets} setShowFleets={setShowFleets}
+                showAgents={showAgents} setShowAgents={setShowAgents}
+                showOrders={showOrders} setShowOrders={setShowOrders} canOrder={canOrder}
               />
             )}
 
@@ -1218,6 +1221,7 @@ export default function GalaxySectorMap() {
               isMobile={isMobile} mode={mode} canEdit={canEdit} view={view} w2s={w2s}
               systems={systems} fleets={displayFleets} links={links} fleetPos={fleetPos}
               agents={displayAgents} agentPos={agentPos} orders={displayOrders} showOrders={showOrders}
+              showFleets={showFleets} showAgents={showAgents}
               factions={factions} layers={layers} factionById={factionById} layerById={layerById}
               selSystem={selSystem} selFleet={selFleet} selAgent={selAgent} linkSource={linkSource} hoverFleet={mapInt.hoverFleet}
               routing={routing} routingOrder={routingOrder}
