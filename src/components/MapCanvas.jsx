@@ -273,15 +273,15 @@ export default function MapCanvas({
             onClick={() => { if (!canDrag) onAgentTap(a.id); }}
             style={{ position: "absolute", left: p.x, top: p.y, transform: "translate(-50%,-50%)", touchAction: "none",
               cursor: canDrag ? "grab" : "pointer", zIndex: isSel || isRouting ? 24 : 17 }}>
-            <div style={{ position: "relative", width: 24, height: 24,
+            <div style={{ position: "relative", width: 29, height: 29,
               filter: `drop-shadow(0 2px 3px rgba(0,0,0,.7)) drop-shadow(0 0 3px ${fac.color}77)` }}>
-              {(isSel || isRouting) && <TargetBrackets color={isRouting ? T.amber : T.accent} inset={-5} armLen={7} thick={2} />}
-              <div style={{ position: "absolute", inset: 4, transform: "rotate(45deg)",
+              {(isSel || isRouting) && <TargetBrackets color={isRouting ? T.amber : T.accent} inset={-6} armLen={8} thick={2} />}
+              <div style={{ position: "absolute", inset: 5, transform: "rotate(45deg)",
                 background: `radial-gradient(circle at 50% 32%, ${fac.color}, ${fac.color}bb 60%, #000 150%)`,
                 border: "1.5px solid #14110b",
                 boxShadow: "inset 0 1px 2px rgba(255,255,255,.18)" }} />
               <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Icon size={13} color="#14110b" />
+                <Icon size={16} color="#14110b" />
               </div>
               {cap > 0 && (
                 <div className="mono" title={`${remaining} of ${cap} action requests available`}

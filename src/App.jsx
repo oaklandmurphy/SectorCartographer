@@ -1176,24 +1176,31 @@ export default function GalaxySectorMap() {
   }, [fleets, systems]);
 
   /* ------------------------------------------------ derived agent positions.
-     Agents sit at a system, stacked in a vertical column just to its left so they
-     never cover the system name (which hangs below the plate) or the fleets that
-     fan out around it. Dragging one off any system (see onAgentSnap below)
-     leaves it floating at its dropped x/y instead — same as a fleet dragged into
-     open space — so it stays visible mid-move rather than vanishing. Only an
-     agent that has never been placed (no systemId and no x/y) has no map
-     position at all. */
+     Agents sit at a system, stacked in a column just to its left so they never
+     cover the system name (which hangs below the plate) or the fleets that fan
+     out around it — wrapping to a further-left column after MAX_PER_COL so a
+     busy system doesn't run a column of agents off past its neighbors. Dragging
+     one off any system (see onAgentSnap below) leaves it floating at its dropped
+     x/y instead — same as a fleet dragged into open space — so it stays visible
+     mid-move rather than vanishing. Only an agent that has never been placed (no
+     systemId and no x/y) has no map position at all. */
   const agentPos = useMemo(() => {
     const grouping = {};
     agents.forEach((a) => { if (a.systemId) (grouping[a.systemId] = grouping[a.systemId] || []).push(a.id); });
     const out = {};
-    const COL_X = 36, ROW_GAP = 24; // world units: how far left, and the row pitch
+    // world units: how far left the first column sits, the row pitch, the column
+    // pitch, and how many agents stack in a column before wrapping to a new one
+    // (further left again) instead of running off past the system's name.
+    const COL_X = 36, ROW_GAP = 24, COL_GAP = 30, MAX_PER_COL = 4;
     agents.forEach((a) => {
       if (a.systemId) {
         const sys = systems.find((s) => s.id === a.systemId);
         if (sys) {
           const arr = grouping[a.systemId]; const idx = arr.indexOf(a.id); const n = arr.length;
-          out[a.id] = { x: sys.x - COL_X, y: sys.y + (idx - (n - 1) / 2) * ROW_GAP };
+          const col = Math.floor(idx / MAX_PER_COL);
+          const row = idx % MAX_PER_COL;
+          const rowsInCol = Math.min(MAX_PER_COL, n - col * MAX_PER_COL);
+          out[a.id] = { x: sys.x - COL_X - col * COL_GAP, y: sys.y + (row - (rowsInCol - 1) / 2) * ROW_GAP };
           return;
         }
       }
