@@ -26,7 +26,7 @@ export function resolveViewer(knownCode, lockCode, roles) {
   const role = knownCode ? (roles || []).find((r) => r.password && r.password === knownCode) : null;
   if (role) {
     return { kind: "player", seesAll: false, roleId: role.id, roleName: role.name,
-      roleFactionId: role.factionId || null };
+      roleFactionId: role.factionId || null, canMoveAgents: !!role.canMoveAgents };
   }
   // No GM code set yet: legacy "open" mode — anyone without a player code can
   // still edit and see everything.

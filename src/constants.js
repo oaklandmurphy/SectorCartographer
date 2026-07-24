@@ -2,7 +2,9 @@ import {
   Gem, Fuel, Hammer, Factory, Landmark, Satellite, Radiation, Skull,
   ShieldAlert, Atom, Sparkles, Orbit, Crown, Flag, Star,
   Users, MapPin, ScrollText, Scale, Boxes,
-  User, Handshake, Swords, Minus, Flame, Newspaper,
+  User, Handshake, Swords, Minus, Flame, Newspaper, VenetianMask,
+  Fingerprint, Eye, Glasses, KeyRound, Binoculars, Camera,
+  Gavel, Megaphone, Crosshair, Target, Shield, Footprints, Radio, UserCog,
 } from "lucide-react";
 
 // The only key still kept per-device: the code this browser/account has entered.
@@ -53,6 +55,21 @@ export const ICONS = {
   ShieldAlert, Atom, Sparkles, Orbit, Crown, Flag, Star,
 };
 export const ICON_KEYS = Object.keys(ICONS);
+
+// Glyphs an agent can be assigned (AgentsView / AgentPopup) so a faction's
+// operatives are visually distinct from one another on the map and in the
+// rail. A deliberately separate set from ICONS above (system status markers)
+// so the two never look alike at a glance — themed around espionage,
+// diplomacy, and infantry/military rather than industry or hazards. VenetianMask
+// stays first and is the fallback for an agent with no icon set — same glyph
+// the map used before agents had a choice at all.
+export const AGENT_ICONS = {
+  VenetianMask, Fingerprint, Eye, Glasses, KeyRound, Binoculars, Camera,
+  Handshake, Scale, Gavel, Megaphone,
+  Swords, Crosshair, Target, Shield, Footprints, Radio,
+  Users, UserCog,
+};
+export const AGENT_ICON_KEYS = Object.keys(AGENT_ICONS);
 
 // Default size of a freshly added squadron — a placeholder to type over, not a rule.
 export const DEFAULT_SQUADRON_SIZE = 12;

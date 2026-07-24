@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Gavel, Copy, Trash2, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6,
-  ClipboardList, VenetianMask, Flag, Check, Clock, RotateCcw, Wand2, Users, Rocket } from "lucide-react";
+  ClipboardList, VenetianMask, Flag, Check, Clock, RotateCcw, Wand2, Users, Rocket, SkipForward } from "lucide-react";
 import { T, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
 import ActionResolution from "./ui/ActionResolution.jsx";
@@ -43,9 +43,24 @@ const OUTCOME_LABEL = {
 // week and +2 the next), so it's typed in at the moment of use, not stored.
 export default function GMToolsView({ roles, factions, modifiers, notes, isMobile, addNote, removeNote,
   actions, agents, resolveAction, reopenAction, removeAction,
-  fleets, missions, resolveMission, removeMission }) {
+  fleets, missions, resolveMission, removeMission, orders, nextTurn }) {
   const [section, setSection] = useState("actions"); // "actions" | "missions"
   const pendingMissionTotal = (missions || []).filter((m) => m.status !== "resolved").length;
+  // What "Next Turn" is about to do: land every committed move order and close
+  // out every agent's action requests. Shown beside the button so the GM isn't
+  // clicking blind — see App.jsx's nextTurn for what actually runs.
+  const readyOrders = (orders || []).filter((o) => o.committed && o.path.length > 0);
+  const readyFleetMoves = readyOrders.filter((o) => o.pieceType === "fleet").length;
+  const readyAgentMoves = readyOrders.filter((o) => o.pieceType === "agent").length;
+  const openActionsTotal = (actions || []).length;
+  const turnHasWork = readyOrders.length > 0 || openActionsTotal > 0;
+  function turnSummary() {
+    const parts = [];
+    if (readyFleetMoves > 0) parts.push(`${readyFleetMoves} fleet move${readyFleetMoves === 1 ? "" : "s"}`);
+    if (readyAgentMoves > 0) parts.push(`${readyAgentMoves} agent move${readyAgentMoves === 1 ? "" : "s"}`);
+    if (openActionsTotal > 0) parts.push(`${openActionsTotal} action request${openActionsTotal === 1 ? "" : "s"} closed out`);
+    return parts.length > 0 ? parts.join(" · ") : "Nothing queued — no committed moves or open action requests.";
+  }
 
   /* ------------------------------------------------ resolution tool state */
   const [roleId, setRoleId] = useState(roles[0]?.id || "");
@@ -439,6 +454,23 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
       </Btn>
     </div>
   );
+
+  // Bulk "resolve the round" control: lands every committed fleet/agent move
+  // order, then archives and clears every agent's action requests so the next
+  // turn's quota starts at zero. Always visible (not tied to either section)
+  // since it spans both movement and agent actions.
+  const turnBar = () => (
+    <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap",
+      margin: isMobile ? "0 0 14px" : "12px 12px 0" }}>
+      <Btn kind="primary" onClick={nextTurn} disabled={!turnHasWork}
+        title={turnHasWork ? `Advance the turn — ${turnSummary()}` : "Nothing queued to resolve yet"}>
+        <SkipForward size={13} /> Next Turn
+      </Btn>
+      <span style={{ fontSize: 10.5, color: turnHasWork ? T.mut : T.faint, lineHeight: 1.4 }}>
+        {turnSummary()}
+      </span>
+    </div>
+  );
   const notes_ = <GMNotesPanel notes={notes} addNote={addNote} removeNote={removeNote} />;
 
   // Mobile: one scroll column — the section switch, then the active section's
@@ -448,6 +480,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     return (
       <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", background: T.void, padding: 12 }}>
         {sectionBar()}
+        {turnBar()}
         {section === "missions" ? (
           <SquadronMissionsPanel roles={roles} factions={factions} fleets={fleets} missions={missions}
             isMobile={isMobile} resolveMission={resolveMission} removeMission={removeMission} />
@@ -475,6 +508,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     return (
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.void }}>
         {sectionBar()}
+        {turnBar()}
         <SquadronMissionsPanel roles={roles} factions={factions} fleets={fleets} missions={missions}
           isMobile={isMobile} resolveMission={resolveMission} removeMission={removeMission}
           notesPane={notes_} />
@@ -484,6 +518,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.void }}>
       {sectionBar()}
+      {turnBar()}
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         <div style={{ width: 212, flexShrink: 0, borderRight: `2px solid ${T.line}`, background: T.panel,
           display: "flex", flexDirection: "column", minHeight: 0 }}>

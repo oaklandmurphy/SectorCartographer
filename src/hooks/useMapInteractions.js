@@ -13,10 +13,12 @@ export function useMapInteractions({
   view, setView,
   systems, setSystems,
   fleets, setFleets,
+  setAgents,
   strokes, setStrokes,
   drawColor, drawWidth,
   onSystemTap, onFleetTap,
   onFleetSnap,
+  onAgentTap, onAgentSnap,
   onShipDrop,
   onDeselectAll,
   onLinkBackgroundClick,
@@ -46,7 +48,7 @@ export function useMapInteractions({
   // current on every render instead of depending on them directly, which would otherwise
   // make it close over stale versions (and stale `mode`/`linkSource`/etc. inside them).
   const callbacksRef = useRef(null);
-  callbacksRef.current = { onSystemTap, onFleetTap, onFleetSnap, onShipDrop, onDeselectAll, onLinkBackgroundClick, onDoubleClickAddSystem };
+  callbacksRef.current = { onSystemTap, onFleetTap, onFleetSnap, onAgentTap, onAgentSnap, onShipDrop, onDeselectAll, onLinkBackgroundClick, onDoubleClickAddSystem };
 
   useEffect(() => { systemsRef.current = systems; }, [systems]);
   useEffect(() => { viewRef.current = view; }, [view]);
@@ -192,6 +194,13 @@ export function useMapInteractions({
       } else if (d.kind === "fleet" && canEditRef.current) {
         const nx = d.origWX + dx / d.scale, ny = d.origWY + dy / d.scale;
         setFleets((fs) => fs.map((f) => (f.id === d.id ? { ...f, x: nx, y: ny, systemId: null } : f)));
+      } else if (d.kind === "agent") {
+        // No canEditRef gate here — the caller only ever starts an "agent" drag
+        // (MapCanvas's onPointerDown) once it has already checked this specific
+        // agent's own faction/role permission, unlike the single global GM flag
+        // fleets and systems drag under.
+        const nx = d.origWX + dx / d.scale, ny = d.origWY + dy / d.scale;
+        setAgents((as) => as.map((a) => (a.id === d.id ? { ...a, x: nx, y: ny, systemId: null } : a)));
       }
     };
     const onUp = (e) => {
@@ -210,6 +219,8 @@ export function useMapInteractions({
         if (d.kind === "system" && !d.moved) callbacksRef.current.onSystemTap(d.id);
         if (d.kind === "fleet" && !d.moved) callbacksRef.current.onFleetTap(d.id);
         if (d.kind === "fleet" && d.moved) callbacksRef.current.onFleetSnap(d.id, systemsRef.current);
+        if (d.kind === "agent" && !d.moved) callbacksRef.current.onAgentTap(d.id);
+        if (d.kind === "agent" && d.moved) callbacksRef.current.onAgentSnap(d.id, systemsRef.current);
         if (d.kind === "pan" && !d.moved) callbacksRef.current.onDeselectAll();
         dragRef.current = null;
         document.body.style.userSelect = "";

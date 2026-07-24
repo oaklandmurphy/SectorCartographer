@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Star, VenetianMask } from "lucide-react";
 import { T, cut, sceneBackdrop, floatingPanel } from "../theme.js";
-import { ICONS, OVERVIEW_ZOOM } from "../constants.js";
+import { ICONS, AGENT_ICONS, OVERVIEW_ZOOM } from "../constants.js";
 import { craftInFleet } from "../lib/carriers.js";
 import TargetBrackets from "./ui/TargetBrackets.jsx";
 import SystemGlow from "./ui/SystemGlow.jsx";
@@ -27,7 +27,7 @@ export default function MapCanvas({
   mapRef, canvasRef, containerSize, isMobile,
   mode, canEdit, view, w2s,
   systems, fleets, links, fleetPos,
-  agents, agentPos, orders, showOrders, showFleets = true, showAgents = true,
+  agents, agentPos, orders, actions, showOrders, showFleets = true, showAgents = true,
   factions, layers, factionById, layerById,
   selSystem, selFleet, selAgent, linkSource, hoverFleet,
   routing, routingOrder,
@@ -38,7 +38,7 @@ export default function MapCanvas({
   patchSystem, addMarker, patchMarker, removeMarker, deployFleetAt, deleteSystem,
   patchFleet, addShip, patchShip, removeShip, moveShip, deleteFleet, beginShipDrag,
   addSquadron, patchSquadron, removeSquadron, goToFleet, goToAgentAction, art,
-  patchAgent, removeAgent, canManageAgents, canOrderFor, submitMission,
+  patchAgent, removeAgent, canManageAgents, canPlaceAgents, canOrderFor, submitMission,
   wiki, roles, goToCodex, createEntry,
 }) {
   const overview = view.scale <= OVERVIEW_ZOOM; // zoomed out far enough — simplify systems to plain markers
@@ -256,11 +256,23 @@ export default function MapCanvas({
         const member = fac2 ? (fac2.members || []).find((m) => m.id === a.memberId) : null;
         const label = member ? member.name : "Agent";
         const tip = a.notes ? `${label} · ${a.notes}` : label;
+        // Dragging is a GM-always, player-if-the-GM's-flipped-their-toggle
+        // permission (see canPlaceAgents/AccessControl's per-role switch) — a
+        // viewer without it still just taps the marker to open its popup, same
+        // as before this existed.
+        const canDrag = mode !== "draw" && !!(canPlaceAgents && canPlaceAgents(a.factionId));
+        const Icon = AGENT_ICONS[a.icon] || VenetianMask;
+        // Same idea as a fleet's carrier-count badge, bottom-right: how many
+        // action requests this agent has left against its GM-set quota.
+        const cap = Number(a.actionCap) || 0;
+        const used = (actions || []).filter((x) => x.agentId === a.id).length;
+        const remaining = Math.max(0, cap - used);
         return (
-          <div key={a.id} data-piece="1" title={tip}
-            onPointerDown={(e) => e.stopPropagation()} onClick={() => onAgentTap(a.id)}
+          <div key={a.id} data-piece="1" title={canDrag ? `${tip} · drag to move` : tip}
+            onPointerDown={(e) => { if (canDrag) startPieceDrag(e, "agent", a.id, pos.x, pos.y); else e.stopPropagation(); }}
+            onClick={() => { if (!canDrag) onAgentTap(a.id); }}
             style={{ position: "absolute", left: p.x, top: p.y, transform: "translate(-50%,-50%)", touchAction: "none",
-              cursor: "pointer", zIndex: isSel || isRouting ? 24 : 17 }}>
+              cursor: canDrag ? "grab" : "pointer", zIndex: isSel || isRouting ? 24 : 17 }}>
             <div style={{ position: "relative", width: 24, height: 24,
               filter: `drop-shadow(0 2px 3px rgba(0,0,0,.7)) drop-shadow(0 0 3px ${fac.color}77)` }}>
               {(isSel || isRouting) && <TargetBrackets color={isRouting ? T.amber : T.accent} inset={-5} armLen={7} thick={2} />}
@@ -269,8 +281,16 @@ export default function MapCanvas({
                 border: "1.5px solid #14110b",
                 boxShadow: "inset 0 1px 2px rgba(255,255,255,.18)" }} />
               <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <VenetianMask size={13} color="#14110b" />
+                <Icon size={13} color="#14110b" />
               </div>
+              {cap > 0 && (
+                <div className="mono" title={`${remaining} of ${cap} action requests available`}
+                  style={{ position: "absolute", right: -7, bottom: -6, minWidth: 15, height: 14,
+                    padding: "0 3px", background: "#14110b", border: `1px solid ${fac.color}`,
+                    color: fac.color, fontSize: 9.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {remaining}/{cap}
+                </div>
+              )}
             </div>
           </div>
         );
@@ -328,8 +348,9 @@ export default function MapCanvas({
         <AgentPopup
           agent={selAgentObj} faction={factions.find((f) => f.id === selAgentObj.factionId)}
           anchor={w2s(agentPos[selAgentObj.id].x, agentPos[selAgentObj.id].y)}
-          containerSize={containerSize} isMobile={isMobile} canEdit={canEdit}
+          containerSize={containerSize} isMobile={isMobile}
           canManage={canManageAgents ? canManageAgents(selAgentObj.factionId) : false}
+          canPlace={canPlaceAgents ? canPlaceAgents(selAgentObj.factionId) : canEdit}
           systems={systems} patchAgent={patchAgent} removeAgent={removeAgent}
           onRequestAction={goToAgentAction ? () => goToAgentAction(selAgentObj.id, selAgentObj.factionId) : undefined}
           onClose={() => setSelAgent(null)}

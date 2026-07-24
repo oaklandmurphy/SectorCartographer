@@ -1,5 +1,6 @@
 import { VenetianMask, User, MapPin, Trash2, Send } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
+import { AGENT_ICONS, AGENT_ICON_KEYS } from "../constants.js";
 import Btn from "./ui/Btn.jsx";
 import MapPopup from "./ui/MapPopup.jsx";
 
@@ -8,18 +9,21 @@ import MapPopup from "./ui/MapPopup.jsx";
 // reach it, since agents are strictly own-faction and only they render on the
 // map. `canManage` gates editing; a read-only viewer never sees this popup in
 // practice, but the fields fall back to plain text just in case. Location is
-// the one field `canManage` does NOT unlock — only the GM places an agent on
-// the map; a player requests a move instead, same as a fleet.
+// the one field `canManage` does NOT unlock on its own — only the GM places an
+// agent on the map by default; a player requests a move instead, same as a
+// fleet, unless the GM has flipped that player's `canMoveAgents` role toggle
+// in Access, passed in here as `canPlace`.
 export default function AgentPopup({
-  agent, faction, anchor, containerSize, isMobile, canManage, canEdit,
+  agent, faction, anchor, containerSize, isMobile, canManage, canPlace,
   patchAgent, removeAgent, systems, onClose, onRequestAction,
 }) {
   const members = (faction && faction.members) || [];
   const member = members.find((m) => m.id === agent.memberId) || null;
   const systemName = (id) => (systems.find((s) => s.id === id) || {}).name || "";
+  const Icon = AGENT_ICONS[agent.icon] || VenetianMask;
   return (
     <MapPopup anchor={anchor} containerSize={containerSize} isMobile={isMobile} width={288} gap={10}
-      color={faction ? faction.color : T.accent} icon={<VenetianMask size={13} />} title="AGENT" onClose={onClose}>
+      color={faction ? faction.color : T.accent} icon={<Icon size={13} />} title="AGENT" onClose={onClose}>
       <div>
         <div style={{ ...lbl, display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
           <User size={12} /> Character
@@ -39,7 +43,7 @@ export default function AgentPopup({
         <div style={{ ...lbl, display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
           <MapPin size={12} /> Location
         </div>
-        {canEdit ? (
+        {canPlace ? (
           <select style={selStyle} value={agent.systemId || ""}
             onChange={(e) => patchAgent(agent.id, { systemId: e.target.value || null })}>
             <option value="">Unplaced (off-map)</option>
@@ -47,6 +51,19 @@ export default function AgentPopup({
           </select>
         ) : (
           <div style={{ fontSize: 12.5, color: T.text }}>{agent.systemId ? systemName(agent.systemId) : "Unplaced"}</div>
+        )}
+      </div>
+
+      <div>
+        <div style={{ ...lbl, marginBottom: 4 }}>Map icon</div>
+        {canManage ? (
+          <select style={selStyle} value={agent.icon || ""}
+            onChange={(e) => patchAgent(agent.id, { icon: e.target.value || null })}>
+            <option value="">Default (mask)</option>
+            {AGENT_ICON_KEYS.filter((k) => k !== "VenetianMask").map((k) => <option key={k} value={k}>{k}</option>)}
+          </select>
+        ) : (
+          <div style={{ fontSize: 12.5, color: T.text }}>{agent.icon || "Default (mask)"}</div>
         )}
       </div>
 

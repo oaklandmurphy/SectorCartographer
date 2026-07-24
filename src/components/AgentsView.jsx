@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { VenetianMask, Plus, Trash2, User, MapPin, ShieldAlert, ClipboardList, Send, Flag, Check, Clock } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
+import { AGENT_ICONS, AGENT_ICON_KEYS } from "../constants.js";
 import Btn from "./ui/Btn.jsx";
 import ActionResolution from "./ui/ActionResolution.jsx";
 
@@ -41,6 +42,10 @@ export default function AgentsView({
     || (viewer.kind === "player" && viewer.roleFactionId === activeFaction.id));
   const cap = Number(activeFaction && activeFaction.agentCap) || 0;
   const atCap = facAgents.length >= cap;
+  // Location is normally GM-only (a player requests a move instead); the GM can
+  // toggle a role's `canMoveAgents` in Access to let that player place their own
+  // faction's agents directly, same as this being their faction to manage at all.
+  const canPlaceAgent = canEdit || (canManage && !!viewer.canMoveAgents);
   // The modifiers a player may flag on a request — their own faction's.
   const facModifiers = activeId ? (modifiers || []).filter((m) => m.factionId === activeId) : [];
 
@@ -52,6 +57,13 @@ export default function AgentsView({
     return `Agent ${idx + 1}`;
   };
   const pendingCount = (a) => (actions || []).filter((x) => x.agentId === a.id && x.status !== "resolved").length;
+  // Remaining vs. the GM-set quota — same figure the map's per-agent badge
+  // shows, kept in sync here rather than recomputed differently in two places.
+  const actionStats = (a) => {
+    const cap = Number(a.actionCap) || 0;
+    const used = (actions || []).filter((x) => x.agentId === a.id).length;
+    return { cap, used, remaining: Math.max(0, cap - used) };
+  };
 
   // The faction picker along the top — GM only in practice, since a player is
   // handed a single faction and gets no strip at all.
@@ -95,16 +107,26 @@ export default function AgentsView({
       {facAgents.map((a) => {
         const on = selectedAgent && a.id === selectedAgent.id;
         const pend = pendingCount(a);
+        const { cap: actionCap, remaining } = actionStats(a);
+        const Icon = AGENT_ICONS[a.icon] || VenetianMask;
         return (
           <button key={a.id} onClick={() => setSelectedAgentId(a.id)} title={agentLabel(a)}
             style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", whiteSpace: "nowrap",
               border: `1px solid ${on ? activeFaction.color : T.line}`, borderRadius: 2, padding: "9px 10px",
               background: on ? `${activeFaction.color}22` : T.panel2, color: on ? activeFaction.color : T.text,
               flex: vertical ? "none" : "0 0 auto", textAlign: "left", minWidth: vertical ? 0 : 150 }}>
-            <VenetianMask size={15} style={{ color: on ? activeFaction.color : T.mut, flexShrink: 0 }} />
+            <Icon size={15} style={{ color: on ? activeFaction.color : T.mut, flexShrink: 0 }} />
             <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis",
               fontFamily: "'Oswald', sans-serif", fontSize: 13, fontWeight: 600, letterSpacing: ".03em",
               textTransform: "uppercase" }}>{agentLabel(a)}</span>
+            {actionCap > 0 && (
+              <span className="mono" title={`${remaining} of ${actionCap} action requests available`}
+                style={{ display: "inline-flex", alignItems: "center", flexShrink: 0,
+                  border: `1px solid ${on ? activeFaction.color : T.line}`, borderRadius: 2, padding: "0 4px", fontSize: 9.5,
+                  color: on ? activeFaction.color : T.mut }}>
+                {remaining}/{actionCap}
+              </span>
+            )}
             {pend > 0 && (
               <span className="mono" title={`${pend} pending request${pend === 1 ? "" : "s"}`}
                 style={{ display: "inline-flex", alignItems: "center", gap: 3, flexShrink: 0,
@@ -175,12 +197,13 @@ export default function AgentsView({
     }
     const a = selectedAgent;
     const member = activeFaction.members.find((m) => m.id === a.memberId) || null;
+    const HeaderIcon = AGENT_ICONS[a.icon] || VenetianMask;
     return (
       <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto",
         display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
           background: `${activeFaction.color}1f`, borderBottom: `2px solid ${activeFaction.color}` }}>
-          <VenetianMask size={18} style={{ color: activeFaction.color, flexShrink: 0 }} />
+          <HeaderIcon size={18} style={{ color: activeFaction.color, flexShrink: 0 }} />
           <span style={{ flex: 1, minWidth: 0, fontSize: 17, fontWeight: 800, fontFamily: "'Oswald', sans-serif",
             letterSpacing: ".05em", textTransform: "uppercase", color: activeFaction.color,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentLabel(a)}</span>
@@ -213,7 +236,7 @@ export default function AgentsView({
               <div style={{ ...lbl, display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
                 <MapPin size={12} /> Location
               </div>
-              {canEdit ? (
+              {canPlaceAgent ? (
                 <select style={selStyle} value={a.systemId || ""}
                   onChange={(e) => patchAgent(a.id, { systemId: e.target.value || null })}>
                   <option value="">Unplaced (off-map)</option>
@@ -221,6 +244,26 @@ export default function AgentsView({
                 </select>
               ) : (
                 <div style={{ fontSize: 13, color: T.text }}>{a.systemId ? systemName(a.systemId) : "Unplaced"}</div>
+              )}
+            </div>
+
+            <div style={{ flex: "1 1 220px" }}>
+              <div style={{ ...lbl, marginBottom: 4 }}>Map icon</div>
+              {canManage ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 2, display: "flex",
+                    alignItems: "center", justifyContent: "center", color: activeFaction.color,
+                    background: "#14110b", border: `1px solid ${activeFaction.color}` }}>
+                    <HeaderIcon size={14} />
+                  </div>
+                  <select style={selStyle} value={a.icon || ""}
+                    onChange={(e) => patchAgent(a.id, { icon: e.target.value || null })}>
+                    <option value="">Default (mask)</option>
+                    {AGENT_ICON_KEYS.filter((k) => k !== "VenetianMask").map((k) => <option key={k} value={k}>{k}</option>)}
+                  </select>
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: T.text }}>{a.icon || "Default (mask)"}</div>
               )}
             </div>
           </div>

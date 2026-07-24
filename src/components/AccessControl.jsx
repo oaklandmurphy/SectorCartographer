@@ -1,4 +1,4 @@
-import { Lock, Unlock, Shield, UserCog, Users, Plus, Trash2, LogOut, KeyRound, Flag, Ship, EyeOff } from "lucide-react";
+import { Lock, Unlock, Shield, UserCog, Users, Plus, Trash2, LogOut, KeyRound, Flag, Ship, EyeOff, MapPin } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
 import PanelPopup from "./ui/PanelPopup.jsx";
@@ -148,6 +148,16 @@ function RoleManager({ roles, factions, addRole, patchRole, removeRole }) {
               {facList.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
           </div>
+          <button onClick={() => patchRole(r.id, { canMoveAgents: !r.canMoveAgents })}
+            title={r.canMoveAgents
+              ? "This player may place their own agents on the map directly"
+              : "This player must request agent moves for the GM to place"}
+            style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", alignSelf: "flex-start",
+              border: `1px solid ${r.canMoveAgents ? T.accent : T.line}`, borderRadius: 2, padding: "3px 7px",
+              background: r.canMoveAgents ? `${T.accent}22` : "transparent", color: r.canMoveAgents ? T.accent : T.mut,
+              fontSize: 10, fontWeight: 600, letterSpacing: ".03em", textTransform: "uppercase" }}>
+            <MapPin size={11} /> {r.canMoveAgents ? "Can move own agents" : "Cannot move agents"}
+          </button>
         </div>
       ))}
       <Btn kind="primary" onClick={addRole} style={{ justifyContent: "center" }}>

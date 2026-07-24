@@ -56,7 +56,7 @@ const defaults = {
   fleets: { systemId: null },
   strokes: { pts: [] },
   wiki: { body: "", title: "", factionId: null },
-  agents: { memberId: null, notes: "", systemId: null, actionCap: 0 },
+  agents: { memberId: null, notes: "", systemId: null, actionCap: 0, icon: null, x: 0, y: 0 },
   orders: { path: [], committed: false },
   actions: { modifierIds: [], text: "", status: "pending", resolution: null },
   missions: { detachments: [], text: "", status: "pending", resolution: null },

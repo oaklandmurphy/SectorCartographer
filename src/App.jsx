@@ -564,6 +564,12 @@ export default function GalaxySectorMap() {
   function canManageAgents(factionId) {
     return canEdit || (viewer.kind === "player" && viewer.roleFactionId === factionId);
   }
+  // Location is normally GM-only — a player requests a move instead — unless the
+  // GM has flipped that player's role-level `canMoveAgents` toggle in Access, in
+  // which case they may place their own faction's agents directly, same as the map.
+  function canPlaceAgents(factionId) {
+    return canEdit || (viewer.kind === "player" && viewer.roleFactionId === factionId && !!viewer.canMoveAgents);
+  }
   function addAgent(factionId) {
     if (!canManageAgents(factionId)) return;
     const fac = factions.find((f) => f.id === factionId);
@@ -707,6 +713,70 @@ export default function GalaxySectorMap() {
     if (!isGM) return;
     setActions((acts) => acts.map((a) => (a.id === id
       ? { ...a, status: "pending", resolvedAt: null } : a)));
+  }
+
+  /* ---- turn advance: the GM's one bulk "resolve the round" button (GM Tools).
+     Every *committed* move order — fleet or agent — lands its piece on the last
+     stop in its path and is cleared; anything still a draft (uncommitted, or no
+     stops) is left alone for next time. Every agent's action requests, resolved
+     or still pending, are archived into one GM note and wiped so each agent's
+     actionCap counts fresh for the new turn — same close-the-round idea as
+     movement, just for the other queue. */
+  function nextTurn() {
+    if (!isGM) return;
+    const ready = orders.filter((o) => o.committed && o.path.length > 0);
+    const destFor = (type, id) => {
+      const o = ready.find((x) => x.pieceType === type && x.pieceId === id);
+      if (!o) return null;
+      const dest = o.path[o.path.length - 1];
+      return systems.some((s) => s.id === dest) ? dest : null;
+    };
+    const fleetMoves = fleets
+      .map((f) => ({ f, dest: destFor("fleet", f.id) }))
+      .filter((x) => x.dest);
+    const agentMoves = agents
+      .map((a) => ({ a, dest: destFor("agent", a.id) }))
+      .filter((x) => x.dest);
+
+    if (fleetMoves.length > 0) {
+      setFleets((fs) => fs.map((f) => {
+        const m = fleetMoves.find((x) => x.f.id === f.id);
+        return m ? { ...f, systemId: m.dest } : f;
+      }));
+    }
+    if (agentMoves.length > 0) {
+      setAgents((as) => as.map((a) => {
+        const m = agentMoves.find((x) => x.a.id === a.id);
+        return m ? { ...a, systemId: m.dest } : a;
+      }));
+    }
+    if (ready.length > 0) setOrders((os) => os.filter((o) => !ready.includes(o)));
+
+    const systemName = (id) => (systems.find((s) => s.id === id) || {}).name || "?";
+    const lines = [];
+    if (fleetMoves.length > 0 || agentMoves.length > 0) {
+      lines.push("MOVEMENT");
+      fleetMoves.forEach(({ f, dest }) => lines.push(`  Fleet ${f.name} → ${systemName(dest)}`));
+      agentMoves.forEach(({ a, dest }) => {
+        const fac = factions.find((x) => x.id === a.factionId);
+        const member = fac && (fac.members || []).find((m) => m.id === a.memberId);
+        lines.push(`  Agent ${member ? member.name : "Unassigned"} → ${systemName(dest)}`);
+      });
+    }
+    if (actions.length > 0) {
+      if (lines.length > 0) lines.push("");
+      lines.push("ACTIONS CLOSED OUT");
+      agents.forEach((a) => {
+        const own = actions.filter((x) => x.agentId === a.id);
+        if (own.length === 0) return;
+        const fac = factions.find((f) => f.id === a.factionId);
+        const member = fac && (fac.members || []).find((m) => m.id === a.memberId);
+        const label = member ? member.name : "Agent";
+        own.forEach((x) => lines.push(`  ${label}: "${x.text}" — ${x.status === "resolved" ? "resolved" : "unresolved"}`));
+      });
+    }
+    if (lines.length > 0) addNote(`Turn advanced — ${new Date().toLocaleString()}\n${lines.join("\n")}`, "turn");
+    if (actions.length > 0) setActions([]);
   }
 
   /* ---- squadron missions: a player commits some of a fleet's fighters/bombers
@@ -1047,6 +1117,24 @@ export default function GalaxySectorMap() {
       return best ? { ...f, systemId: best.id } : { ...f, systemId: null };
     }));
   }
+  // Same idea as onFleetSnap, but permission is per-agent (own faction, or the
+  // GM), not the single global canEdit flag a fleet drag checks — see
+  // canPlaceAgents. Dropped somewhere with no system in range, the agent just
+  // stays floating at that world position (matches a fleet dragged off any
+  // system) rather than snapping back or disappearing.
+  function onAgentSnap(id, systemsSnapshot) {
+    const agent = agents.find((a) => a.id === id);
+    if (!agent || !canPlaceAgents(agent.factionId)) return;
+    setAgents((as) => as.map((a) => {
+      if (a.id !== id) return a;
+      let best = null, bestD = 62; // world units
+      for (const s of systemsSnapshot) {
+        const dd = Math.hypot(s.x - a.x, s.y - a.y);
+        if (dd < bestD) { bestD = dd; best = s; }
+      }
+      return best ? { ...a, systemId: best.id } : a;
+    }));
+  }
   function onDeselectAll() { setSelSystem(null); setSelFleet(null); setSelAgent(null); setLinkSource(null); }
 
   const mapInt = useMapInteractions({
@@ -1054,10 +1142,12 @@ export default function GalaxySectorMap() {
     view, setView,
     systems, setSystems,
     fleets, setFleets,
+    setAgents,
     strokes, setStrokes,
     drawColor: T.accent, drawWidth: 3,
     onSystemTap, onFleetTap,
     onFleetSnap,
+    onAgentTap, onAgentSnap,
     onShipDrop: moveShip,
     onDeselectAll,
     onLinkBackgroundClick: () => setLinkSource(null),
@@ -1088,19 +1178,26 @@ export default function GalaxySectorMap() {
   /* ------------------------------------------------ derived agent positions.
      Agents sit at a system, stacked in a vertical column just to its left so they
      never cover the system name (which hangs below the plate) or the fleets that
-     fan out around it. An unplaced agent (no systemId, or one whose system is
-     gone) has no map position. */
+     fan out around it. Dragging one off any system (see onAgentSnap below)
+     leaves it floating at its dropped x/y instead — same as a fleet dragged into
+     open space — so it stays visible mid-move rather than vanishing. Only an
+     agent that has never been placed (no systemId and no x/y) has no map
+     position at all. */
   const agentPos = useMemo(() => {
     const grouping = {};
     agents.forEach((a) => { if (a.systemId) (grouping[a.systemId] = grouping[a.systemId] || []).push(a.id); });
     const out = {};
     const COL_X = 36, ROW_GAP = 24; // world units: how far left, and the row pitch
     agents.forEach((a) => {
-      if (!a.systemId) return;
-      const sys = systems.find((s) => s.id === a.systemId);
-      if (!sys) return;
-      const arr = grouping[a.systemId]; const idx = arr.indexOf(a.id); const n = arr.length;
-      out[a.id] = { x: sys.x - COL_X, y: sys.y + (idx - (n - 1) / 2) * ROW_GAP };
+      if (a.systemId) {
+        const sys = systems.find((s) => s.id === a.systemId);
+        if (sys) {
+          const arr = grouping[a.systemId]; const idx = arr.indexOf(a.id); const n = arr.length;
+          out[a.id] = { x: sys.x - COL_X, y: sys.y + (idx - (n - 1) / 2) * ROW_GAP };
+          return;
+        }
+      }
+      if (a.x != null && a.y != null) out[a.id] = { x: a.x, y: a.y };
     });
     return out;
   }, [agents, systems]);
@@ -1337,6 +1434,7 @@ export default function GalaxySectorMap() {
               isMobile={isMobile} mode={mode} canEdit={canEdit} view={view} w2s={w2s}
               systems={systems} fleets={displayFleets} links={links} fleetPos={fleetPos}
               agents={displayAgents} agentPos={agentPos} orders={displayOrders} showOrders={showOrders}
+              actions={displayActions}
               showFleets={showFleets} showAgents={showAgents}
               factions={factions} layers={layers} factionById={factionById} layerById={layerById}
               selSystem={selSystem} selFleet={selFleet} selAgent={selAgent} linkSource={linkSource} hoverFleet={mapInt.hoverFleet}
@@ -1353,6 +1451,7 @@ export default function GalaxySectorMap() {
               moveShip={moveShip} deleteFleet={deleteFleet} beginShipDrag={mapInt.beginShipDrag}
               addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
               patchAgent={patchAgent} removeAgent={removeAgent} canManageAgents={canManageAgents}
+              canPlaceAgents={canPlaceAgents}
               canOrderFor={canOrderFor} submitMission={submitMission}
               goToFleet={goToFleet} goToAgentAction={goToAgentAction} art={art}
               wiki={displayWiki} roles={roles} goToCodex={goToCodex} createEntry={createEntry}
@@ -1439,6 +1538,7 @@ export default function GalaxySectorMap() {
             resolveAction={resolveAction} reopenAction={reopenAction} removeAction={removeAction}
             fleets={fleets} missions={missions}
             resolveMission={resolveMission} removeMission={removeMission}
+            orders={orders} nextTurn={nextTurn}
           />
         )}
       </Suspense>
