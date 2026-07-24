@@ -1,5 +1,5 @@
 import {
-  Undo2, Trash2, Plus, Rocket,
+  Undo2, Trash2, Plus, Rocket, Route, EyeOff,
   ZoomIn, ZoomOut, Maximize, PanelLeftClose, PanelLeftOpen,
   Star, Menu, X,
 } from "lucide-react";
@@ -11,6 +11,7 @@ import { SaveStatus } from "./Toolbar.jsx";
 
 export default function MobileToolbar({
   mode, setMode, setLinkSource, canEdit, canOrder,
+  showOrders, setShowOrders,
   addSystemCenter, addFleetCenter,
   drawColor, setDrawColor, drawWidth, setDrawWidth,
   strokes, undoStroke, clearStrokes,
@@ -60,6 +61,14 @@ export default function MobileToolbar({
             <Btn onClick={undoStroke} disabled={!strokes.length || !canEdit} title="Undo last stroke" style={{ flex: 1, justifyContent: "center" }}><Undo2 size={14} /> Undo</Btn>
             <Btn kind="danger" onClick={clearStrokes} disabled={!strokes.length || !canEdit} title="Clear all drawing" style={{ flex: 1, justifyContent: "center" }}><Trash2 size={14} /> Clear</Btn>
           </div>
+
+          {canOrder && (
+            <Btn active={showOrders} onClick={() => setShowOrders((v) => !v)}
+              title={showOrders ? "Hide move-order paths" : "Show move-order paths"}
+              style={{ justifyContent: "center" }}>
+              {showOrders ? <Route size={14} /> : <EyeOff size={14} />} {showOrders ? "Hide orders" : "Show orders"}
+            </Btn>
+          )}
 
           <div style={{ height: 1, background: T.line, margin: "2px 0" }} />
 

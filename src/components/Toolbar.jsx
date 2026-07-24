@@ -1,5 +1,5 @@
 import {
-  Undo2, Trash2, Plus, Rocket,
+  Undo2, Trash2, Plus, Rocket, Route, EyeOff,
   ZoomIn, ZoomOut, Maximize, PanelLeftClose, PanelLeftOpen,
   AlertTriangle, Save, Star,
 } from "lucide-react";
@@ -10,6 +10,7 @@ import { ModeToggle, DrawPalette } from "./ui/MapTools.jsx";
 
 export default function Toolbar({
   mode, setMode, setLinkSource, canEdit, canOrder,
+  showOrders, setShowOrders,
   addSystemCenter, addFleetCenter,
   drawColor, setDrawColor, drawWidth, setDrawWidth,
   strokes, undoStroke, clearStrokes,
@@ -40,6 +41,13 @@ export default function Toolbar({
       )}
       <Btn onClick={undoStroke} disabled={!strokes.length || !canEdit} title="Undo last stroke"><Undo2 size={14} /> Undo</Btn>
       <Btn kind="danger" onClick={clearStrokes} disabled={!strokes.length || !canEdit} title="Clear all drawing"><Trash2 size={14} /> Clear</Btn>
+
+      {canOrder && (
+        <Btn active={showOrders} onClick={() => setShowOrders((v) => !v)}
+          title={showOrders ? "Hide move-order paths" : "Show move-order paths"}>
+          {showOrders ? <Route size={14} /> : <EyeOff size={14} />} Orders
+        </Btn>
+      )}
 
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
         <Btn onClick={() => setView((v) => ({ ...v, scale: Math.max(MIN_ZOOM, v.scale / 1.15) }))} title="Zoom out"><ZoomOut size={14} /></Btn>

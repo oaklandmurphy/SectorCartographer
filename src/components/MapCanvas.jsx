@@ -25,7 +25,7 @@ export default function MapCanvas({
   mapRef, canvasRef, containerSize, isMobile,
   mode, canEdit, view, w2s,
   systems, fleets, links, fleetPos,
-  agents, agentPos, orders,
+  agents, agentPos, orders, showOrders,
   factions, layers, factionById, layerById,
   selSystem, selFleet, selAgent, linkSource, hoverFleet,
   routing, routingOrder,
@@ -92,8 +92,10 @@ export default function MapCanvas({
           Dashed while a route is still a draft, solid once submitted as ready. The
           arrow shape says what kind of piece is moving: a solid triangle for a
           fleet, an open chevron on a slimmer line for an agent. Sits above the
-          hyperlanes but below the pieces so a marker draws over its own route. */}
-      {orders && orders.length > 0 && (
+          hyperlanes but below the pieces so a marker draws over its own route.
+          The viewer can hide the overlay from the toolbar; plotting (orders mode)
+          always keeps it on so you can see what you're drawing. */}
+      {(showOrders || mode === "orders") && orders && orders.length > 0 && (
         <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 5 }}>
           {orders.map((o) => {
             const pts = orderPoints(o);

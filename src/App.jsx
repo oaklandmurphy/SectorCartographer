@@ -5,7 +5,7 @@ import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.
 import { storage } from "./lib/storage.js";
 import { subscribeSector, saveSector, emptySector } from "./lib/sectorRepo.js";
 import { buildSectorUpdates } from "./lib/sectorSchema.js";
-import { resolveViewer, canSee, canSeeSubmission, visibleFleets, friendlyFactionIds, visibleAgents, visibleOrders } from "./lib/visibility.js";
+import { resolveViewer, canSee, canSeeSubmission, visibleFleets, friendlyFactionIds, visibleAgents, visibleOrders, visibleActions } from "./lib/visibility.js";
 import { craftInCarrier, withSquadrons } from "./lib/carriers.js";
 import { uid } from "./utils/id.js";
 import { useResponsive } from "./hooks/useResponsive.js";
@@ -43,8 +43,10 @@ export default function GalaxySectorMap() {
   const [notes, setNotes] = useState([]); // GM Tools: freeform notes + tracked roll resolutions
   const [agents, setAgents] = useState([]); // covert operatives, one optional character each, own-faction only
   const [orders, setOrders] = useState([]); // fleet/agent move-order proposals the GM resolves by hand
+  const [actions, setActions] = useState([]); // text action requests players raise through an agent for the GM to resolve
 
   const [mode, setMode] = useState("select"); // select | link | draw | orders
+  const [showOrders, setShowOrders] = useState(true); // personal: show/hide the move-order overlay on the map
   const [view, setView] = useState({ scale: 1, ox: 60, oy: 40 });
   const [strokes, setStrokes] = useState([]);
 
@@ -101,8 +103,8 @@ export default function GalaxySectorMap() {
   // like any other, and once, when it had its own write path, a migration left it
   // behind and silently unlocked the sector.
   const sector = useMemo(
-    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, notes, agents, orders, lockCode, fleetsPublic }),
-    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, notes, agents, orders, lockCode, fleetsPublic],
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, notes, agents, orders, actions, lockCode, fleetsPublic }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, notes, agents, orders, actions, lockCode, fleetsPublic],
   );
   // The sector as the database currently has it. Null until the load below fills
   // it in, which is also what stops an autosave from firing against an empty
@@ -132,7 +134,7 @@ export default function GalaxySectorMap() {
       setFactions(data.factions); setRelations(data.relations); setLayers(data.layers);
       setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
       setStrokes(data.strokes); setWiki(data.wiki); setWikiReads(data.wikiReads); setRoles(data.roles); setArt(data.art);
-      setModifiers(data.modifiers); setNotes(data.notes); setAgents(data.agents); setOrders(data.orders);
+      setModifiers(data.modifiers); setNotes(data.notes); setAgents(data.agents); setOrders(data.orders); setActions(data.actions);
       setLockCode(data.lockCode); setFleetsPublic(data.fleetsPublic !== false);
     };
     const unsub = subscribeSector(
@@ -181,10 +183,11 @@ export default function GalaxySectorMap() {
      along on every keystroke the way the old one-blob-per-key layout forced. */
   useEffect(() => {
     // A signed-in player can also write now — see submitWikiEntry etc. below,
-    // patchMemberTitle for their own faction's characters, and the agents/orders
-    // setters (each gated to the player's own faction) — but every other setter
-    // in the app stays canEdit-gated, so a player session's diff can only ever
-    // touch `wiki`, a member's `role`, or their own faction's `agents`/`orders`.
+    // patchMemberTitle for their own faction's characters, and the agents/orders/
+    // actions setters (each gated to the player's own faction) — but every other
+    // setter in the app stays canEdit-gated, so a player session's diff can only
+    // ever touch `wiki`, a member's `role`, or their own faction's
+    // `agents`/`orders`/`actions`.
     // Anyone else (anon, or no GM code set yet) never writes.
     const canWrite = canEdit || viewer.kind === "player";
     if (!loaded || !canWrite || !savedRef.current) return;
@@ -427,9 +430,10 @@ export default function GalaxySectorMap() {
     // gate doesn't silently dangle on a faction that no longer exists.
     setRoles((rs) => rs.map((r) => (r.factionId === id ? { ...r, factionId: undefined } : r)));
     setModifiers((ms) => ms.filter((m) => m.factionId !== id));
-    // A faction's agents and move orders go with it.
+    // A faction's agents, move orders, and action requests go with it.
     setAgents((as) => as.filter((a) => a.factionId !== id));
     setOrders((os) => os.filter((o) => o.factionId !== id));
+    setActions((acts) => acts.filter((a) => a.factionId !== id));
     // Its own article outlives it, but shouldn't keep pointing at a faction gone.
     if (gone && gone.wikiId) {
       setWiki((w) => w.map((e) => (e.id === gone.wikiId ? { ...e, factionId: undefined, updatedAt: Date.now() } : e)));
@@ -479,6 +483,10 @@ export default function GalaxySectorMap() {
   function removeModifier(id) {
     if (!isGM) return;
     setModifiers((ms) => ms.filter((m) => m.id !== id));
+    // A player may have flagged this modifier on an open action request; drop the
+    // dangling id so the GM's request card doesn't point at a modifier that's gone.
+    setActions((acts) => acts.map((a) => (a.modifierIds.includes(id)
+      ? { ...a, modifierIds: a.modifierIds.filter((mid) => mid !== id) } : a)));
   }
   // Drag-reorder within a faction's kind group: `orderedIds` is the full,
   // reordered list of ids for that faction+kind slice. Splice that slice
@@ -533,6 +541,9 @@ export default function GalaxySectorMap() {
     if (!a || !canManageAgents(a.factionId)) return;
     setAgents((as) => as.filter((x) => x.id !== id));
     setOrders((os) => os.filter((o) => !(o.pieceType === "agent" && o.pieceId === id)));
+    // An agent's outstanding action requests go with it — a resolved or pending
+    // request pointing at an agent that no longer exists has nothing to resolve.
+    setActions((acts) => acts.filter((a) => a.agentId !== id));
   }
 
   /* ---- move orders: a player plots a fleet's or agent's route through systems
@@ -598,6 +609,56 @@ export default function GalaxySectorMap() {
     const o = orderForPiece(routing.type, routing.id);
     if (!o || o.path.length === 0 || !canOrderFor(o.factionId)) return;
     setOrders((os) => os.map((x) => (x.id === o.id ? { ...x, committed: true, committedAt: Date.now(), updatedAt: Date.now() } : x)));
+  }
+
+  /* ---- agent action requests: free-text things a player asks their agent to
+     attempt, for the GM to adjudicate by hand. Each agent carries its own GM-set
+     quota (agent.actionCap) counting every request it's ever raised, resolved or
+     not; the player composes the text and flags whichever of their faction's
+     modifiers they think bear on the outcome. Same own-faction gate as agents
+     themselves — a player may raise/withdraw their own faction's, GM resolves any. */
+  const actionsForAgent = (agentId) => actions.filter((a) => a.agentId === agentId);
+  // Submit a completed request against an agent. Cap is counted per agent across
+  // every request it holds (a resolved one still counts as spent), so this no-ops
+  // once the agent is at its own actionCap.
+  function submitAction(agentId, text, modifierIds) {
+    const agent = agents.find((x) => x.id === agentId);
+    if (!agent || !canManageAgents(agent.factionId)) return;
+    const body = (text || "").trim();
+    if (!body) return;
+    const cap = Number(agent.actionCap) || 0;
+    if (actionsForAgent(agentId).length >= cap) return; // agent has spent its quota
+    setActions((acts) => [...acts, {
+      id: uid("act"), factionId: agent.factionId, agentId, text: body,
+      modifierIds: Array.isArray(modifierIds) ? modifierIds : [],
+      status: "pending", resolution: "",
+      createdBy: viewer.roleId ? { roleId: viewer.roleId, roleName: viewer.roleName } : null,
+      createdAt: Date.now(), resolvedAt: null,
+    }]);
+  }
+  // Pull a request back. A player may withdraw their own faction's while it's
+  // still pending (freeing the slot); the GM may delete any, resolved or not.
+  function removeAction(id) {
+    const a = actions.find((x) => x.id === id);
+    if (!a) return;
+    const mayWithdraw = canManageAgents(a.factionId) && a.status === "pending";
+    if (!isGM && !mayWithdraw) return;
+    setActions((acts) => acts.filter((x) => x.id !== id));
+  }
+  // GM: record an adjudication and close the request. `resolution` is the
+  // structured object the resolution tool builds — the roll, the modifiers it
+  // applied, the success/failure outcome, and the GM's free-text ruling — so the
+  // request itself preserves the full result, not just a sentence.
+  function resolveAction(id, resolution) {
+    if (!isGM) return;
+    setActions((acts) => acts.map((a) => (a.id === id
+      ? { ...a, status: "resolved", resolution: resolution || null, resolvedAt: Date.now() } : a)));
+  }
+  // GM: send a resolved request back to the pending queue to re-adjudicate.
+  function reopenAction(id) {
+    if (!isGM) return;
+    setActions((acts) => acts.map((a) => (a.id === id
+      ? { ...a, status: "pending", resolvedAt: null } : a)));
   }
 
   /* ---- faction relationship edges (upsert; "none" removes the edge) ---- */
@@ -973,6 +1034,9 @@ export default function GalaxySectorMap() {
   // GM-only: how many submissions are waiting on them, for the Codex tab badge.
   // Only entries the player has flagged "ready" count — drafts still being written don't.
   const pendingWikiCount = useMemo(() => wiki.filter((e) => e.status === "pending" && e.ready).length, [wiki]);
+  // GM-only: how many agent action requests are waiting to be resolved, for the
+  // GM Tools tab badge.
+  const pendingActionCount = useMemo(() => actions.filter((a) => a.status !== "resolved").length, [actions]);
   // Fleet positions are gated both by faction (a player sees their own faction's
   // fleets plus allies'/vassals') and by the GM's public switch — see visibleFleets.
   const displayFleets = useMemo(
@@ -983,6 +1047,7 @@ export default function GalaxySectorMap() {
   // visibleAgents/visibleOrders. Unlike fleets, allies never see them.
   const displayAgents = useMemo(() => visibleAgents(agents, viewer), [agents, viewer]);
   const displayOrders = useMemo(() => visibleOrders(orders, viewer), [orders, viewer]);
+  const displayActions = useMemo(() => visibleActions(actions, viewer), [actions, viewer]);
   // The Agents page's faction subtabs: every faction for the GM, only their own
   // for a player, none for an anonymous viewer.
   const displayAgentFactions = useMemo(() => {
@@ -1093,9 +1158,16 @@ export default function GalaxySectorMap() {
             <Dices size={14} /> {!isMobile && "Odds"}
           </Btn>
           {isGM && (
-            <Btn active={activeTab === "gmtools"} onClick={() => { setActiveTab("gmtools"); setAccessOpen(false); setMobileMenuOpen(false); }} title="GM tools: roll resolution & notes"
+            <Btn active={activeTab === "gmtools"} onClick={() => { setActiveTab("gmtools"); setAccessOpen(false); setMobileMenuOpen(false); }} title="GM tools: action requests, roll resolution & notes"
               style={{ border: "none", borderRadius: 0, background: activeTab === "gmtools" ? undefined : "transparent" }}>
               <Gavel size={14} /> {!isMobile && "GM Tools"}
+              {pendingActionCount > 0 && (
+                <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 8,
+                  minWidth: 15, height: 15, padding: "0 4px", display: "inline-flex", alignItems: "center",
+                  justifyContent: "center", fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>
+                  {pendingActionCount}
+                </span>
+              )}
             </Btn>
           )}
         </div>
@@ -1110,6 +1182,7 @@ export default function GalaxySectorMap() {
           {!isMobile && (
             <Toolbar
               mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} canOrder={canOrder}
+              showOrders={showOrders} setShowOrders={setShowOrders}
               addSystemCenter={addSystemCenter} addFleetCenter={addFleetCenter}
               drawColor={mapInt.drawColor} setDrawColor={mapInt.setDrawColor}
               drawWidth={mapInt.drawWidth} setDrawWidth={mapInt.setDrawWidth}
@@ -1120,6 +1193,7 @@ export default function GalaxySectorMap() {
           {isMobile && (
             <MobileToolbar
               mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} canOrder={canOrder}
+              showOrders={showOrders} setShowOrders={setShowOrders}
               addSystemCenter={addSystemCenter} addFleetCenter={addFleetCenter}
               drawColor={mapInt.drawColor} setDrawColor={mapInt.setDrawColor}
               drawWidth={mapInt.drawWidth} setDrawWidth={mapInt.setDrawWidth}
@@ -1143,7 +1217,7 @@ export default function GalaxySectorMap() {
               mapRef={mapInt.mapRef} canvasRef={mapInt.canvasRef} containerSize={mapInt.containerSize}
               isMobile={isMobile} mode={mode} canEdit={canEdit} view={view} w2s={w2s}
               systems={systems} fleets={displayFleets} links={links} fleetPos={fleetPos}
-              agents={displayAgents} agentPos={agentPos} orders={displayOrders}
+              agents={displayAgents} agentPos={agentPos} orders={displayOrders} showOrders={showOrders}
               factions={factions} layers={layers} factionById={factionById} layerById={layerById}
               selSystem={selSystem} selFleet={selFleet} selAgent={selAgent} linkSource={linkSource} hoverFleet={mapInt.hoverFleet}
               routing={routing} routingOrder={routingOrder}
@@ -1221,6 +1295,8 @@ export default function GalaxySectorMap() {
             activeFactionId={agentFactionId} setActiveFactionId={setAgentFactionId}
             addAgent={addAgent} patchAgent={patchAgent} removeAgent={removeAgent}
             patchFaction={patchFaction}
+            actions={displayActions} modifiers={modifiers}
+            submitAction={submitAction} removeAction={removeAction}
           />
         )}
 
@@ -1234,6 +1310,8 @@ export default function GalaxySectorMap() {
           <GMToolsView
             roles={roles} factions={factions} modifiers={modifiers} notes={notes} isMobile={isMobile}
             addNote={addNote} removeNote={removeNote}
+            actions={actions} agents={agents}
+            resolveAction={resolveAction} reopenAction={reopenAction} removeAction={removeAction}
           />
         )}
       </Suspense>

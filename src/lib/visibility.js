@@ -152,6 +152,15 @@ export function visibleOrders(orders, viewer) {
   return (orders || []).filter((o) => o.factionId === viewer.roleFactionId);
 }
 
+// Agent action requests a non-GM viewer renders on the Agents page: only their
+// own faction's, same rule as the agents that raise them. The GM sees every
+// faction's, which is how they collect and resolve them in GM Tools.
+export function visibleActions(actions, viewer) {
+  if (viewer.seesAll) return actions || [];
+  if (!viewer.roleFactionId) return [];
+  return (actions || []).filter((a) => a.factionId === viewer.roleFactionId);
+}
+
 // Short human summary of an item's visibility, for the GM's editing UI.
 export function visibilitySummary(item, roles) {
   const vis = item && item.visibility;

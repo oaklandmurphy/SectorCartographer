@@ -1,6 +1,8 @@
-import { VenetianMask, Plus, Trash2, User, MapPin, ShieldAlert } from "lucide-react";
+import { useState } from "react";
+import { VenetianMask, Plus, Trash2, User, MapPin, ShieldAlert, ClipboardList, Send, Flag, Check, Clock } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
+import ActionResolution from "./ui/ActionResolution.jsx";
 
 // A subtab per faction, each holding that faction's covert agents. Which factions
 // show up is decided by the caller (App.jsx) from the viewer: the GM sees every
@@ -15,6 +17,7 @@ import Btn from "./ui/Btn.jsx";
 export default function AgentsView({
   factions, agents, systems, canEdit, isMobile, viewer,
   activeFactionId, setActiveFactionId, addAgent, patchAgent, removeAgent, patchFaction,
+  actions, modifiers, submitAction, removeAction,
 }) {
   const activeId = factions.some((f) => f.id === activeFactionId)
     ? activeFactionId : (factions[0] && factions[0].id) || null;
@@ -27,6 +30,8 @@ export default function AgentsView({
   const canManage = !!activeFaction && (canEdit
     || (viewer.kind === "player" && viewer.roleFactionId === activeFaction.id));
   const cap = Number(activeFaction && activeFaction.agentCap) || 0;
+  // The modifiers a player may flag on a request — their own faction's.
+  const facModifiers = activeId ? (modifiers || []).filter((m) => m.factionId === activeId) : [];
 
   const systemName = (id) => (systems.find((s) => s.id === id) || {}).name || "";
 
@@ -110,6 +115,13 @@ export default function AgentsView({
             )}
           </div>
 
+          <AgentActions
+            agent={a} color={activeFaction.color} isMobile={isMobile}
+            actions={(actions || []).filter((x) => x.agentId === a.id)}
+            facModifiers={facModifiers} cap={Number(a.actionCap) || 0}
+            canManage={canManage} canEdit={canEdit}
+            submitAction={submitAction} removeAction={removeAction} patchAgent={patchAgent} />
+
           {canManage && (
             <Btn kind="danger" onClick={() => removeAgent(a.id)} style={{ alignSelf: "flex-start" }}>
               <Trash2 size={13} /> Remove
@@ -149,7 +161,8 @@ export default function AgentsView({
           </span>
         </div>
 
-        {/* GM sets the cap; players see it read-only in the counter above. */}
+        {/* GM sets the agent cap here; each agent's own action quota is set on its
+            card below. Players see both read-only. */}
         {canEdit && (
           <div style={{ display: "flex", alignItems: "center", gap: 9, background: T.panel, border: `1px solid ${T.line}`,
             borderRadius: 2, padding: "9px 11px" }}>
@@ -204,6 +217,164 @@ export default function AgentsView({
         {factionRail(true)}
       </div>
       {content()}
+    </div>
+  );
+}
+
+// The action-request block on an agent's card: this agent's own GM-set quota
+// (editable inline by the GM, read-only to players), the requests it has already
+// raised (with the GM's resolution once it lands), and — while the agent has
+// slots left and the viewer may manage it — a composer to write the next one and
+// flag which of the faction's modifiers should bear on it.
+function AgentActions({ agent, color, isMobile, actions, facModifiers, cap, canManage, canEdit, submitAction, removeAction, patchAgent }) {
+  const [text, setText] = useState("");
+  const [picked, setPicked] = useState([]); // flagged modifier ids
+  const [open, setOpen] = useState(false);   // composer expanded
+
+  const used = actions.length;
+  const remaining = Math.max(0, cap - used);
+  const modName = (id) => (facModifiers.find((m) => m.id === id) || {}).name || "";
+
+  const togglePick = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const send = () => {
+    if (!text.trim()) return;
+    submitAction(agent.id, text, picked);
+    setText(""); setPicked([]); setOpen(false);
+  };
+
+  return (
+    <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 8, display: "flex", flexDirection: "column", gap: 7 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <ClipboardList size={12} style={{ color: T.mut }} />
+        <span style={lbl}>Action Requests</span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+          <span className="mono" style={{ fontSize: 10.5, color: remaining === 0 ? T.amber : T.mut }}>
+            {used} /
+          </span>
+          {canEdit ? (
+            <input type="number" min={0} className="mono" value={cap}
+              onChange={(e) => patchAgent(agent.id, { actionCap: Math.max(0, Number(e.target.value) || 0) })}
+              title="How many action requests this agent may raise"
+              style={{ ...inputStyle, width: 52, padding: "2px 5px", textAlign: "right" }} />
+          ) : (
+            <span className="mono" style={{ fontSize: 10.5, color: remaining === 0 ? T.amber : T.mut }}>{cap}</span>
+          )}
+        </div>
+      </div>
+
+      {actions.length === 0 && (
+        <div style={{ fontSize: 11, color: T.faint, lineHeight: 1.5 }}>
+          {cap === 0
+            ? (canEdit ? "Set a quota above to let this agent raise actions." : "The GM hasn't allotted this agent any actions.")
+            : "No requests raised yet."}
+        </div>
+      )}
+
+      {actions.map((rq) => {
+        const resolved = rq.status === "resolved";
+        return (
+          <div key={rq.id} style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel3,
+            padding: "7px 8px", display: "flex", flexDirection: "column", gap: 5 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 9,
+                fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
+                color: resolved ? T.accent : T.amber }}>
+                {resolved ? <Check size={10} /> : <Clock size={10} />}{resolved ? "Resolved" : "Pending"}
+              </span>
+              {/* A pending request can be withdrawn by its faction (freeing the slot);
+                  the GM resolves rather than deletes here — that lives in GM Tools. */}
+              {canManage && !resolved && (
+                <button onClick={() => removeAction(rq.id)} title="Withdraw this request"
+                  style={{ marginLeft: "auto", background: "none", border: "none", color: T.danger,
+                    cursor: "pointer", padding: 0, display: "flex" }}>
+                  <Trash2 size={12} />
+                </button>
+              )}
+            </div>
+            <div style={{ fontSize: 12, lineHeight: 1.55, color: T.text, whiteSpace: "pre-wrap" }}>{rq.text}</div>
+            {rq.modifierIds && rq.modifierIds.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {rq.modifierIds.map((id) => {
+                  const name = modName(id);
+                  if (!name) return null;
+                  return (
+                    <span key={id} style={{ display: "inline-flex", alignItems: "center", gap: 3,
+                      border: `1px solid ${color}`, borderRadius: 2, padding: "1px 5px",
+                      fontSize: 10, color, background: `${color}1f` }}>
+                      <Flag size={9} /> {name}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            {resolved && (
+              <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 6 }}>
+                {rq.resolution
+                  ? <ActionResolution resolution={rq.resolution} />
+                  : <div style={{ fontSize: 11.5, color: T.mut }}>Resolved (no ruling recorded).</div>}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {canManage && remaining > 0 && !open && (
+        <Btn onClick={() => setOpen(true)} style={{ alignSelf: "flex-start" }}>
+          <Plus size={13} /> New request
+        </Btn>
+      )}
+
+      {canManage && remaining > 0 && open && (
+        <div style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel2,
+          padding: 8, display: "flex", flexDirection: "column", gap: 7 }}>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} autoFocus
+            placeholder="Describe the action this agent should attempt…"
+            style={{ ...inputStyle, minHeight: 64, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9 }} />
+          {facModifiers.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ ...lbl, display: "flex", alignItems: "center", gap: 5 }}>
+                <Flag size={11} /> Flag modifiers you think apply
+              </span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {facModifiers.map((m) => {
+                  const on = picked.includes(m.id);
+                  return (
+                    <button key={m.id} onClick={() => togglePick(m.id)}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer",
+                        border: `1px solid ${on ? color : T.line}`, borderRadius: 2, padding: "3px 7px",
+                        background: on ? `${color}26` : T.panel3, color: on ? color : T.mut,
+                        fontFamily: "'Oswald', sans-serif", fontSize: 10.5, fontWeight: 600,
+                        letterSpacing: ".03em", textTransform: "uppercase" }}>
+                      {on && <Check size={10} />}{m.name || "Unnamed modifier"}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <span style={{ fontSize: 10.5, color: T.faint }}>
+              No modifiers recorded for your faction to flag.
+            </span>
+          )}
+          <div style={{ display: "flex", gap: 6 }}>
+            <Btn kind="primary" onClick={send} disabled={!text.trim()}
+              title={text.trim() ? "Send this request to the GM" : "Write the request first"}
+              style={{ flex: 1, justifyContent: "center" }}>
+              <Send size={13} /> Submit
+            </Btn>
+            <Btn onClick={() => { setText(""); setPicked([]); setOpen(false); }}
+              style={{ justifyContent: "center" }}>
+              Cancel
+            </Btn>
+          </div>
+        </div>
+      )}
+
+      {canManage && remaining === 0 && cap > 0 && (
+        <div style={{ fontSize: 10.5, color: T.faint }}>
+          This agent has used all its action requests.
+        </div>
+      )}
     </div>
   );
 }

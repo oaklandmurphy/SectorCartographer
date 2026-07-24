@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { Gavel, NotebookPen, Copy, Trash2, Plus, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Gavel, NotebookPen, Copy, Trash2, Plus, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6,
+  ClipboardList, VenetianMask, Flag, Check, Clock, RotateCcw, Wand2, Users } from "lucide-react";
 import { T, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
+import ActionResolution from "./ui/ActionResolution.jsx";
 
 const sign = (n) => (n >= 0 ? `+${n}` : `${n}`);
 const rollDie = () => 1 + Math.floor(Math.random() * 6);
@@ -17,17 +19,28 @@ const OUTCOME_LABEL = {
   success: "Success", failure: "Failure", autoSuccess: "Auto Success", autoFailure: "Auto Failure",
 };
 
-// GM-only scratch tool (App.jsx gates the tab and the render — see there for
-// why nothing here re-checks isGM): resolve a player's roll against whichever
-// of their faction's modifiers apply, and log the Discord-ready result below
-// alongside any freeform notes the GM wants kept.
+// GM-only workbench (App.jsx gates the tab and the render — see there for why
+// nothing here re-checks isGM). Three stacked tools:
 //
-// A modifier's point value is not stored on the modifier itself — it's
-// situational (the same "Faithful on Every World" might swing a roll by +1
-// one week and +2 the next), so it's typed in here at the moment of use,
-// not read off the modifier's own record.
-export default function GMToolsView({ roles, factions, modifiers, notes, isMobile, addNote, removeNote }) {
+//   1. ACTION REQUESTS — the queue of things players have asked their agents to
+//      attempt, split into a tab per player. Each pending request can be pushed
+//      straight into the resolution tool below, pre-filled with that player's
+//      faction and the modifiers they flagged.
+//   2. ROLL RESOLUTION — resolve a roll against a faction's modifiers. When it's
+//      driven from a request it writes the full result (roll, mods, verdict, and
+//      the GM's outcome text) back onto that request and closes it; used
+//      standalone it just produces the Discord-ready text as before.
+//   3. NOTES — freeform log plus any tracked roll resolutions.
+//
+// A modifier's point value is situational (the same modifier might swing +1 one
+// week and +2 the next), so it's typed in at the moment of use, not stored.
+export default function GMToolsView({ roles, factions, modifiers, notes, isMobile, addNote, removeNote,
+  actions, agents, resolveAction, reopenAction, removeAction }) {
+  /* ------------------------------------------------ resolution tool state */
   const [roleId, setRoleId] = useState(roles[0]?.id || "");
+  const [targetId, setTargetId] = useState(""); // the action being resolved, or "" for standalone use
+  const toolRef = useRef(null);
+
   useEffect(() => {
     if (!roles.some((r) => r.id === roleId)) setRoleId(roles[0]?.id || "");
   }, [roles, roleId]);
@@ -38,33 +51,58 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     [modifiers, faction],
   );
 
-  // Switching players drops the picks — a modifier picked for one player's
-  // roll means nothing once you're resolving someone else's.
   const [selectedIds, setSelectedIds] = useState([]);
   const [modValues, setModValues] = useState({}); // modifierId -> typed-in value for this resolution
   const selectedMods = factionMods.filter((m) => selectedIds.includes(m.id));
   const sumSelected = selectedMods.reduce((s, m) => s + (Number(modValues[m.id]) || 0), 0);
 
   const [rollText, setRollText] = useState("");
-  // The faces behind the last "Roll 2d6" click — cleared the moment the roll
-  // is typed over by hand, since the faces would no longer add up to it.
-  const [dice, setDice] = useState(null); // { d1, d2 } | null
+  const [dice, setDice] = useState(null); // { d1, d2 } | null — the faces behind the last "Roll 2d6"
   function rollTwoD6() {
     const d1 = rollDie(), d2 = rollDie();
     setDice({ d1, d2 });
     setRollText(String(d1 + d2));
   }
-  useEffect(() => { setSelectedIds([]); setModValues({}); setDice(null); setRollText(""); }, [roleId]);
-  // The total starts at the sum of what's checked, but stays editable — a
-  // situational bonus/penalty the GM wants to fold in without a named
-  // modifier for it shows up as the gap between this and that sum.
   const [totalModText, setTotalModText] = useState("0");
   useEffect(() => { setTotalModText(String(sumSelected)); }, [sumSelected]);
   const totalMod = Number(totalModText) || 0;
   const rollValue = Number(rollText) || 0;
 
+  const [outcomeText, setOutcomeText] = useState(""); // the GM's free ruling, appended to the outcome
   const [track, setTrack] = useState(false);
   const [output, setOutput] = useState("");
+
+  const targetAction = targetId ? (actions || []).find((a) => a.id === targetId) : null;
+
+  // Reset the input fields but leave `output` alone, so the Discord text a resolve
+  // just produced stays copyable after the request is closed and the tool clears.
+  function clearTool() {
+    setSelectedIds([]); setModValues({}); setDice(null); setRollText("");
+    setTotalModText("0"); setOutcomeText("");
+  }
+  // The player dropdown: switching player by hand drops the current picks (a
+  // modifier chosen for one player means nothing for another), any request this
+  // was tied to, and the stale output. Done here rather than in a roleId effect
+  // so that programmatic prefill (startResolving) isn't wiped by its roleId change.
+  function changePlayer(id) {
+    setRoleId(id); setTargetId(""); clearTool(); setOutput("");
+  }
+  // "Resolve with tool" on a request: point the tool at that request, set the
+  // player to whoever raised it (which pulls in their faction and its modifiers),
+  // preselect the modifiers they flagged, and scroll the tool into view.
+  function startResolving(action) {
+    const creator = (action.createdBy && action.createdBy.roleId) || "";
+    const fac = factions.find((f) => f.id === action.factionId);
+    const facMods = fac ? modifiers.filter((m) => m.factionId === fac.id) : [];
+    const preIds = (action.modifierIds || []).filter((id) => facMods.some((m) => m.id === id));
+    setRoleId(creator);
+    setTargetId(action.id);
+    setSelectedIds(preIds);
+    setModValues(Object.fromEntries(preIds.map((id) => [id, "1"])));
+    setDice(null); setRollText(""); setTotalModText(String(preIds.length)); setOutcomeText(""); setOutput("");
+    requestAnimationFrame(() => toolRef.current &&
+      toolRef.current.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
 
   function toggleMod(id) {
     setSelectedIds((ids) => {
@@ -80,14 +118,36 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   function resolve(outcomeId) {
     const isAuto = outcomeId === "autoSuccess" || outcomeId === "autoFailure";
     const extra = totalMod - sumSelected;
+    const ruling = outcomeText.trim();
+
+    // Discord-ready text — unchanged, plus the GM's ruling on the end.
     const lines = [];
     if (!isAuto) lines.push(`Roll: ${rollValue}`);
     selectedMods.forEach((m) => lines.push(`Mod: ${sign(Number(modValues[m.id]) || 0)} *${m.name || "Unnamed modifier"}*`));
     if (extra !== 0) lines.push(`Mod: ${sign(extra)} *Situational*`);
     lines.push(`**${OUTCOME_LABEL[outcomeId]}**`);
+    if (ruling) lines.push(ruling);
     const text = lines.join("\n");
     setOutput(text);
-    if (track) addNote(text, "roll", { playerName: role ? role.name : null });
+
+    // Structured result the request preserves and both sides display.
+    const resolution = {
+      outcome: outcomeId,
+      roll: isAuto ? null : rollValue,
+      dice: !isAuto && dice ? dice : null,
+      mods: selectedMods.map((m) => ({ name: m.name || "Unnamed modifier", value: Number(modValues[m.id]) || 0 })),
+      situational: extra,
+      total: totalMod,
+      text: ruling,
+    };
+
+    if (targetAction) {
+      resolveAction(targetAction.id, resolution);
+      if (track) addNote(text, "roll", { playerName: role ? role.name : null });
+      setTargetId(""); clearTool();
+    } else if (track) {
+      addNote(text, "roll", { playerName: role ? role.name : null });
+    }
   }
 
   async function copyOutput() {
@@ -101,30 +161,145 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     addNote(text, "note");
     setNoteInput("");
   }
-
   const sortedNotes = useMemo(
     () => [...notes].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
     [notes],
   );
 
+  /* ------------------------------------------------ action-request queue, split per player */
+  // One group per player who has raised a request (keyed by their role id; a
+  // GM/open-mode submission with no role falls under a "GM" group).
+  const playerGroups = useMemo(() => {
+    const map = new Map();
+    for (const a of actions || []) {
+      const key = (a.createdBy && a.createdBy.roleId) || "";
+      if (!map.has(key)) {
+        const name = (roles.find((r) => r.id === key) || {}).name
+          || (a.createdBy && a.createdBy.roleName) || (key ? "Unknown player" : "GM / open");
+        map.set(key, { key, name, items: [] });
+      }
+      map.get(key).items.push(a);
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [actions, roles]);
+
+  const [playerTab, setPlayerTab] = useState(null);
+  const activeKey = playerGroups.some((g) => g.key === playerTab)
+    ? playerTab : (playerGroups[0] ? playerGroups[0].key : null);
+  const activeGroup = playerGroups.find((g) => g.key === activeKey) || null;
+  const pendingTotal = (actions || []).filter((a) => a.status !== "resolved").length;
+
+  // Within a player's tab: pending first (oldest first, the order they arrived),
+  // then resolved newest-first as a log.
+  const groupRequests = useMemo(() => {
+    if (!activeGroup) return [];
+    const rank = (a) => (a.status === "resolved" ? 1 : 0);
+    return [...activeGroup.items].sort((a, b) => {
+      if (rank(a) !== rank(b)) return rank(a) - rank(b);
+      return rank(a) === 0 ? (a.createdAt || 0) - (b.createdAt || 0) : (b.resolvedAt || 0) - (a.resolvedAt || 0);
+    });
+  }, [activeGroup]);
+
+  const describeAgent = (action) => {
+    const fac = factions.find((f) => f.id === action.factionId) || null;
+    const agent = (agents || []).find((a) => a.id === action.agentId) || null;
+    const member = agent && fac ? (fac.members || []).find((m) => m.id === agent.memberId) : null;
+    const label = member ? member.name : (agent ? "Agent" : "Agent (removed)");
+    return { faction: fac, label };
+  };
+  const modName = (id) => (modifiers.find((m) => m.id === id) || {}).name || "";
+
   return (
     <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", background: T.void,
       padding: isMobile ? 12 : 22 }}>
-      <div style={{ maxWidth: 780, margin: "0 auto", display: "flex", flexDirection: "column", gap: 22 }}>
+      <div style={{ maxWidth: 820, margin: "0 auto", display: "flex", flexDirection: "column", gap: 22 }}>
+
+        {/* ---------------------------------------- action requests ---------------------------------------- */}
+        <div>
+          <div className="stencil" style={{ fontSize: 16, letterSpacing: ".06em", color: T.text,
+            display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
+            <ClipboardList size={15} color={T.accent} /> ACTION REQUESTS
+            {pendingTotal > 0 && (
+              <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 8,
+                minWidth: 16, height: 16, padding: "0 5px", display: "inline-flex", alignItems: "center",
+                justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{pendingTotal}</span>
+            )}
+          </div>
+
+          {playerGroups.length === 0 ? (
+            <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+              border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
+              No action requests yet. Players raise them through their agents on the Agents tab.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* player tabs */}
+              <div className="scroll" style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 2 }}>
+                {playerGroups.map((g) => {
+                  const on = g.key === activeKey;
+                  const pending = g.items.filter((a) => a.status !== "resolved").length;
+                  return (
+                    <button key={g.key || "_gm"} onClick={() => setPlayerTab(g.key)} title={g.name}
+                      style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", whiteSpace: "nowrap",
+                        border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 2, padding: "6px 10px",
+                        background: on ? "rgba(159,194,58,.14)" : T.panel2, color: on ? T.accent : T.text,
+                        fontFamily: "'Oswald', sans-serif", fontSize: 12, fontWeight: 600, letterSpacing: ".03em",
+                        textTransform: "uppercase", flex: "0 0 auto" }}>
+                      <Users size={12} /> {g.name}
+                      {pending > 0 && (
+                        <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 7,
+                          minWidth: 14, height: 14, padding: "0 4px", display: "inline-flex", alignItems: "center",
+                          justifyContent: "center", fontSize: 9, fontWeight: 700 }}>{pending}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {groupRequests.map((action) => {
+                  const { faction: fac, label } = describeAgent(action);
+                  return (
+                    <ActionCard key={action.id} action={action} faction={fac} agentLabel={label}
+                      modName={modName} isTarget={action.id === targetId}
+                      onResolveWithTool={() => startResolving(action)}
+                      reopenAction={reopenAction} removeAction={removeAction} />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* ---------------------------------------- roll resolution tool ---------------------------------------- */}
-        <div>
+        <div ref={toolRef}>
           <div className="stencil" style={{ fontSize: 16, letterSpacing: ".06em", color: T.text,
             display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
             <Gavel size={15} color={T.accent} /> ROLL RESOLUTION
           </div>
 
-          <div style={{ background: T.panel, border: `1px solid ${T.line}`, ...cut(10), padding: isMobile ? 12 : 16,
-            display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ background: T.panel, border: `1px solid ${targetAction ? T.accent : T.line}`, ...cut(10),
+            padding: isMobile ? 12 : 16, display: "flex", flexDirection: "column", gap: 12 }}>
+
+            {/* When driven from a request, a banner ties the tool to it and offers a way out. */}
+            {targetAction && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "rgba(159,194,58,.1)",
+                border: `1px solid ${T.accent}`, borderRadius: 2, padding: "8px 10px" }}>
+                <Wand2 size={14} style={{ color: T.accent, flexShrink: 0, marginTop: 1 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ ...lbl, color: T.accent, marginBottom: 3 }}>Resolving request</div>
+                  <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5 }}>{targetAction.text}</div>
+                </div>
+                <button onClick={() => { setTargetId(""); clearTool(); }} title="Detach from this request"
+                  style={{ background: "none", border: "none", color: T.mut, cursor: "pointer", padding: 2 }}>
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            )}
 
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <span style={lbl}>Player</span>
-              <select value={roleId} onChange={(e) => setRoleId(e.target.value)} style={selStyle}>
+              <select value={roleId} onChange={(e) => changePlayer(e.target.value)} style={selStyle}>
                 <option value="">— choose a player —</option>
                 {roles.map((r) => <option key={r.id} value={r.id}>{r.name || "Unnamed player"}</option>)}
               </select>
@@ -189,15 +364,22 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
               </div>
             </div>
 
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={lbl}>Outcome text</span>
+              <textarea value={outcomeText} onChange={(e) => setOutcomeText(e.target.value)}
+                placeholder="What happens as a result… (appended after the success/failure line)"
+                style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9 }} />
+            </div>
+
             <label style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 11.5, color: T.mut }}>
               <input type="checkbox" checked={track} onChange={(e) => setTrack(e.target.checked)} />
-              Track this resolution in the notes below
+              Also log this resolution in the notes below
             </label>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {OUTCOMES.map((o) => (
                 <Btn key={o.id} kind={o.kind} onClick={() => resolve(o.id)} style={{ flex: "1 1 130px", justifyContent: "center" }}>
-                  {o.label}
+                  {targetAction ? "Resolve: " : ""}{o.label}
                 </Btn>
               ))}
             </div>
@@ -265,6 +447,82 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// One action request in the GM's queue. Pending requests offer "Resolve with
+// tool" (which loads the resolution tool with this request's player + flagged
+// modifiers); resolved ones show the full result the tool wrote back — roll,
+// mods, verdict, and ruling — with Reopen. Either can be deleted outright.
+function ActionCard({ action, faction, agentLabel, modName, isTarget, onResolveWithTool, reopenAction, removeAction }) {
+  const resolved = action.status === "resolved";
+  const color = faction ? faction.color : T.accent;
+  const flagged = (action.modifierIds || []).map((id) => ({ id, name: modName(id) })).filter((m) => m.name);
+
+  return (
+    <div style={{ border: `1px solid ${isTarget ? T.accent : (resolved ? T.line : color)}`, borderRadius: 2,
+      background: T.panel2, display: "flex", flexDirection: "column", gap: 8, padding: 10,
+      opacity: resolved ? 0.9 : 1, boxShadow: isTarget ? `0 0 0 1px ${T.accent}` : "none" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ width: 9, height: 9, borderRadius: "50%", background: color, flexShrink: 0 }} />
+        <span style={{ fontSize: 12.5, fontWeight: 700, fontFamily: "'Oswald', sans-serif",
+          letterSpacing: ".03em", color: T.text }}>{faction ? faction.name : "Unknown faction"}</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.mut }}>
+          <VenetianMask size={12} /> {agentLabel}
+        </span>
+        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
+          fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
+          color: resolved ? T.accent : T.amber }}>
+          {resolved ? <Check size={11} /> : <Clock size={11} />}{resolved ? "Resolved" : "Pending"}
+        </span>
+      </div>
+
+      <div style={{ fontSize: 9.5, color: T.faint }}>
+        {action.createdAt ? new Date(action.createdAt).toLocaleString() : ""}
+      </div>
+
+      <div style={{ fontSize: 13, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>{action.text}</div>
+
+      {flagged.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
+          <span style={{ ...lbl, color: T.mut }}>Flagged</span>
+          {flagged.map((m) => (
+            <span key={m.id} style={{ display: "inline-flex", alignItems: "center", gap: 3,
+              border: `1px solid ${color}`, borderRadius: 2, padding: "2px 6px",
+              fontSize: 10.5, color, background: `${color}1f` }}>
+              <Flag size={10} /> {m.name}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {resolved ? (
+        <>
+          <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 6 }}>
+            {action.resolution
+              ? <ActionResolution resolution={action.resolution} />
+              : <div style={{ fontSize: 12, color: T.mut }}>Resolved with no result recorded.</div>}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <Btn onClick={() => reopenAction(action.id)}>
+              <RotateCcw size={13} /> Reopen
+            </Btn>
+            <Btn kind="danger" onClick={() => removeAction(action.id)} style={{ marginLeft: "auto" }}>
+              <Trash2 size={13} /> Delete
+            </Btn>
+          </div>
+        </>
+      ) : (
+        <div style={{ display: "flex", gap: 6 }}>
+          <Btn kind="primary" onClick={onResolveWithTool} title="Load this request into the resolution tool">
+            <Wand2 size={13} /> {isTarget ? "In tool below" : "Resolve with tool"}
+          </Btn>
+          <Btn kind="danger" onClick={() => removeAction(action.id)} style={{ marginLeft: "auto" }}>
+            <Trash2 size={13} /> Delete
+          </Btn>
+        </div>
+      )}
     </div>
   );
 }

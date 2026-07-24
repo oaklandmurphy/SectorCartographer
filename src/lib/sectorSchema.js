@@ -26,7 +26,7 @@ export const V1_ACCESS_KEY = "galaxy-sector-access:v1";
 export const COLLECTIONS = [
   "factions", "relations", "layers", "systems",
   "links", "fleets", "strokes", "wiki", "wikiReads", "roles", "art", "modifiers", "notes",
-  "agents", "orders",
+  "agents", "orders", "actions",
 ];
 
 // Fields RTDB will not give back as stored: empty arrays vanish, and explicit
@@ -38,8 +38,9 @@ const defaults = {
   fleets: { ships: [], systemId: null },
   strokes: { pts: [] },
   wiki: { body: "", title: "", factionId: null },
-  agents: { memberId: null, notes: "", systemId: null },
+  agents: { memberId: null, notes: "", systemId: null, actionCap: 0 },
   orders: { path: [], committed: false },
+  actions: { modifierIds: [], text: "", status: "pending", resolution: null },
   relations: {}, layers: {}, links: {}, wikiReads: {}, roles: {}, art: {}, modifiers: {}, notes: { text: "" },
 };
 
@@ -125,6 +126,25 @@ const codecs = {
   orders: {
     encode: (o) => ({ ...o, path: o.path || [] }),
     decode: (o) => ({ ...o, path: asArray(o.path) }),
+  },
+  // An action request's `modifierIds` is a list of the modifier ids the player
+  // flagged as bearing on the outcome; like a stroke's points or an order's path,
+  // RTDB drops an empty one and hands a sparse one back as a numeric-keyed object.
+  // A resolved request also carries a `resolution` object whose own `mods` list
+  // (the named modifiers the GM applied, with values) needs the same treatment.
+  actions: {
+    encode: (a) => ({
+      ...a,
+      modifierIds: a.modifierIds || [],
+      ...(a.resolution && typeof a.resolution === "object"
+        ? { resolution: { ...a.resolution, mods: a.resolution.mods || [] } } : {}),
+    }),
+    decode: (a) => ({
+      ...a,
+      modifierIds: asArray(a.modifierIds),
+      ...(a.resolution && typeof a.resolution === "object"
+        ? { resolution: { ...a.resolution, mods: asArray(a.resolution.mods) } } : {}),
+    }),
   },
   wiki: { encode: withVis, decode: readVis },
 };
