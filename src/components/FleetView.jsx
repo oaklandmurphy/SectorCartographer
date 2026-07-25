@@ -57,36 +57,51 @@ export default function FleetView({
   // too would be a second URL change, i.e. two Back presses for one pick.
   const selectPrimary = (id) => setPrimaryId(id);
 
-  /* ------------------------------------------------ one squadron: a count of one model */
+  /* ------------------------------------------------ one squadron: a count of one model.
+     Editing on mobile: the hangar column only has ~170px to work with once the hull
+     column takes its share, so squeezing count + × + model name + remove into one row
+     left the model input a sliver wide. Edit mode wraps to a second line there instead —
+     view mode (a single line of text) fits fine either way. */
   const squadronRow = (fleet, sh, sq) => (
-    <div key={sq.id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-      <ShipArt art={art} model={sq.model} size={SQ_ART_W} height={SQ_ART_H} plate
-        placeholder={showSlots} color={fleetColor(fleet)} />
-      {canEdit ? (
-        <>
-          <input className="mono" type="number" min="0" step="1" value={sq.count}
-            onChange={(e) => patchSquadron(fleet.id, sh.id, sq.id,
-              { count: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
-            style={{ ...inputStyle, padding: "3px 4px", width: 52, textAlign: "right" }} />
-          <span style={{ color: T.faint, fontSize: 11, flexShrink: 0 }}>×</span>
-          <input className="mono" list={MODELS_ID} value={sq.model || ""} placeholder="model"
-            onChange={(e) => patchSquadron(fleet.id, sh.id, sq.id, { model: e.target.value })}
-            style={{ ...inputStyle, padding: "3px 6px", flex: 1, minWidth: 0 }} />
-          <button onClick={() => removeSquadron(fleet.id, sh.id, sq.id)} title="Remove squadron"
-            style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", padding: 2, flexShrink: 0 }}>
-            <X size={12} />
-          </button>
-        </>
-      ) : (
-        <div className="mono" style={{ display: "flex", gap: 6, alignItems: "baseline", fontSize: 12, minWidth: 0 }}>
-          <span style={{ color: T.accent, fontWeight: 700, minWidth: 30, textAlign: "right" }}>
-            {Number(sq.count) || 0}
-          </span>
-          <span style={{ color: T.faint }}>×</span>
-          <span style={{ color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {sq.model || <span style={{ color: T.faint, fontStyle: "italic" }}>unnamed model</span>}
-          </span>
-        </div>
+    <div key={sq.id} style={{ display: "flex", flexDirection: canEdit && isMobile ? "column" : "row",
+      gap: canEdit && isMobile ? 4 : 6 }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <ShipArt art={art} model={sq.model} size={SQ_ART_W} height={SQ_ART_H} plate
+          placeholder={showSlots} color={fleetColor(fleet)} />
+        {canEdit ? (
+          <>
+            <input className="mono" type="number" min="0" step="1" value={sq.count}
+              onChange={(e) => patchSquadron(fleet.id, sh.id, sq.id,
+                { count: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
+              style={{ ...inputStyle, padding: "3px 4px", width: 52, textAlign: "right" }} />
+            <span style={{ color: T.faint, fontSize: 11, flexShrink: 0 }}>×</span>
+            {!isMobile && (
+              <input className="mono" list={MODELS_ID} value={sq.model || ""} placeholder="model"
+                onChange={(e) => patchSquadron(fleet.id, sh.id, sq.id, { model: e.target.value })}
+                style={{ ...inputStyle, padding: "3px 6px", flex: 1, minWidth: 0 }} />
+            )}
+            <button onClick={() => removeSquadron(fleet.id, sh.id, sq.id)} title="Remove squadron"
+              style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", padding: 2,
+                flexShrink: 0, marginLeft: isMobile ? "auto" : 0 }}>
+              <X size={12} />
+            </button>
+          </>
+        ) : (
+          <div className="mono" style={{ display: "flex", gap: 6, alignItems: "baseline", fontSize: 12, minWidth: 0 }}>
+            <span style={{ color: T.accent, fontWeight: 700, minWidth: 30, textAlign: "right" }}>
+              {Number(sq.count) || 0}
+            </span>
+            <span style={{ color: T.faint }}>×</span>
+            <span style={{ color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {sq.model || <span style={{ color: T.faint, fontStyle: "italic" }}>unnamed model</span>}
+            </span>
+          </div>
+        )}
+      </div>
+      {canEdit && isMobile && (
+        <input className="mono" list={MODELS_ID} value={sq.model || ""} placeholder="model"
+          onChange={(e) => patchSquadron(fleet.id, sh.id, sq.id, { model: e.target.value })}
+          style={{ ...inputStyle, padding: "3px 6px", width: "100%" }} />
       )}
     </div>
   );

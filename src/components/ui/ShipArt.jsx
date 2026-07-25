@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { Ship } from "lucide-react";
 import { T } from "../../theme.js";
-import { findArt } from "../../lib/shipArt.js";
+import { findArt, artSrc } from "../../lib/shipArt.js";
 
 // The picture for one model name, or a placeholder slot when nothing matches.
 //
@@ -30,7 +30,7 @@ export default function ShipArt({
   const w = size;
   const h = height == null ? size : height;
   const found = findArt(art, model);
-  const uri = found ? found.svgUrl : null;
+  const uri = artSrc(found);
 
   const box = {
     width: w, height: h, flexShrink: 0, display: "flex",

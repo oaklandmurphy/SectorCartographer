@@ -218,9 +218,9 @@ export function useMapInteractions({
       if (d) {
         if (d.kind === "system" && !d.moved) callbacksRef.current.onSystemTap(d.id);
         if (d.kind === "fleet" && !d.moved) callbacksRef.current.onFleetTap(d.id);
-        if (d.kind === "fleet" && d.moved) callbacksRef.current.onFleetSnap(d.id, systemsRef.current);
+        if (d.kind === "fleet" && d.moved) callbacksRef.current.onFleetSnap(d.id, systemsRef.current, d.origSystemId);
         if (d.kind === "agent" && !d.moved) callbacksRef.current.onAgentTap(d.id);
-        if (d.kind === "agent" && d.moved) callbacksRef.current.onAgentSnap(d.id, systemsRef.current);
+        if (d.kind === "agent" && d.moved) callbacksRef.current.onAgentSnap(d.id, systemsRef.current, d.origSystemId);
         if (d.kind === "pan" && !d.moved) callbacksRef.current.onDeselectAll();
         dragRef.current = null;
         document.body.style.userSelect = "";
@@ -251,10 +251,10 @@ export function useMapInteractions({
   }, []);
 
   /* ------------------------------------------------ interaction helpers */
-  function startPieceDrag(e, kind, id, wx, wy) {
+  function startPieceDrag(e, kind, id, wx, wy, origSystemId) {
     e.stopPropagation();
     if (modeRef.current === "draw") return;
-    dragRef.current = { kind, id, startX: e.clientX, startY: e.clientY, origWX: wx, origWY: wy, scale: viewRef.current.scale, moved: false };
+    dragRef.current = { kind, id, startX: e.clientX, startY: e.clientY, origWX: wx, origWY: wy, origSystemId: origSystemId ?? null, scale: viewRef.current.scale, moved: false };
     document.body.style.userSelect = "none";
   }
   function beginShipDrag(ship, fromFleetId, e) {

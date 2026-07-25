@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Images, Plus, X, ChevronRight, ChevronDown, AlertTriangle } from "lucide-react";
 import { T, inputStyle, lbl } from "../theme.js";
-import { artUsage, validateSvg, mergeNames } from "../lib/shipArt.js";
+import { artSrc, artUsage, validateSvg, mergeNames } from "../lib/shipArt.js";
 import { knownModels, knownCarrierModels } from "../lib/carriers.js";
 import { uploadText } from "../lib/firebaseStorage.js";
 import { SECTOR_ID } from "../lib/sectorRepo.js";
@@ -56,7 +56,7 @@ export default function ArtLibrary({ art, fleets, canEdit, addArt, patchArt, rem
   }
 
   const thumb = (a, size) => {
-    const uri = a.svgUrl;
+    const uri = artSrc(a);
     return (
       <div style={{ width: size, height: size, flexShrink: 0, background: T.panel3,
         border: `1px solid ${T.line}`, display: "flex", alignItems: "center", justifyContent: "center",

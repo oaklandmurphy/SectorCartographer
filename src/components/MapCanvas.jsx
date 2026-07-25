@@ -219,7 +219,7 @@ export default function MapCanvas({
         const tip = `${f.name} · ${nCarriers} carrier${nCarriers === 1 ? "" : "s"} · ${craftInFleet(f)} craft`;
         return (
           <div key={f.id} data-fleet-id={f.id} data-piece="1" title={tip}
-            onPointerDown={(e) => startPieceDrag(e, "fleet", f.id, pos.x, pos.y)}
+            onPointerDown={(e) => startPieceDrag(e, "fleet", f.id, pos.x, pos.y, f.systemId)}
             onDoubleClick={(e) => e.stopPropagation()}
             style={{ position: "absolute", left: p.x, top: p.y, transform: "translate(-50%,-50%)", touchAction: "none",
               cursor: mode === "draw" ? "crosshair" : (canEdit ? "grab" : "pointer"), zIndex: isSel || isRouting ? 24 : 18 }}>
@@ -245,8 +245,9 @@ export default function MapCanvas({
       {/* agents — covert operatives parked at a system, only ever rendered for
           their own faction (the caller passes the already-filtered list). They
           fan out just below their system so they never sit under a fleet.
-          Hidden when the viewer toggles agents off from the toolbar. */}
-      {showAgents && (agents || []).map((a) => {
+          Hidden when the viewer toggles agents off from the toolbar, or when
+          zoomed out far enough that systems collapse to plain markers. */}
+      {showAgents && !overview && (agents || []).map((a) => {
         const pos = agentPos[a.id];
         if (!pos) return null; // unplaced, or its system is gone — page-only
         const p = w2s(pos.x, pos.y); const fac = factionById(a.factionId);
@@ -269,7 +270,7 @@ export default function MapCanvas({
         const remaining = Math.max(0, cap - used);
         return (
           <div key={a.id} data-piece="1" title={canDrag ? `${tip} · drag to move` : tip}
-            onPointerDown={(e) => { if (canDrag) startPieceDrag(e, "agent", a.id, pos.x, pos.y); else e.stopPropagation(); }}
+            onPointerDown={(e) => { if (canDrag) startPieceDrag(e, "agent", a.id, pos.x, pos.y, a.systemId); else e.stopPropagation(); }}
             onClick={() => { if (!canDrag) onAgentTap(a.id); }}
             style={{ position: "absolute", left: p.x, top: p.y, transform: "translate(-50%,-50%)", touchAction: "none",
               cursor: canDrag ? "grab" : "pointer", zIndex: isSel || isRouting ? 24 : 17 }}>
@@ -306,7 +307,8 @@ export default function MapCanvas({
 
       {/* hint */}
       <div style={{ position: "absolute", left: 12, bottom: 10, zIndex: 32, pointerEvents: "none",
-        padding: "6px 10px", fontSize: 10.5, color: T.mut, maxWidth: 340, lineHeight: 1.5, ...floatingPanel }}>
+        padding: "6px 10px", fontSize: 10.5, color: T.mut,
+        maxWidth: isMobile ? containerSize.w - 24 : 340, lineHeight: 1.5, ...floatingPanel }}>
         {mode === "select" && canEdit && <span><b style={{ color: T.text }}>Select</b> · drag systems & fleets · click a fleet for its roster · drag empty space to pan · scroll to zoom · double-click to add a system{overview && <> · <b style={{ color: T.amber }}>zoomed out</b>, names & status icons hidden</>}</span>}
         {mode === "select" && !canEdit && <span><b style={{ color: T.amber }}>View only</b> · click a system or fleet to see its details · drag empty space to pan · scroll to zoom · unlock editing from the toolbar{overview && <> · <b style={{ color: T.amber }}>zoomed out</b>, names & status icons hidden</>}</span>}
         {mode === "link" && <span><b style={{ color: T.amber }}>Link</b> · click one system, then another to connect or disconnect their hyperlane</span>}

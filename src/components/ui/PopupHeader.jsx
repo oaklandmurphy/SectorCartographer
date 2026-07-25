@@ -8,7 +8,8 @@ export default function PopupHeader({ color, icon, title, onClose }) {
       <div style={{ width: 22, height: 22, ...cut(4), display: "flex", alignItems: "center", justifyContent: "center",
         background: "#14110b", border: `1px solid ${color}`, color }}>{icon}</div>
       <div className="stencil" style={{ fontSize: 14, fontWeight: 700, letterSpacing: ".08em", flex: 1 }}>{title}</div>
-      <button onClick={onClose} style={{ background: "none", border: "none", color: T.mut, cursor: "pointer", padding: 2 }}>
+      <button onClick={onClose} style={{ background: "none", border: "none", color: T.mut, cursor: "pointer",
+        padding: 8, margin: "-6px -8px -6px 0", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <X size={16} />
       </button>
     </div>

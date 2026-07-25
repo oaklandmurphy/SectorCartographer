@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Users, Trash2, Plus, X, Share2, ChevronRight, Star } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { RELATION_TYPES, MEMBER_KINDS, relationType } from "../constants.js";
+import { EDGE, popupMaxHeight } from "../lib/popupPlacement.js";
 import Btn from "./ui/Btn.jsx";
 import PanelPopup from "./ui/PanelPopup.jsx";
 import CodexLink from "./CodexLink.jsx";
@@ -9,7 +10,7 @@ import CodexLink from "./CodexLink.jsx";
 const kindMeta = (id) => MEMBER_KINDS.find((k) => k.id === id) || MEMBER_KINDS[0];
 
 export default function FactionPopup({
-  faction, factions, relations, pos, containerHeight, canEdit, wiki, viewer,
+  faction, factions, relations, pos, containerHeight, isMobile, canEdit, wiki, viewer,
   patchFaction, deleteFaction, setRelation,
   addMember, patchMember, patchMemberTitle, removeMember,
   goToCodex, createEntry, onClose,
@@ -54,8 +55,14 @@ export default function FactionPopup({
     </div>
   );
 
+  // Anchored beside the faction card on desktop; a fixed-width floating card
+  // has nowhere good to sit on a phone, so mobile gets a full-width bottom
+  // sheet instead — same pattern as the map's piece popups (see MapPopup.jsx).
+  const frame = isMobile
+    ? { left: EDGE, right: EDGE, bottom: EDGE }
+    : { left: pos.x, top: pos.y, width: 320 };
   return (
-    <PanelPopup frame={{ left: pos.x, top: pos.y, width: 320 }} maxHeight={containerHeight - 20}
+    <PanelPopup frame={frame} maxHeight={popupMaxHeight(containerHeight, isMobile)}
       color={faction.color} icon={<Users size={13} />} title="FACTION" onClose={onClose}>
         <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
           <div style={{ flex: 1 }}>

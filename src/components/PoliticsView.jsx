@@ -10,12 +10,14 @@ import MemberPopup from "./MemberPopup.jsx";
 
 const NODE_R = 62;   // collapsed faction badge radius, world units
 const CARD_W = 300;  // expanded roster card width, screen px
+const CARD_W_MOBILE = 226; // narrower so it doesn't eat the whole phone viewport
 
 function popupPos(w2s, containerSize, wx, wy, cardW, cardH) {
+  const w = Math.min(cardW, Math.max(8, containerSize.w - 16)); // never wider than the viewport has room for
   const s = w2s(wx, wy);
   let x = s.x + 40, y = s.y - 24;
-  if (x + cardW + 10 > containerSize.w) x = s.x - cardW - 40;
-  x = Math.min(Math.max(8, x), Math.max(8, containerSize.w - cardW - 8));
+  if (x + w + 10 > containerSize.w) x = s.x - w - 40;
+  x = Math.min(Math.max(8, x), Math.max(8, containerSize.w - w - 8));
   y = Math.min(Math.max(8, y), Math.max(8, containerSize.h - cardH - 8));
   return { x, y };
 }
@@ -62,6 +64,7 @@ export default function PoliticsView({
     // eslint-disable-next-line
   }, [containerSize]);
 
+  const cardW = isMobile ? CARD_W_MOBILE : CARD_W;
   const showMembers = view.scale >= SUBNODE_ZOOM;
   const selFacObj = factions.find((f) => f.id === selFac) || null;
   const selMemFac = selMem ? factions.find((f) => f.id === selMem.facId) : null;
@@ -158,7 +161,7 @@ export default function PoliticsView({
         return (
           <div key={f.id} onPointerDown={(e) => startFactionDrag(e, f.id, c.x, c.y)}
             style={{ position: "absolute", left: p.x, top: p.y, transform: "translate(-50%,-50%)",
-              width: CARD_W, touchAction: "none", zIndex: isSel ? 22 : 12, cursor: canEdit ? "grab" : "pointer" }}>
+              width: cardW, touchAction: "none", zIndex: isSel ? 22 : 12, cursor: canEdit ? "grab" : "pointer" }}>
             {isSel && <TargetBrackets color={T.accent} inset={-6} armLen={16} thick={2.5} />}
             <div style={{ ...cut(15), overflow: "hidden", background: `${T.panel}f5`,
               border: `2px solid ${f.color}`, boxShadow: `0 0 18px ${f.color}40, 0 12px 30px rgba(0,0,0,.6)` }}>
@@ -178,7 +181,8 @@ export default function PoliticsView({
 
               {/* important characters: uniform portrait grid, always 3 across */}
               {starred.length > 0 && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, padding: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                  gap: isMobile ? 6 : 10, padding: isMobile ? 8 : 12 }}>
                   {starred.map((m) => {
                     const sel = isMemSel(m);
                     const codexEntry = m.wikiId ? wiki.find((e) => e.id === m.wikiId) : null;
@@ -260,23 +264,27 @@ export default function PoliticsView({
         </button>
       </div>
 
-      {/* legend */}
-      <div style={{ position: "absolute", right: 12, bottom: 10, zIndex: 32, padding: "10px 14px",
-        pointerEvents: "none", maxWidth: 240, ...floatingPanel }}>
-        <div className="stencil" style={{ fontSize: 13, letterSpacing: ".1em", color: T.mut, marginBottom: 7 }}>RELATIONS</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {RELATION_TYPES.map((r) => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 9 }}>
-              <span style={{ width: 26, height: 0, borderTop: `${Math.max(2, r.width)}px ${r.dash ? "dashed" : "solid"} ${r.color}`, flexShrink: 0 }} />
-              <span style={{ fontSize: 13, color: T.text, fontFamily: "'Oswald', sans-serif", letterSpacing: ".02em" }}>{r.label}</span>
-            </div>
-          ))}
+      {/* legend — dropped on mobile: alongside the hint below, there isn't room for both
+          without them colliding on a narrow phone, and the hint is the more useful one */}
+      {!isMobile && (
+        <div style={{ position: "absolute", right: 12, bottom: 10, zIndex: 32, padding: "10px 14px",
+          pointerEvents: "none", maxWidth: 240, ...floatingPanel }}>
+          <div className="stencil" style={{ fontSize: 13, letterSpacing: ".1em", color: T.mut, marginBottom: 7 }}>RELATIONS</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {RELATION_TYPES.map((r) => (
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                <span style={{ width: 26, height: 0, borderTop: `${Math.max(2, r.width)}px ${r.dash ? "dashed" : "solid"} ${r.color}`, flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: T.text, fontFamily: "'Oswald', sans-serif", letterSpacing: ".02em" }}>{r.label}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* hint */}
       <div style={{ position: "absolute", left: 12, bottom: 10, zIndex: 32, pointerEvents: "none",
-        padding: "9px 13px", fontSize: 13, color: T.mut, maxWidth: 420, lineHeight: 1.5, ...floatingPanel }}>
+        padding: isMobile ? "7px 10px" : "9px 13px", fontSize: isMobile ? 11 : 13, color: T.mut,
+        maxWidth: isMobile ? containerSize.w - 24 : 420, lineHeight: 1.5, ...floatingPanel }}>
         <Network size={15} style={{ color: T.accent, verticalAlign: "-2px", marginRight: 6 }} />
         {canEdit
           ? <span><b style={{ color: T.text }}>Politics</b> · drag factions to arrange · click one to edit its relations & characters · <b style={{ color: T.amber }}>zoom in</b> to reveal the characters inside each faction</span>
@@ -289,7 +297,7 @@ export default function PoliticsView({
         <FactionPopup
           faction={selFacObj} factions={factions} relations={relations} viewer={viewer}
           pos={popupPos(w2s, containerSize, nodePos[selFacObj.id].x, nodePos[selFacObj.id].y, 320, 470)}
-          containerHeight={containerSize.h} canEdit={canEdit} wiki={wiki}
+          containerHeight={containerSize.h} isMobile={isMobile} canEdit={canEdit} wiki={wiki}
           patchFaction={patchFaction} deleteFaction={deleteFaction} setRelation={setRelation}
           addMember={addMember} patchMember={patchMember} patchMemberTitle={patchMemberTitle} removeMember={removeMember}
           goToCodex={goToCodex} createEntry={createEntry} onClose={() => setSelFac(null)}
@@ -303,7 +311,7 @@ export default function PoliticsView({
           <MemberPopup
             faction={selMemFac} member={selMemObj} viewer={viewer}
             pos={popupPos(w2s, containerSize, c.x, c.y, 288, 360)}
-            containerHeight={containerSize.h} canEdit={canEdit} wiki={wiki}
+            containerHeight={containerSize.h} isMobile={isMobile} canEdit={canEdit} wiki={wiki}
             patchMember={patchMember} patchMemberTitle={patchMemberTitle} removeMember={removeMember}
             goToCodex={goToCodex} createEntry={createEntry} onClose={() => setSelMem(null)}
             agent={selMemAgent}

@@ -1,5 +1,6 @@
 import { Trash2, User, Star, Send } from "lucide-react";
 import { T, inputStyle, lbl } from "../theme.js";
+import { EDGE, popupMaxHeight } from "../lib/popupPlacement.js";
 import Btn from "./ui/Btn.jsx";
 import PanelPopup from "./ui/PanelPopup.jsx";
 import CodexLink from "./CodexLink.jsx";
@@ -8,14 +9,19 @@ import CodexLink from "./CodexLink.jsx";
 // politics map. Marking one "important" promotes it to the faction card's
 // portrait grid; the rest stay in the list below it.
 export default function MemberPopup({
-  faction, member, pos, containerHeight, canEdit, wiki, viewer,
+  faction, member, pos, containerHeight, isMobile, canEdit, wiki, viewer,
   patchMember, patchMemberTitle, removeMember, goToCodex, createEntry, onClose,
   agent, canManageAgent, onRequestAction,
 }) {
   const star = !!member.star;
   const canEditTitle = canEdit || (viewer && viewer.kind === "player" && viewer.roleFactionId === faction.id);
+  // Same bottom-sheet fallback as FactionPopup — a 288px anchored card has no
+  // good home on a phone screen.
+  const frame = isMobile
+    ? { left: EDGE, right: EDGE, bottom: EDGE }
+    : { left: pos.x, top: pos.y, width: 288 };
   return (
-    <PanelPopup frame={{ left: pos.x, top: pos.y, width: 288 }} maxHeight={containerHeight - 20} zIndex={55}
+    <PanelPopup frame={frame} maxHeight={popupMaxHeight(containerHeight, isMobile)} zIndex={55}
       color={faction.color} icon={<User size={13} />} title="CHARACTER" onClose={onClose}>
         <div style={{ fontSize: 10.5, color: T.mut }}>
           In <b style={{ color: faction.color }}>{faction.name}</b>

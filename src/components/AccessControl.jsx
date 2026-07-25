@@ -25,7 +25,7 @@ export default function AccessControl({
         {badge.icon}{!compact && badge.label}
       </Btn>
       {accessOpen && (
-        <PanelPopup frame={{ top: "calc(100% + 6px)", right: 0, width: 288 }} maxHeight="78vh" zIndex={60} gap={10}
+        <PanelPopup frame={{ top: "calc(100% + 6px)", right: 0, width: compact ? "min(288px, calc(100vw - 24px))" : 288 }} maxHeight="78vh" zIndex={60} gap={10}
           color={T.accent} icon={badge.icon} title="ACCESS" onClose={() => setAccessOpen(false)}>
 
             {/* ---- open: no GM code set yet ---- */}

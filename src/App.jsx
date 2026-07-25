@@ -1105,7 +1105,10 @@ export default function GalaxySectorMap() {
     if (mode === "link") return;
     setSelSystem(null); setSelFleet(null); setSelAgent(id);
   }
-  function onFleetSnap(id, systemsSnapshot) {
+  // Fleets are hard-locked to systems — dropped within range of a system it
+  // snaps there, otherwise it reverts to whichever system it was dragged from
+  // (never left floating at an arbitrary point).
+  function onFleetSnap(id, systemsSnapshot, origSystemId) {
     if (!canEdit) return;
     setFleets((fs) => fs.map((f) => {
       if (f.id !== id) return f;
@@ -1114,15 +1117,15 @@ export default function GalaxySectorMap() {
         const dd = Math.hypot(s.x - f.x, s.y - f.y);
         if (dd < bestD) { bestD = dd; best = s; }
       }
-      return best ? { ...f, systemId: best.id } : { ...f, systemId: null };
+      return { ...f, systemId: best ? best.id : origSystemId };
     }));
   }
   // Same idea as onFleetSnap, but permission is per-agent (own faction, or the
   // GM), not the single global canEdit flag a fleet drag checks — see
-  // canPlaceAgents. Dropped somewhere with no system in range, the agent just
-  // stays floating at that world position (matches a fleet dragged off any
-  // system) rather than snapping back or disappearing.
-  function onAgentSnap(id, systemsSnapshot) {
+  // canPlaceAgents. Also hard-locked to systems: no system in range reverts
+  // the agent to the system it was dragged from rather than leaving it
+  // floating at that world position.
+  function onAgentSnap(id, systemsSnapshot, origSystemId) {
     const agent = agents.find((a) => a.id === id);
     if (!agent || !canPlaceAgents(agent.factionId)) return;
     setAgents((as) => as.map((a) => {
@@ -1132,7 +1135,7 @@ export default function GalaxySectorMap() {
         const dd = Math.hypot(s.x - a.x, s.y - a.y);
         if (dd < bestD) { bestD = dd; best = s; }
       }
-      return best ? { ...a, systemId: best.id } : a;
+      return { ...a, systemId: best ? best.id : origSystemId };
     }));
   }
   function onDeselectAll() { setSelSystem(null); setSelFleet(null); setSelAgent(null); setLinkSource(null); }
@@ -1179,11 +1182,11 @@ export default function GalaxySectorMap() {
      Agents sit at a system, stacked in a column just to its left so they never
      cover the system name (which hangs below the plate) or the fleets that fan
      out around it — wrapping to a further-left column after MAX_PER_COL so a
-     busy system doesn't run a column of agents off past its neighbors. Dragging
-     one off any system (see onAgentSnap below) leaves it floating at its dropped
-     x/y instead — same as a fleet dragged into open space — so it stays visible
-     mid-move rather than vanishing. Only an agent that has never been placed (no
-     systemId and no x/y) has no map position at all. */
+     busy system doesn't run a column of agents off past its neighbors. Both
+     agents and fleets are hard-locked to systems: dragging one off any system
+     (see onAgentSnap/onFleetSnap below) reverts it to the system it was
+     dragged from rather than leaving it floating. Only an agent that has never
+     been placed (no systemId) has no map position at all. */
   const agentPos = useMemo(() => {
     const grouping = {};
     agents.forEach((a) => { if (a.systemId) (grouping[a.systemId] = grouping[a.systemId] || []).push(a.id); });
@@ -1331,8 +1334,11 @@ export default function GalaxySectorMap() {
       {/* ------------------------------------------------ GLOBAL TAB BAR (map / codex) — always visible */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
         background: `linear-gradient(180deg, #0a0906, ${T.panel})`, borderBottom: `1px solid ${T.line}`, zIndex: 41 }}>
-        {/* the tabs don't fit a phone with their labels, so below the breakpoint they go icon-only */}
-        <div style={{ display: "flex", gap: 3, background: T.panel3, padding: 3, border: `1px solid ${T.line}` }}>
+        {/* the tabs don't fit a phone with their labels, so below the breakpoint they go icon-only —
+            and even icon-only, up to 9 tabs can outgrow a narrow phone, so this scrolls sideways
+            rather than squeezing buttons or silently clipping the last ones */}
+        <div className="scroll" style={{ display: "flex", gap: 3, background: T.panel3, padding: 3,
+          border: `1px solid ${T.line}`, overflowX: "auto", flex: "1 1 auto", minWidth: 0 }}>
           <Btn active={activeTab === "map"} onClick={() => { setActiveTab("map"); setAccessOpen(false); }} title="Sector map"
             style={{ border: "none", borderRadius: 0, background: activeTab === "map" ? undefined : "transparent" }}>
             <MapIcon size={14} /> {!isMobile && "Map"}
@@ -1393,7 +1399,7 @@ export default function GalaxySectorMap() {
             </Btn>
           )}
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ marginLeft: "auto", flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
           {(canEdit || viewer.kind === "player") && <SaveStatus saveStatus={saveStatus} isMobile={isMobile} />}
           <AccessControl compact={isMobile} {...accessProps} />
         </div>
