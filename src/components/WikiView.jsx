@@ -144,7 +144,7 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
   // markup — see the security note in lib/codexImage.js.
   const imageFrame = (src, maxHeight, alt) => (
     <div style={{ border: `1px solid ${T.line}`, background: T.panel3, padding: 6,
-      alignSelf: "flex-start", maxWidth: "100%", borderRadius: 2 }}>
+      alignSelf: "flex-start", maxWidth: "100%", borderRadius: 2, flexShrink: 0 }}>
       <img src={src} alt={alt || ""} style={{ display: "block", maxWidth: "100%", maxHeight }} />
     </div>
   );
@@ -435,7 +435,7 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
         </div>
         {preview ? (
           <div style={{ minHeight: isMobile ? 220 : 340, border: `1px dashed ${T.line}`, borderRadius: 2, padding: 12,
-            display: "flex", flexDirection: "column", gap: 12 }}>
+            display: "flex", flexDirection: "column", gap: 12, flexShrink: 0 }}>
             {selected.image && imageFrame(selected.image, isMobile ? 320 : 480, selected.title)}
             <CodexBody body={selected.body} isMobile={isMobile} />
           </div>
@@ -445,11 +445,11 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
             style={{ ...inputStyle, minHeight: isMobile ? 220 : 340, resize: "vertical", lineHeight: 1.6,
               fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace", fontSize: 12.5, padding: 12 }} />
         )}
-        {imageEditor(patch)}
+        {!preview && imageEditor(patch)}
       </>
     );
     return (
-      <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: isMobile ? 14 : 22,
+      <div className="scroll" style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: "auto", padding: isMobile ? 14 : 22,
         display: "flex", flexDirection: "column", gap: 12 }}>
         {onBack && (
           <button onClick={onBack} style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 5,

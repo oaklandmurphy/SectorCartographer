@@ -8,7 +8,7 @@ export default function CodexBody({ body, isMobile }) {
   if (segments.length === 0) return <span style={{ color: T.faint }}>(This entry is empty.)</span>;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, flexShrink: 0 }}>
       {segments.map((seg, i) =>
         seg.kind === "text" ? (
           <div key={i} className="mono" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word",
