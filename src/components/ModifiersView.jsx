@@ -2,6 +2,7 @@ import { useState } from "react";
 import { GripVertical, Lock, Plus, Trash2, Users, Zap } from "lucide-react";
 import { T, inputStyle } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
+import MobileTabRail from "./ui/MobileTabRail.jsx";
 
 const LEVELS = [
   { id: "low", label: "Low", color: T.accent },
@@ -243,7 +244,9 @@ export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
   if (isMobile) {
     return (
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.void }}>
-        {factionRail(false)}
+        <MobileTabRail label={activeFaction ? activeFaction.name : "Select faction"} accentColor={activeFaction && activeFaction.color}>
+          {factionRail(true)}
+        </MobileTabRail>
         {content()}
       </div>
     );

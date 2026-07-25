@@ -1,7 +1,7 @@
 import {
   Undo2, Trash2, Plus, Rocket,
   ZoomIn, ZoomOut, Maximize, PanelLeftClose, PanelLeftOpen,
-  AlertTriangle, Save, Star,
+  AlertTriangle, Save, Star, Lock, LockOpen,
 } from "lucide-react";
 import { T, cut } from "../theme.js";
 import { MIN_ZOOM, MAX_ZOOM } from "../constants.js";
@@ -14,6 +14,7 @@ export default function Toolbar({
   drawColor, setDrawColor, drawWidth, setDrawWidth,
   strokes, undoStroke, clearStrokes,
   view, setView, panelOpen, setPanelOpen,
+  editLocked, setEditLocked, showLock,
 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px",
@@ -31,6 +32,13 @@ export default function Toolbar({
       </div>
 
       <ModeToggle mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} canOrder={canOrder} />
+
+      {showLock && (
+        <Btn active={editLocked} onClick={() => setEditLocked((v) => !v)}
+          title={editLocked ? "Editing locked — click to unlock the map" : "Lock editing to stop accidental drags, adds & deletes"}>
+          {editLocked ? <Lock size={14} /> : <LockOpen size={14} />} {editLocked ? "Locked" : "Lock"}
+        </Btn>
+      )}
 
       <Btn onClick={addSystemCenter} disabled={!canEdit} title={canEdit ? "Add a star system (or double-click the map)" : "View only"}><Plus size={14} /> System</Btn>
       <Btn onClick={addFleetCenter} disabled={!canEdit} title={canEdit ? "Add a fleet" : "View only"}><Rocket size={14} /> Fleet</Btn>

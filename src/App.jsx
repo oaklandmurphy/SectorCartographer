@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react";
-import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Zap, Bell, Gavel, VenetianMask } from "lucide-react";
+import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Zap, Bell, Gavel, VenetianMask, Menu, ChevronDown, ChevronUp } from "lucide-react";
 import { T, panelStyle, cut } from "./theme.js";
 import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
 import { storage } from "./lib/storage.js";
@@ -73,8 +73,18 @@ export default function GalaxySectorMap() {
   const viewer = useMemo(() => resolveViewer(knownCode, lockCode, roles), [knownCode, lockCode, roles]);
   const canEdit = viewer.seesAll; // GM and open mode edit; players & anon are view-only
 
+  // Personal, unsaved safety catch — not part of the shared sector, so it resets
+  // on reload same as panelOpen/showFleets. Freezes dragging, add/delete, links
+  // and drawing on the Map and faction dragging/add/delete on Politics, so the
+  // GM (or anyone in open mode) can browse the board at the table without
+  // fat-fingering a piece out of place. Everything reached through a dedicated
+  // tab instead (Fleet roster, Agents, Modifiers…) stays editable regardless.
+  const [editLocked, setEditLocked] = useState(false);
+  const editingEnabled = canEdit && !editLocked;
+
   const isMobile = useResponsive();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [navMenuOpen, setNavMenuOpen] = useState(false); // mobile: the global tab-bar dropdown
 
   /* ------------------------------------------------ which page we're on — lives in the URL, not in state.
      See lib/routing.js: the tab, the codex category + open entry, and the fleet
@@ -281,19 +291,19 @@ export default function GalaxySectorMap() {
 
   /* ------------------------------------------------ CRUD (all guarded — viewers cannot mutate shared data) */
   function addSystemAt(wx, wy) {
-    if (!canEdit) return;
+    if (!editingEnabled) return;
     const id = uid("sys");
     setSystems((ss) => [...ss, { id, name: "New System", x: wx, y: wy, factionId: "fac_none", markers: [] }]);
     setMode("select"); setSelFleet(null); setSelSystem(id);
   }
   function addSystemCenter() {
-    if (!canEdit) return;
+    if (!editingEnabled) return;
     const wx = (mapInt.containerSize.w / 2 - view.ox) / view.scale + (Math.random() * 40 - 20);
     const wy = (mapInt.containerSize.h / 2 - view.oy) / view.scale + (Math.random() * 40 - 20);
     addSystemAt(wx, wy);
   }
   function addFleetCenter() {
-    if (!canEdit) return;
+    if (!editingEnabled) return;
     const wx = (mapInt.containerSize.w / 2 - view.ox) / view.scale + (Math.random() * 40 - 20);
     const wy = (mapInt.containerSize.h / 2 - view.oy) / view.scale + (Math.random() * 40 - 20);
     const id = uid("flt");
@@ -301,14 +311,14 @@ export default function GalaxySectorMap() {
     setMode("select"); setSelSystem(null); setSelFleet(id);
   }
   function deployFleetAt(sysId) {
-    if (!canEdit) return;
+    if (!editingEnabled) return;
     const sys = systems.find((s) => s.id === sysId);
     const id = uid("flt");
     setFleets((fs) => [...fs, { id, name: "New Fleet", factionId: sys.factionId, systemId: sysId, x: sys.x, y: sys.y, ships: [] }]);
     setSelSystem(null); setSelFleet(id);
   }
   function deleteSystem(id) {
-    if (!canEdit) return;
+    if (!editingEnabled) return;
     const sys = systems.find((s) => s.id === id);
     setFleets((fs) => fs.map((f) => (f.systemId === id ? { ...f, systemId: null, x: sys.x + 40, y: sys.y + 40 } : f)));
     setLinks((ls) => ls.filter((l) => l.a !== id && l.b !== id));
@@ -1076,7 +1086,7 @@ export default function GalaxySectorMap() {
   function onSystemTap(id) {
     if (mode === "orders") { addOrderStop(id); return; } // plotting a route — a system is the next stop
     if (mode === "link") {
-      if (!canEdit) { setLinkSource(null); return; }
+      if (!editingEnabled) { setLinkSource(null); return; }
       if (!linkSource) { setLinkSource(id); return; }
       if (linkSource === id) { setLinkSource(null); return; }
       setLinks((ls) => {
@@ -1109,7 +1119,7 @@ export default function GalaxySectorMap() {
   // snaps there, otherwise it reverts to whichever system it was dragged from
   // (never left floating at an arbitrary point).
   function onFleetSnap(id, systemsSnapshot, origSystemId) {
-    if (!canEdit) return;
+    if (!editingEnabled) return;
     setFleets((fs) => fs.map((f) => {
       if (f.id !== id) return f;
       let best = null, bestD = 62; // world units
@@ -1141,7 +1151,7 @@ export default function GalaxySectorMap() {
   function onDeselectAll() { setSelSystem(null); setSelFleet(null); setSelAgent(null); setLinkSource(null); }
 
   const mapInt = useMapInteractions({
-    activeTab, mode, canEdit,
+    activeTab, mode, canEdit: editingEnabled,
     view, setView,
     systems, setSystems,
     fleets, setFleets,
@@ -1311,6 +1321,29 @@ export default function GalaxySectorMap() {
     setNewLockCode, removeLockCode, tryUnlock, signOut, addRole, patchRole, removeRole,
   };
 
+  // The global tab bar, one entry per page — driven from a single list so the
+  // desktop strip and the mobile dropdown (see navTabs.map below) never drift
+  // apart. `show` hides a tab the current viewer has no business seeing at all
+  // (Agents/GM Tools); `badge` is the little count chip, 0/undefined for none.
+  const navTabs = [
+    { id: "map", label: "Map", icon: MapIcon, title: "Sector map", show: true },
+    { id: "fleet", label: "Fleets", icon: Ship, title: "Fleet rosters", show: true },
+    { id: "agents", label: "Agents", icon: VenetianMask, title: "Agents & operatives", show: canOrder },
+    { id: "politics", label: "Politics", icon: Network, title: "Faction politics", show: true },
+    { id: "codex", label: "Codex", icon: Library, title: "Setting codex / wiki", show: true,
+      badge: canEdit ? pendingWikiCount : 0 },
+    { id: "updates", label: "Updates", icon: Bell, title: "Articles your faction has not seen", show: true,
+      badge: unseenArticles.length },
+    { id: "modifiers", label: "Modifiers", icon: Zap, title: "Faction modifiers / events", show: true },
+    { id: "odds", label: "Odds", icon: Dices, title: "Mission odds table", show: true },
+    { id: "gmtools", label: "GM Tools", icon: Gavel, title: "GM tools: action & mission requests, roll resolution & notes",
+      show: isGM, badge: isGM ? pendingActionCount + pendingMissionCount : 0 },
+  ].filter((t) => t.show);
+  const activeNavTab = navTabs.find((t) => t.id === activeTab) || navTabs[0];
+  function selectNavTab(id) {
+    setActiveTab(id); setAccessOpen(false); setMobileMenuOpen(false); setNavMenuOpen(false);
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.void,
       color: T.text, fontFamily: "'Oswald', ui-sans-serif, system-ui, sans-serif", overflow: "hidden" }}>
@@ -1331,74 +1364,72 @@ export default function GalaxySectorMap() {
         </div>
       )}
 
-      {/* ------------------------------------------------ GLOBAL TAB BAR (map / codex) — always visible */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
+      {/* ------------------------------------------------ GLOBAL TAB BAR (map / codex) — always visible.
+          Desktop scrolls sideways if it ever has to (rare — there's usually room);
+          mobile swaps the row of chips for a single trigger + dropdown, since a
+          sideways-scrolling strip on a phone hides tabs off-screen with no sign
+          there's more, and up to 9 of them just doesn't fit even icon-only. */}
+      <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
         background: `linear-gradient(180deg, #0a0906, ${T.panel})`, borderBottom: `1px solid ${T.line}`, zIndex: 41 }}>
-        {/* the tabs don't fit a phone with their labels, so below the breakpoint they go icon-only —
-            and even icon-only, up to 9 tabs can outgrow a narrow phone, so this scrolls sideways
-            rather than squeezing buttons or silently clipping the last ones */}
-        <div className="scroll" style={{ display: "flex", gap: 3, background: T.panel3, padding: 3,
-          border: `1px solid ${T.line}`, overflowX: "auto", flex: "1 1 auto", minWidth: 0 }}>
-          <Btn active={activeTab === "map"} onClick={() => { setActiveTab("map"); setAccessOpen(false); }} title="Sector map"
-            style={{ border: "none", borderRadius: 0, background: activeTab === "map" ? undefined : "transparent" }}>
-            <MapIcon size={14} /> {!isMobile && "Map"}
-          </Btn>
-          <Btn active={activeTab === "fleet"} onClick={() => { setActiveTab("fleet"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Fleet rosters"
-            style={{ border: "none", borderRadius: 0, background: activeTab === "fleet" ? undefined : "transparent" }}>
-            <Ship size={14} /> {!isMobile && "Fleets"}
-          </Btn>
-          {canOrder && (
-            <Btn active={activeTab === "agents"} onClick={() => { setActiveTab("agents"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Agents & operatives"
-              style={{ border: "none", borderRadius: 0, background: activeTab === "agents" ? undefined : "transparent" }}>
-              <VenetianMask size={14} /> {!isMobile && "Agents"}
-            </Btn>
-          )}
-          <Btn active={activeTab === "politics"} onClick={() => { setActiveTab("politics"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Faction politics"
-            style={{ border: "none", borderRadius: 0, background: activeTab === "politics" ? undefined : "transparent" }}>
-            <Network size={14} /> {!isMobile && "Politics"}
-          </Btn>
-          <Btn active={activeTab === "codex"} onClick={() => { setActiveTab("codex"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Setting codex / wiki"
-            style={{ border: "none", borderRadius: 0, background: activeTab === "codex" ? undefined : "transparent" }}>
-            <Library size={14} /> {!isMobile && "Codex"}
-            {canEdit && pendingWikiCount > 0 && (
-              <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 8,
-                minWidth: 15, height: 15, padding: "0 4px", display: "inline-flex", alignItems: "center",
-                justifyContent: "center", fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>
-                {pendingWikiCount}
-              </span>
-            )}
-          </Btn>
-          <Btn active={activeTab === "updates"} onClick={() => { setActiveTab("updates"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Articles your faction has not seen"
-            style={{ border: "none", borderRadius: 0, background: activeTab === "updates" ? undefined : "transparent" }}>
-            <Bell size={14} /> {!isMobile && "Updates"}
-            {unseenArticles.length > 0 && (
-              <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 8, minWidth: 15, height: 15, padding: "0 4px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>
-                {unseenArticles.length}
-              </span>
-            )}
-          </Btn>
-          <Btn active={activeTab === "modifiers"} onClick={() => { setActiveTab("modifiers"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Faction modifiers / events"
-            style={{ border: "none", borderRadius: 0, background: activeTab === "modifiers" ? undefined : "transparent" }}>
-            <Zap size={14} /> {!isMobile && "Modifiers"}
-          </Btn>
-          <Btn active={activeTab === "odds"} onClick={() => { setActiveTab("odds"); setAccessOpen(false); setMobileMenuOpen(false); }} title="Mission odds table"
-            style={{ border: "none", borderRadius: 0, background: activeTab === "odds" ? undefined : "transparent" }}>
-            <Dices size={14} /> {!isMobile && "Odds"}
-          </Btn>
-          {isGM && (
-            <Btn active={activeTab === "gmtools"} onClick={() => { setActiveTab("gmtools"); setAccessOpen(false); setMobileMenuOpen(false); }} title="GM tools: action & mission requests, roll resolution & notes"
-              style={{ border: "none", borderRadius: 0, background: activeTab === "gmtools" ? undefined : "transparent" }}>
-              <Gavel size={14} /> {!isMobile && "GM Tools"}
-              {(pendingActionCount + pendingMissionCount) > 0 && (
-                <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 8,
-                  minWidth: 15, height: 15, padding: "0 4px", display: "inline-flex", alignItems: "center",
-                  justifyContent: "center", fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>
-                  {pendingActionCount + pendingMissionCount}
-                </span>
-              )}
-            </Btn>
-          )}
-        </div>
+        {isMobile ? (
+          <button onClick={() => { setNavMenuOpen((o) => !o); setMobileMenuOpen(false); }}
+            style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", flex: "1 1 auto", minWidth: 0,
+              background: T.panel3, border: `1px solid ${T.line}`, borderRadius: 2, padding: "7px 10px", color: T.text,
+              fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em", textTransform: "uppercase" }}>
+            {navMenuOpen ? <Menu size={15} color={T.accent} /> : <activeNavTab.icon size={15} color={T.accent} />}
+            <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {activeNavTab.label}
+            </span>
+            {navMenuOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          </button>
+        ) : (
+          <div className="scroll" style={{ display: "flex", gap: 3, background: T.panel3, padding: 3,
+            border: `1px solid ${T.line}`, overflowX: "auto", flex: "1 1 auto", minWidth: 0 }}>
+            {navTabs.map((t) => (
+              <Btn key={t.id} active={activeTab === t.id} onClick={() => selectNavTab(t.id)} title={t.title}
+                style={{ border: "none", borderRadius: 0, background: activeTab === t.id ? undefined : "transparent" }}>
+                <t.icon size={14} /> {t.label}
+                {t.badge > 0 && (
+                  <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 8,
+                    minWidth: 15, height: 15, padding: "0 4px", display: "inline-flex", alignItems: "center",
+                    justifyContent: "center", fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>
+                    {t.badge}
+                  </span>
+                )}
+              </Btn>
+            ))}
+          </div>
+        )}
+
+        {isMobile && navMenuOpen && (
+          <div className="scroll" onClick={() => setNavMenuOpen(false)}
+            style={{ position: "absolute", top: "100%", left: 10, right: 10, zIndex: 46, maxHeight: "70vh", overflowY: "auto",
+              background: T.panel, border: `1px solid ${T.line}`, borderTop: "none", boxShadow: "0 14px 30px rgba(0,0,0,.6)",
+              padding: 8, display: "flex", flexDirection: "column", gap: 5 }}>
+            {navTabs.map((t) => {
+              const on = t.id === activeTab;
+              return (
+                <button key={t.id} onClick={() => selectNavTab(t.id)} title={t.title}
+                  style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", width: "100%",
+                    border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 2, padding: "9px 11px",
+                    background: on ? "rgba(159,194,58,.14)" : T.panel2, color: on ? T.accent : T.text,
+                    fontFamily: "'Oswald', sans-serif", fontSize: 13, fontWeight: 600, letterSpacing: ".03em",
+                    textTransform: "uppercase" }}>
+                  <t.icon size={15} />
+                  <span style={{ flex: 1, textAlign: "left" }}>{t.label}</span>
+                  {t.badge > 0 && (
+                    <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 8,
+                      minWidth: 16, height: 16, padding: "0 5px", display: "inline-flex", alignItems: "center",
+                      justifyContent: "center", fontSize: 10, fontWeight: 700 }}>
+                      {t.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <div style={{ marginLeft: "auto", flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
           {(canEdit || viewer.kind === "player") && <SaveStatus saveStatus={saveStatus} isMobile={isMobile} />}
           <AccessControl compact={isMobile} {...accessProps} />
@@ -1409,30 +1440,33 @@ export default function GalaxySectorMap() {
         <>
           {!isMobile && (
             <Toolbar
-              mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} canOrder={canOrder}
+              mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={editingEnabled} canOrder={canOrder}
               addSystemCenter={addSystemCenter} addFleetCenter={addFleetCenter}
               drawColor={mapInt.drawColor} setDrawColor={mapInt.setDrawColor}
               drawWidth={mapInt.drawWidth} setDrawWidth={mapInt.setDrawWidth}
               strokes={strokes} undoStroke={mapInt.undoStroke} clearStrokes={mapInt.clearStrokes}
               view={view} setView={setView} panelOpen={panelOpen} setPanelOpen={setPanelOpen}
+              editLocked={editLocked} setEditLocked={setEditLocked} showLock={canEdit}
             />
           )}
           {isMobile && (
             <MobileToolbar
-              mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} canOrder={canOrder}
+              mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={editingEnabled} canOrder={canOrder}
               addSystemCenter={addSystemCenter} addFleetCenter={addFleetCenter}
               drawColor={mapInt.drawColor} setDrawColor={mapInt.setDrawColor}
               drawWidth={mapInt.drawWidth} setDrawWidth={mapInt.setDrawWidth}
               strokes={strokes} undoStroke={mapInt.undoStroke} clearStrokes={mapInt.clearStrokes}
               view={view} setView={setView} panelOpen={panelOpen} setPanelOpen={setPanelOpen}
-              saveStatus={saveStatus} mobileMenuOpen={mobileMenuOpen} setMobileMenuOpen={setMobileMenuOpen}
+              saveStatus={saveStatus} mobileMenuOpen={mobileMenuOpen}
+              setMobileMenuOpen={(v) => { setNavMenuOpen(false); setMobileMenuOpen(v); }}
+              editLocked={editLocked} setEditLocked={setEditLocked} showLock={canEdit}
             />
           )}
 
           <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
             {panelOpen && (
               <SidePanel
-                factions={factions} layers={layers} systems={systems} fleets={fleets} canEdit={canEdit}
+                factions={factions} layers={layers} systems={systems} fleets={fleets} canEdit={editingEnabled}
                 isMobile={isMobile} onClose={() => setPanelOpen(false)}
                 addFaction={addFaction} patchFaction={patchFaction} deleteFaction={deleteFaction}
                 addLayer={addLayer} patchLayer={patchLayer} toggleLayer={toggleLayer}
@@ -1444,7 +1478,7 @@ export default function GalaxySectorMap() {
 
             <MapCanvas
               mapRef={mapInt.mapRef} canvasRef={mapInt.canvasRef} containerSize={mapInt.containerSize}
-              isMobile={isMobile} mode={mode} canEdit={canEdit} view={view} w2s={w2s}
+              isMobile={isMobile} mode={mode} canEdit={editingEnabled} editLocked={editLocked} view={view} w2s={w2s}
               systems={systems} fleets={displayFleets} links={links} fleetPos={fleetPos}
               agents={displayAgents} agentPos={agentPos} orders={displayOrders} showOrders={showOrders}
               actions={displayActions}
@@ -1489,7 +1523,8 @@ export default function GalaxySectorMap() {
 
         {activeTab === "politics" && (
           <PoliticsView
-            factions={factions} relations={relations} canEdit={canEdit} isMobile={isMobile} wiki={displayWiki} viewer={viewer}
+            factions={factions} relations={relations} canEdit={editingEnabled} isMobile={isMobile} wiki={displayWiki} viewer={viewer}
+            editLocked={editLocked} setEditLocked={setEditLocked} showLock={canEdit}
             patchFaction={patchFaction} addFaction={addFaction} deleteFaction={deleteFaction} setRelation={setRelation}
             addMember={addMember} patchMember={patchMember} patchMemberTitle={patchMemberTitle} removeMember={removeMember}
             goToCodex={goToCodex} createEntry={createEntry}

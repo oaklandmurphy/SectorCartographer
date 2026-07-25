@@ -13,6 +13,7 @@ import Btn from "./ui/Btn.jsx";
 import CodexBody from "./CodexBody.jsx";
 import CodexDiff, { DiffLegend } from "./CodexDiff.jsx";
 import VisibilityRow from "./VisibilityRow.jsx";
+import MobileTabRail from "./ui/MobileTabRail.jsx";
 
 const formatUpdatedAt = (value) => value ? new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium", timeStyle: "short",
@@ -630,12 +631,18 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
   };
 
   if (isMobile) {
+    const CatIcon = catMeta.icon;
     return (
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.void }}>
         {selected ? detail(() => selectEntry(null)) : (
           <>
             {searchBar()}
-            {categoryRail(false)}
+            <MobileTabRail
+              label={queueMode ? "Review Queue" : searching ? `Search: "${query.trim()}"` : catMeta.label}
+              icon={queueMode ? <Inbox size={15} /> : !searching ? <CatIcon size={15} /> : undefined}
+              accentColor={queueMode ? T.amber : !searching ? T.accent : undefined}>
+              {categoryRail(true)}
+            </MobileTabRail>
             {entryList()}
           </>
         )}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Users, Plus, Maximize2, Network, User, Star } from "lucide-react";
+import { Users, Plus, Maximize2, Network, User, Star, Lock, LockOpen } from "lucide-react";
 import { T, cut, sceneBackdrop, floatingPanel } from "../theme.js";
 import { SUBNODE_ZOOM, RELATION_TYPES, relationType } from "../constants.js";
 import { usePoliticsInteractions } from "../hooks/usePoliticsInteractions.js";
@@ -24,6 +24,7 @@ function popupPos(w2s, containerSize, wx, wy, cardW, cardH) {
 
 export default function PoliticsView({
   factions, relations, canEdit, isMobile, wiki, viewer,
+  editLocked, setEditLocked, showLock,
   patchFaction, addFaction, deleteFaction, setRelation,
   addMember, patchMember, patchMemberTitle, removeMember,
   goToCodex, createEntry,
@@ -248,6 +249,17 @@ export default function PoliticsView({
 
       {/* floating toolbar */}
       <div style={{ position: "absolute", left: 12, top: 12, zIndex: 34, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {showLock && (
+          <button onClick={() => setEditLocked((v) => !v)}
+            title={editLocked ? "Editing locked — click to unlock politics" : "Lock editing to stop accidental drags, adds & deletes"}
+            style={{ display: "flex", alignItems: "center", gap: 7,
+              background: editLocked ? T.accent : `${T.panel}e6`,
+              border: `1px solid ${editLocked ? T.accent : T.line}`, ...cut(7),
+              color: editLocked ? "#0f1207" : T.text, cursor: "pointer", padding: "9px 14px",
+              fontFamily: "'Oswald', sans-serif", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
+            {editLocked ? <Lock size={17} /> : <LockOpen size={17} />} {editLocked ? "Locked" : "Lock"}
+          </button>
+        )}
         {canEdit && (
           <button onClick={() => addFaction()} title="Add a faction"
             style={{ display: "flex", alignItems: "center", gap: 7, background: "rgba(159,194,58,.14)",

@@ -6,6 +6,7 @@ import Btn from "./ui/Btn.jsx";
 import ActionResolution from "./ui/ActionResolution.jsx";
 import GMNotesPanel from "./ui/GMNotesPanel.jsx";
 import SquadronMissionsPanel from "./SquadronMissionsPanel.jsx";
+import MobileTabRail from "./ui/MobileTabRail.jsx";
 
 const sign = (n) => (n >= 0 ? `+${n}` : `${n}`);
 const rollDie = () => 1 + Math.floor(Math.random() * 6);
@@ -491,7 +492,13 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
                 display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
                 <ClipboardList size={15} color={T.accent} /> ACTION REQUESTS {countBadge(pendingTotal, true)}
               </div>
-              {playerGroups.length > 0 && <div style={{ marginBottom: 10 }}>{playerRail(false)}</div>}
+              {playerGroups.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <MobileTabRail label={activeGroup ? activeGroup.name : "Select player"} icon={<Users size={15} />}>
+                    {playerRail(true)}
+                  </MobileTabRail>
+                </div>
+              )}
               {requestsPane()}
             </div>
             <div ref={toolRef}>{toolPane()}</div>

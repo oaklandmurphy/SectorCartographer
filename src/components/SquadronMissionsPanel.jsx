@@ -8,6 +8,7 @@ import {
 } from "../lib/missionOdds.js";
 import Btn from "./ui/Btn.jsx";
 import MissionResolution from "./ui/MissionResolution.jsx";
+import MobileTabRail from "./ui/MobileTabRail.jsx";
 
 const rollDie = () => 1 + Math.floor(Math.random() * 6);
 const DIE_FACES = { 1: Dice1, 2: Dice2, 3: Dice3, 4: Dice4, 5: Dice5, 6: Dice6 };
@@ -378,7 +379,13 @@ export default function SquadronMissionsPanel({
             display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
             <Rocket size={15} color={T.accent} /> SQUADRON MISSIONS {countBadge(pendingTotal, true)}
           </div>
-          {playerGroups.length > 0 && <div style={{ marginBottom: 10 }}>{playerRail(false)}</div>}
+          {playerGroups.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <MobileTabRail label={activeGroup ? activeGroup.name : "Select player"} icon={<Users size={15} />}>
+                {playerRail(true)}
+              </MobileTabRail>
+            </div>
+          )}
           {requestsPane()}
         </div>
         <div ref={toolRef}>{toolPane()}</div>

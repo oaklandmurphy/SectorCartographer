@@ -4,6 +4,7 @@ import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { AGENT_ICONS, AGENT_ICON_KEYS } from "../constants.js";
 import Btn from "./ui/Btn.jsx";
 import ActionResolution from "./ui/ActionResolution.jsx";
+import MobileTabRail from "./ui/MobileTabRail.jsx";
 
 // Faction tabs run along the top (the GM, who sees every faction, picks one to
 // work in; a lone-faction player gets no tab strip, there being nothing to pick).
@@ -66,39 +67,47 @@ export default function AgentsView({
   };
 
   // The faction picker along the top — GM only in practice, since a player is
-  // handed a single faction and gets no strip at all.
+  // handed a single faction and gets no strip at all. Desktop scrolls it
+  // sideways (rare to have more than a handful of factions); mobile collapses
+  // it into a dropdown so entries can never hide off the edge of the screen.
+  const factionTabItem = (f, { fullWidth } = {}) => {
+    const on = f.id === activeId;
+    const count = agents.filter((a) => a.factionId === f.id).length;
+    return (
+      <button key={f.id} onClick={() => { setActiveFactionId(f.id); setSelectedAgentId(null); }} title={f.name}
+        style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
+          border: `1px solid ${on ? f.color : T.line}`, borderRadius: 2, padding: "7px 12px",
+          background: on ? `${f.color}26` : T.panel2, color: on ? f.color : T.text,
+          fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
+          textTransform: "uppercase", flex: fullWidth ? "none" : "0 0 auto", width: fullWidth ? "100%" : "auto" }}>
+        <span style={{ width: 9, height: 9, borderRadius: "50%", background: f.color, flexShrink: 0 }} />
+        <span style={{ flex: 1, textAlign: "left" }}>{f.name}</span>
+        <span className="mono" style={{ fontSize: 10, color: on ? f.color : T.faint }}>{count}</span>
+      </button>
+    );
+  };
   const factionTabs = () => (
     <div className="scroll" style={{ display: "flex", gap: 4, padding: "8px", overflowX: "auto",
       borderBottom: `2px solid ${T.line}`, background: T.panel, flexShrink: 0 }}>
-      {factions.map((f) => {
-        const on = f.id === activeId;
-        const count = agents.filter((a) => a.factionId === f.id).length;
-        return (
-          <button key={f.id} onClick={() => { setActiveFactionId(f.id); setSelectedAgentId(null); }} title={f.name}
-            style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
-              border: `1px solid ${on ? f.color : T.line}`, borderRadius: 2, padding: "7px 12px",
-              background: on ? `${f.color}26` : T.panel2, color: on ? f.color : T.text,
-              fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
-              textTransform: "uppercase", flex: "0 0 auto" }}>
-            <span style={{ width: 9, height: 9, borderRadius: "50%", background: f.color, flexShrink: 0 }} />
-            <span>{f.name}</span>
-            <span className="mono" style={{ fontSize: 10, color: on ? f.color : T.faint }}>{count}</span>
-          </button>
-        );
-      })}
+      {factions.map((f) => factionTabItem(f))}
     </div>
   );
+  const factionTabsMobile = () => (
+    <MobileTabRail label={activeFaction ? activeFaction.name : "Select faction"} accentColor={activeFaction && activeFaction.color}>
+      {factions.map((f) => factionTabItem(f, { fullWidth: true }))}
+    </MobileTabRail>
+  );
 
-  // The agent rail: vertical on desktop (a left menu), horizontal on mobile.
-  const agentRail = (vertical) => (
+  // The agent rail: vertical on desktop (a left menu), a dropdown on mobile.
+  const agentRail = (vertical, { fullWidth } = {}) => (
     <div className={vertical ? "scroll" : "scroll"} style={{ display: "flex",
       flexDirection: vertical ? "column" : "row", gap: 5,
       padding: vertical ? "10px 8px" : "8px", overflowY: vertical ? "auto" : "visible",
       overflowX: vertical ? "visible" : "auto",
-      borderRight: vertical ? `2px solid ${T.line}` : "none",
+      borderRight: fullWidth ? "none" : vertical ? `2px solid ${T.line}` : "none",
       borderBottom: vertical ? "none" : `2px solid ${T.line}`,
       background: T.panel, flexShrink: 0,
-      width: vertical ? 240 : "auto", minHeight: 0 }}>
+      width: fullWidth ? "100%" : vertical ? 240 : "auto", minHeight: 0 }}>
       {facAgents.length === 0 && (
         <div style={{ fontSize: 10.5, color: T.faint, padding: "12px 6px", textAlign: "center", lineHeight: 1.5 }}>
           {canManage ? (cap > 0 ? "No agents yet." : "No agent slots allotted.") : "No agents."}
@@ -312,9 +321,13 @@ export default function AgentsView({
   if (isMobile) {
     return (
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.void }}>
-        {showTabs && factionTabs()}
+        {showTabs && factionTabsMobile()}
         {factionHeader()}
-        {agentRail(false)}
+        <MobileTabRail label={selectedAgent ? agentLabel(selectedAgent) : "Select agent"}
+          icon={selectedAgent ? <VenetianMask size={15} /> : undefined}
+          accentColor={selectedAgent && activeFaction.color}>
+          {agentRail(true, { fullWidth: true })}
+        </MobileTabRail>
         {detail()}
       </div>
     );

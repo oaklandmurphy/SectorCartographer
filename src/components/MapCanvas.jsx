@@ -25,7 +25,7 @@ function brightenColor(hex, amt = 0.5) {
 
 export default function MapCanvas({
   mapRef, canvasRef, containerSize, isMobile,
-  mode, canEdit, view, w2s,
+  mode, canEdit, editLocked, view, w2s,
   systems, fleets, links, fleetPos,
   agents, agentPos, orders, actions, showOrders, showFleets = true, showAgents = true,
   factions, layers, factionById, layerById,
@@ -72,6 +72,38 @@ export default function MapCanvas({
     return pts.length >= 2 ? pts : null;
   };
 
+  // Two or more orders sharing the same hop (e.g. every fleet queued A -> B this
+  // turn) draw exactly on top of one another and become an unreadable block. Group
+  // every order's segments by their (rounded) endpoints — direction-independent,
+  // so an A->B and a B->A order sharing the same hyperlane land in the same group
+  // — and fan siblings out a fixed number of screen pixels either side of the
+  // shared line, in the order's stable id order, so the offset is symmetric and
+  // holds steady across zoom levels.
+  const ORDER_PATH_OFFSET = 7;
+  const orderPathGroups = useMemo(() => {
+    const groups = new Map(); // segment key -> { ids: [orderId...], p1, p2 } (world space)
+    const segKeysByOrder = new Map(); // orderId -> [segment key, ...]
+    for (const o of orders || []) {
+      const pts = orderPoints(o);
+      if (!pts) continue;
+      const keys = [];
+      for (let i = 1; i < pts.length; i++) {
+        const p = pts[i - 1], q = pts[i];
+        const ka = `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+        const kb = `${q.x.toFixed(1)},${q.y.toFixed(1)}`;
+        const key = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+        const [p1, p2] = ka < kb ? [p, q] : [q, p];
+        if (!groups.has(key)) groups.set(key, { ids: [], p1, p2 });
+        groups.get(key).ids.push(o.id);
+        keys.push(key);
+      }
+      segKeysByOrder.set(o.id, keys);
+    }
+    groups.forEach((g) => g.ids.sort());
+    return { groups, segKeysByOrder };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, fleetPos, agentPos, systems]);
+
   return (
     <div ref={mapRef} style={{ ...sceneBackdrop, cursor: mode === "select" ? "grab" : "crosshair" }}>
       {/* gesture surface — captures empty-space pan/draw. touch-action:none stops the
@@ -116,6 +148,7 @@ export default function MapCanvas({
             const pts = orderPoints(o);
             if (!pts) return null;
             const scr = pts.map((p) => w2s(p.x, p.y));
+            const segKeys = orderPathGroups.segKeysByOrder.get(o.id) || [];
             const draft = !o.committed;
             const isAgent = o.pieceType === "agent";
             const color = brightenColor(factionById(o.factionId).color);
@@ -123,24 +156,39 @@ export default function MapCanvas({
               <g key={o.id}>
                 {scr.slice(1).map((b, i) => {
                   const a = scr[i];
-                  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-                  const deg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+                  let ax = a.x, ay = a.y, bx = b.x, by = b.y;
+                  const group = orderPathGroups.groups.get(segKeys[i]);
+                  if (group && group.ids.length > 1) {
+                    const idx = group.ids.indexOf(o.id);
+                    const offset = (idx - (group.ids.length - 1) / 2) * ORDER_PATH_OFFSET;
+                    // Perpendicular of the group's *canonical* endpoints, not this
+                    // order's own travel direction — so an order running the hop
+                    // backwards still fans out to the same side as its siblings.
+                    const P1 = w2s(group.p1.x, group.p1.y), P2 = w2s(group.p2.x, group.p2.y);
+                    const dx = P2.x - P1.x, dy = P2.y - P1.y;
+                    const len = Math.hypot(dx, dy) || 1;
+                    const px = -dy / len, py = dx / len;
+                    ax += px * offset; ay += py * offset;
+                    bx += px * offset; by += py * offset;
+                  }
+                  const mx = (ax + bx) / 2, my = (ay + by) / 2;
+                  const deg = (Math.atan2(by - ay, bx - ax) * 180) / Math.PI;
                   const xf = `translate(${mx} ${my}) rotate(${deg})`;
                   return (
                     <g key={i}>
-                      <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                      <line x1={ax} y1={ay} x2={bx} y2={by}
                         stroke={color} strokeOpacity={draft ? 0.75 : 1}
-                        strokeWidth={isAgent ? (draft ? 1.6 : 2.4) : (draft ? 2 : 3)}
+                        strokeWidth={isAgent ? (draft ? 1 : 1.4) : (draft ? 1.2 : 1.8)}
                         strokeDasharray={draft ? "7 6" : undefined} strokeLinecap="round" />
                       {isAgent ? (
                         // agent — open chevron
-                        <polyline points="-7,-9 11,0 -7,9" fill="none" stroke={color}
-                          strokeOpacity={draft ? 0.85 : 1} strokeWidth={3.2}
+                        <polyline points="-5,-6 7,0 -5,6" fill="none" stroke={color}
+                          strokeOpacity={draft ? 0.85 : 1} strokeWidth={2.2}
                           strokeLinecap="round" strokeLinejoin="round" transform={xf} />
                       ) : (
                         // fleet — solid triangle
-                        <polygon points="-8,-8 11,0 -8,8" fill={color} fillOpacity={draft ? 0.85 : 1}
-                          stroke="#14110b" strokeWidth={0.9} strokeLinejoin="round" transform={xf} />
+                        <polygon points="-5,-5 7,0 -5,5" fill={color} fillOpacity={draft ? 0.85 : 1}
+                          stroke="#14110b" strokeWidth={0.7} strokeLinejoin="round" transform={xf} />
                       )}
                     </g>
                   );
@@ -261,7 +309,7 @@ export default function MapCanvas({
         // permission (see canPlaceAgents/AccessControl's per-role switch) — a
         // viewer without it still just taps the marker to open its popup, same
         // as before this existed.
-        const canDrag = mode !== "draw" && !!(canPlaceAgents && canPlaceAgents(a.factionId));
+        const canDrag = mode !== "draw" && !editLocked && !!(canPlaceAgents && canPlaceAgents(a.factionId));
         const Icon = AGENT_ICONS[a.icon] || VenetianMask;
         // Same idea as a fleet's carrier-count badge, bottom-right: how many
         // action requests this agent has left against its GM-set quota.

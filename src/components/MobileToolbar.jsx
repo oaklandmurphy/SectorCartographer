@@ -1,7 +1,7 @@
 import {
   Undo2, Trash2, Plus, Rocket,
   ZoomIn, ZoomOut, Maximize, PanelLeftClose, PanelLeftOpen,
-  Star, Menu, X,
+  Star, Menu, X, Lock, LockOpen,
 } from "lucide-react";
 import { T } from "../theme.js";
 import { MIN_ZOOM, MAX_ZOOM } from "../constants.js";
@@ -16,6 +16,7 @@ export default function MobileToolbar({
   strokes, undoStroke, clearStrokes,
   view, setView, panelOpen, setPanelOpen,
   saveStatus, mobileMenuOpen, setMobileMenuOpen,
+  editLocked, setEditLocked, showLock,
 }) {
   return (
     <div style={{ position: "relative", zIndex: 40 }}>
@@ -42,6 +43,13 @@ export default function MobileToolbar({
             background: T.panel, borderBottom: `2px solid ${T.line}`, boxShadow: "0 14px 30px rgba(0,0,0,.6)",
             padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
           <ModeToggle mode={mode} setMode={setMode} setLinkSource={setLinkSource} canEdit={canEdit} canOrder={canOrder} fill />
+
+          {showLock && (
+            <Btn active={editLocked} onClick={() => setEditLocked((v) => !v)} style={{ justifyContent: "center" }}
+              title={editLocked ? "Editing locked — tap to unlock the map" : "Lock editing to stop accidental drags, adds & deletes"}>
+              {editLocked ? <Lock size={14} /> : <LockOpen size={14} />} {editLocked ? "Editing Locked" : "Lock Editing"}
+            </Btn>
+          )}
 
           <div style={{ display: "flex", gap: 8 }}>
             <Btn onClick={addSystemCenter} disabled={!canEdit} title={canEdit ? "Add a star system" : "View only"} style={{ flex: 1, justifyContent: "center" }}>
