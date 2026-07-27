@@ -163,8 +163,12 @@ npx firebase-tools deploy --only hosting,database
 
 `--only database` pushes `database.rules.json`, so a rules change you commit
 gets deployed alongside the app instead of drifting from what's in the
-console. Nothing depends on Firebase Hosting specifically — it's just the
-shortest path when you already made a Firebase project in step 1.
+console. Wiki-entry images and ship art (`src/lib/codexImage.js`,
+`src/lib/shipArt.js`) are stored inline as data URIs in the Realtime
+Database, not Cloud Storage — this keeps the whole app working on Firebase's
+free Spark plan, with no separate Storage bucket to provision or pay for.
+Nothing depends on Firebase Hosting specifically — it's just the shortest
+path when you already made a Firebase project in step 1.
 
 ### 5. Embedding it elsewhere (optional)
 

@@ -8,7 +8,7 @@
         "wiki": {
           "$id": {
             "image": {
-              ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 600)"
+              ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 1400000)"
             }
           }
         }

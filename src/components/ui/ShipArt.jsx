@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { Ship } from "lucide-react";
 import { T } from "../../theme.js";
-import { findArt, artSrc } from "../../lib/shipArt.js";
+import { findArt, artDataUri } from "../../lib/shipArt.js";
 
 // The picture for one model name, or a placeholder slot when nothing matches.
 //
@@ -10,8 +10,8 @@ import { findArt, artSrc } from "../../lib/shipArt.js";
 // The image is scaled to fit inside the box, never cropped or stretched.
 //
 // Rendered as a plain <img> deliberately: the art library is world-writable,
-// and an <img> cannot execute scripts out of an SVG even served from Cloud
-// Storage. See the security note in lib/shipArt.js before changing this.
+// and an <img> cannot execute scripts out of an SVG. See the security note
+// in lib/shipArt.js before changing this.
 
 // Library art tends to be drawn hard against the left of its own viewBox, so an
 // honestly-centred fit still reads as jammed into the left edge of the box. This
@@ -30,7 +30,7 @@ export default function ShipArt({
   const w = size;
   const h = height == null ? size : height;
   const found = findArt(art, model);
-  const uri = artSrc(found);
+  const uri = artDataUri(found && found.svg);
 
   const box = {
     width: w, height: h, flexShrink: 0, display: "flex",

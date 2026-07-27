@@ -5,23 +5,17 @@
 // and every hangar flying that model shows the same drawing from one upload.
 // Model fields stay free text; the library is an optional layer on top.
 //
-// A newly-uploaded entry is { id, name, svgUrl } — the SVG itself lives in
-// Cloud Storage (uploaded by ArtLibrary.jsx via lib/firebaseStorage.js);
-// `svgUrl` is just its download URL, so a viewer only fetches a design's
-// picture through the ordinary cached <img> fetch that draws it, not as part
-// of every session's database sync. An entry uploaded before that change is
-// { id, name, svg } — the raw SVG text, inline — and still renders via
-// artSrc()'s fallback below until it's re-uploaded or migrated
-// (scripts/migrate-storage.mjs).
+// An entry is { id, name, svg } where `svg` is the raw file text, stored
+// inline (like codex images — see lib/codexImage.js — this needs no Cloud
+// Storage bucket, so it works on the free Spark plan).
 //
 // SECURITY — read before changing how art is rendered:
-// Uploaded SVG is only ever displayed through <img src={artSrc(entry)}>. An
-// <img> will not run scripts or fetch external resources from the SVG, which
-// matters here because the upload path is world-writable given a valid auth
-// token — anyone who finds the project can drop a file into this library. Do
-// NOT switch this to an inline <svg> or dangerouslySetInnerHTML without real
-// sanitizing first; that would turn the library into a stored-XSS vector
-// against every visitor.
+// Uploaded SVG is only ever displayed through <img src="data:image/svg+xml,…">.
+// An <img> will not run scripts or fetch external resources from the SVG, which
+// matters here because the Firebase path is world-writable — anyone who finds
+// the database can drop a file into this library. Do NOT switch this to an
+// inline <svg> or dangerouslySetInnerHTML without real sanitizing first; that
+// would turn the library into a stored-XSS vector against every visitor.
 
 export const MAX_ART_BYTES = 128 * 1024; // a ship silhouette needs nowhere near this
 
@@ -35,14 +29,9 @@ export function findArt(art, name) {
   return (art || []).find((a) => norm(a.name) === k) || null;
 }
 
-// An <img> src for an art entry, whichever shape it's in — see the comment
-// above. Prefer the Storage URL; fall back to building a data URI from the
-// legacy inline `svg` text so pre-migration entries keep rendering.
-export function artSrc(entry) {
-  if (!entry) return null;
-  if (entry.svgUrl) return entry.svgUrl;
-  if (entry.svg) return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(entry.svg)}`;
-  return null;
+export function artDataUri(svg) {
+  if (!svg) return null;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 // Gate a picked file before it can enter the library. Returns an error string,

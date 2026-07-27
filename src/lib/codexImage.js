@@ -1,20 +1,20 @@
-// A codex entry can carry one raster image. This module only handles turning a
-// picked file into a bounded data: URI — downscaled to a sane maximum
-// dimension and re-encoded to WebP (which keeps transparency and is far
-// smaller than PNG/JPEG), bringing a page image down to tens of KB. Anything
-// still over the cap after that is rejected with a clear message rather than
-// quietly producing an oversized upload.
+// A codex entry can carry one raster image, stored inline on the entry as a
+// data: URI — the same trick ship art uses for its SVGs (see lib/shipArt.js), so
+// the picture rides the ordinary per-entity Firebase write and needs no separate
+// Storage bucket or upload plumbing (Cloud Storage requires the paid Blaze plan;
+// this keeps image uploads working on the free Spark plan).
 //
-// The caller (WikiView.jsx) uploads that data URI to Cloud Storage via
-// lib/firebaseStorage.js and stores the resulting download URL on the entry —
-// not the image bytes — so the picture only reaches a browser when the entry
-// is actually opened (a normal cached <img> fetch), rather than riding along
-// in every session's sector sync the way an inline blob would.
+// The catch raster brings that SVG doesn't: a phone photo is megabytes, the whole
+// sector lives in memory and is diffed on every save, and RTDB is world-readable.
+// So a picked file is never stored as-is. processImage downscales it to a sane
+// maximum dimension and re-encodes to WebP (which keeps transparency and is far
+// smaller than PNG/JPEG), bringing a page image down to tens of KB. Anything still
+// over the cap after that is rejected with a clear message rather than quietly
+// bloating the database.
 //
-// SECURITY: the stored value is only ever shown through <img src="…">, which
-// renders image bytes and nothing else — it will not run scripts even though
-// the upload path (like the database) is world-writable given a valid auth
-// token. Do not switch to any HTML/inline render.
+// SECURITY: the stored value is only ever shown through <img src="data:…">, which
+// renders image bytes and nothing else — it will not run scripts even though the
+// database path is world-writable. Do not switch to any HTML/inline render.
 
 export const MAX_IMAGE_DIM = 1600;          // longest side in px — ample for a page image
 export const MAX_IMAGE_BYTES = 1024 * 1024; // ~1MB of data URI, measured after downscaling
