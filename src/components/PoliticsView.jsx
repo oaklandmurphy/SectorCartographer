@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Users, Plus, Maximize2, Network, User, Star, Lock, LockOpen } from "lucide-react";
-import { T, cut, sceneBackdrop, floatingPanel } from "../theme.js";
+import { T, F, cut, sceneBackdrop, floatingPanel } from "../theme.js";
 import { SUBNODE_ZOOM, RELATION_TYPES, relationType } from "../constants.js";
 import { usePoliticsInteractions } from "../hooks/usePoliticsInteractions.js";
 import TargetBrackets from "./ui/TargetBrackets.jsx";
@@ -115,7 +115,7 @@ export default function PoliticsView({
           <div key={`lbl_${r.id}`} style={{ position: "absolute", left: mx, top: my, transform: "translate(-50%,-50%)",
             zIndex: 5, pointerEvents: "none", display: "flex", alignItems: "center", gap: 5,
             background: `${T.panel}e6`, border: `1px solid ${meta.color}`, ...cut(5), padding: "3px 8px",
-            color: meta.color, fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600,
+            color: meta.color, fontFamily: F.body, fontSize: 12.5, fontWeight: 600,
             letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
             <Ic size={13} /> {meta.label}
           </div>
@@ -193,8 +193,8 @@ export default function PoliticsView({
                         title={`${m.name}${m.role ? " · " + m.role : ""}`} style={{ minWidth: 0, cursor: "pointer", textAlign: "center" }}>
                         <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", ...cut(5), overflow: "hidden",
                           background: portrait ? "#000" : `linear-gradient(150deg, ${f.color}, ${f.color}aa 60%, #000 150%)`,
-                          border: `2px solid ${sel ? T.accent : "#14110b"}`, display: "flex",
-                          alignItems: "center", justifyContent: "center", color: "#0f0d08",
+                          border: `2px solid ${sel ? T.accent : T.ink}`, display: "flex",
+                          alignItems: "center", justifyContent: "center", color: T.onAccent,
                           boxShadow: "inset 0 1px 2px rgba(255,255,255,.15), 0 2px 4px rgba(0,0,0,.6)" }}>
                           {portrait
                             ? <img src={portrait} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }} />
@@ -225,7 +225,7 @@ export default function PoliticsView({
                         title={`${m.name}${m.role ? " · " + m.role : ""}`}
                         style={{ display: "flex", alignItems: "center", gap: 9, padding: "5px 7px", cursor: "pointer",
                           borderRadius: 2, background: sel ? `${T.accent}22` : "transparent" }}>
-                        <span style={{ width: 9, height: 9, flexShrink: 0, ...cut(2), background: f.color, border: "1px solid #14110b" }} />
+                        <span style={{ width: 9, height: 9, flexShrink: 0, ...cut(2), background: f.color, border: `1px solid ${T.ink}` }} />
                         <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: sel ? T.accent : T.text,
                           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
                         {m.role && (
@@ -255,8 +255,8 @@ export default function PoliticsView({
             style={{ display: "flex", alignItems: "center", gap: 7,
               background: editLocked ? T.accent : `${T.panel}e6`,
               border: `1px solid ${editLocked ? T.accent : T.line}`, ...cut(7),
-              color: editLocked ? "#0f1207" : T.text, cursor: "pointer", padding: "9px 14px",
-              fontFamily: "'Oswald', sans-serif", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
+              color: editLocked ? T.onAccent : T.text, cursor: "pointer", padding: "9px 14px",
+              fontFamily: F.body, fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
             {editLocked ? <Lock size={17} /> : <LockOpen size={17} />} {editLocked ? "Locked" : "Lock"}
           </button>
         )}
@@ -264,14 +264,14 @@ export default function PoliticsView({
           <button onClick={() => addFaction()} title="Add a faction"
             style={{ display: "flex", alignItems: "center", gap: 7, background: "rgba(159,194,58,.14)",
               border: `1px solid rgba(159,194,58,.5)`, ...cut(7), color: T.accent, cursor: "pointer", padding: "9px 14px",
-              fontFamily: "'Oswald', sans-serif", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
+              fontFamily: F.body, fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
             <Plus size={17} /> Faction
           </button>
         )}
         <button onClick={centerView} title="Reset view"
           style={{ display: "flex", alignItems: "center", gap: 7, background: `${T.panel}e6`,
             border: `1px solid ${T.line}`, ...cut(7), color: T.text, cursor: "pointer", padding: "9px 14px",
-            fontFamily: "'Oswald', sans-serif", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
+            fontFamily: F.body, fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".04em" }}>
           <Maximize2 size={17} /> Reset
         </button>
       </div>
@@ -286,7 +286,7 @@ export default function PoliticsView({
             {RELATION_TYPES.map((r) => (
               <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 9 }}>
                 <span style={{ width: 26, height: 0, borderTop: `${Math.max(2, r.width)}px ${r.dash ? "dashed" : "solid"} ${r.color}`, flexShrink: 0 }} />
-                <span style={{ fontSize: 13, color: T.text, fontFamily: "'Oswald', sans-serif", letterSpacing: ".02em" }}>{r.label}</span>
+                <span style={{ fontSize: 13, color: T.text, fontFamily: F.body, letterSpacing: ".02em" }}>{r.label}</span>
               </div>
             ))}
           </div>

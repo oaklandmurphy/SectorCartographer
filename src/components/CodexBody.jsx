@@ -1,4 +1,4 @@
-import { T } from "../theme.js";
+import { T, F } from "../theme.js";
 import { splitBody, numericColumns } from "../lib/codexBody.js";
 
 // Renders a codex entry's body: prose as-is, ```csv blocks as tables.
@@ -49,7 +49,7 @@ function CsvTable({ caption, rows, isMobile }) {
               {head.map((cell, c) => (
                 <th key={c} style={{ textAlign: align(c), padding: pad, whiteSpace: "nowrap",
                   background: T.panel3, color: T.accent, borderBottom: `1px solid ${T.line}`,
-                  fontFamily: "'Oswald', sans-serif", fontSize: 11, fontWeight: 600,
+                  fontFamily: F.body, fontSize: 11, fontWeight: 600,
                   letterSpacing: ".08em", textTransform: "uppercase" }}>
                   {cell}
                 </th>

@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import { Plus, Trash2, ChevronLeft, FileText, EyeOff, Users, Table, Eye, Pencil,
   Image as ImageIcon, ImagePlus, X, AlertTriangle, Inbox, CheckCircle2, Undo2, Send, Clock, Search, Globe,
   ArrowUpDown, Filter } from "lucide-react";
-import { T, inputStyle, selStyle, lbl } from "../theme.js";
+import { T, F, inputStyle, selStyle, lbl } from "../theme.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import { WIKI_CATS } from "../constants.js";
 import { isRestricted } from "../lib/visibility.js";
 import { bodyExcerpt, CSV_TEMPLATE, CSV_TEMPLATE_CAPTION } from "../lib/codexBody.js";
@@ -20,6 +21,7 @@ const formatUpdatedAt = (value) => value ? new Intl.DateTimeFormat(undefined, {
 export default function WikiView({ wiki, roles = [], factions = [], canEdit, isMobile, viewer, activeCat, setActiveCat, selectedId, setSelectedId,
   addEntry, patchEntry, deleteEntry, submitEntry, patchOwnEntry, withdrawEntry, approveEntry,
   publishEntry, unpublishEntry, proposeEdit }) {
+  const confirm = useConfirm();
   const catMeta = WIKI_CATS.find((c) => c.id === activeCat) || WIKI_CATS[0];
   const catLabel = (id) => (WIKI_CATS.find((c) => c.id === id) || {}).label || id;
   // A character/location/faction entry's faction tint — a quick visual cue in
@@ -167,7 +169,7 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
         )}
       </div>
       {imgError && (
-        <div style={{ fontSize: 10, color: "#e5988c", display: "flex", alignItems: "center", gap: 5, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 10, color: T.dangerText, display: "flex", alignItems: "center", gap: 5, lineHeight: 1.5 }}>
           <AlertTriangle size={11} style={{ flexShrink: 0 }} /> {imgError}
         </div>
       )}
@@ -205,7 +207,7 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
           style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
             border: `1px solid ${queueMode ? T.amber : T.line}`, borderRadius: 2, padding: "7px 10px",
             background: queueMode ? "rgba(217,143,43,.14)" : T.panel2, color: queueMode ? T.amber : T.text,
-            fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
+            fontFamily: F.body, fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
             textTransform: "uppercase", justifyContent: vertical ? "flex-start" : "center", flex: vertical ? "none" : "0 0 auto" }}>
           <Inbox size={15} /> <span style={{ flex: 1, textAlign: "left" }}>Review Queue</span>
           {pendingCount > 0 && (
@@ -221,7 +223,7 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
             style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
               border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 2, padding: "7px 10px",
               background: on ? "rgba(159,194,58,.14)" : T.panel2, color: on ? T.accent : T.text,
-              fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
+              fontFamily: F.body, fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
               textTransform: "uppercase", justifyContent: vertical ? "flex-start" : "center", flex: vertical ? "none" : "0 0 auto" }}>
             <Ic size={15} /> <span style={{ flex: 1, textAlign: "left" }}>{cat.label}</span>
             <span className="mono" style={{ fontSize: 10, color: on ? T.accent : T.faint }}>{count}</span>
@@ -393,7 +395,7 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
       <>
         <input value={selected.title} onChange={(e) => patch(selected.id, { title: e.target.value })}
           placeholder="Entry title"
-          style={{ ...inputStyle, fontSize: 18, fontFamily: "'Big Shoulders Stencil', 'Oswald', sans-serif",
+          style={{ ...inputStyle, fontSize: 18, fontFamily: F.display,
             fontWeight: 700, letterSpacing: ".04em", padding: "8px 10px" }} />
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <span style={lbl}>Category</span>
@@ -433,7 +435,7 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
           <textarea ref={bodyRef} value={selected.body} onChange={(e) => patch(selected.id, { body: e.target.value })}
             placeholder="Write anything here — lore, notes, stats, rules…"
             style={{ ...inputStyle, minHeight: isMobile ? 220 : 340, resize: "vertical", lineHeight: 1.6,
-              fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace", fontSize: 12.5, padding: 12 }} />
+              fontFamily: F.mono, fontSize: 12.5, padding: 12 }} />
         )}
         {!preview && imageEditor(patch)}
       </>
@@ -444,7 +446,7 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
         {onBack && (
           <button onClick={onBack} style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 5,
             background: T.panel2, border: `1px solid ${T.line}`, borderRadius: 2, color: T.text, cursor: "pointer",
-            padding: "6px 10px", fontFamily: "'Oswald', sans-serif", fontSize: 12, textTransform: "uppercase" }}>
+            padding: "6px 10px", fontFamily: F.body, fontSize: 12, textTransform: "uppercase" }}>
             <ChevronLeft size={15} /> Back
           </button>
         )}
@@ -515,7 +517,7 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
                     {selected.category !== original.category && (
                       <div style={{ fontSize: 11, color: T.mut }}>
                         Category:{" "}
-                        <span style={{ color: "#e0897d", textDecoration: "line-through" }}>{catLabel(original.category)}</span>
+                        <span style={{ color: T.dangerText, textDecoration: "line-through" }}>{catLabel(original.category)}</span>
                         {" → "}
                         <span style={{ color: T.accent }}>{catLabel(selected.category)}</span>
                       </div>
@@ -527,7 +529,7 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
                     {(original.image || "") !== (selected.image || "") && (
                       <div style={{ fontSize: 11, color: T.mut }}>
                         {!original.image ? <span style={{ color: T.accent }}>Image added.</span>
-                          : !selected.image ? <span style={{ color: "#e0897d" }}>Image removed.</span>
+                          : !selected.image ? <span style={{ color: T.dangerText }}>Image removed.</span>
                           : "Image replaced."}
                       </div>
                     )}
@@ -553,7 +555,13 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
                   <EyeOff size={14} /> Unpublish
                 </Btn>
               )}
-              <Btn kind="danger" onClick={() => deleteEntry(selected.id)}>
+              <Btn kind="danger"
+                onClick={async () => {
+                  const msg = pending
+                    ? (isEditProposal ? "Discard this proposed edit?" : "Reject and delete this submission?")
+                    : "Delete this entry? This cannot be undone.";
+                  if (await confirm(msg)) deleteEntry(selected.id);
+                }}>
                 <Trash2 size={14} /> {pending ? (isEditProposal ? "Reject (discard)" : "Reject (delete)") : "Delete entry"}
               </Btn>
             </div>
@@ -573,7 +581,11 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
                   <Send size={14} /> Submit for review
                 </Btn>
               )}
-              <Btn kind="danger" onClick={() => withdrawEntry(selected.id)}>
+              <Btn kind="danger"
+                onClick={async () => {
+                  const msg = isEditProposal ? "Discard these proposed changes?" : "Withdraw this submission?";
+                  if (await confirm(msg)) withdrawEntry(selected.id);
+                }}>
                 <Trash2 size={14} /> {isEditProposal ? "Discard proposed changes" : "Withdraw submission"}
               </Btn>
             </div>

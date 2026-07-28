@@ -1,5 +1,5 @@
 import { diffText } from "../lib/textDiff.js";
-import { T } from "../theme.js";
+import { T, F } from "../theme.js";
 
 // Inline diff of a proposed codex edit against the live text, for the GM's
 // review. Added runs are green, removed runs red with a strike-through, and
@@ -13,7 +13,7 @@ export default function CodexDiff({ before, after }) {
   }
   return (
     <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.65,
-      fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace", fontSize: 12.5, color: T.mut }}>
+      fontFamily: F.mono, fontSize: 12.5, color: T.mut }}>
       {segs.map((s, i) => {
         if (s.type === "same") return <span key={i} style={{ color: T.text }}>{s.text}</span>;
         if (s.type === "add") return (
@@ -21,7 +21,7 @@ export default function CodexDiff({ before, after }) {
             boxShadow: `inset 0 0 0 1px ${T.accent}55`, borderRadius: 2 }}>{s.text}</span>
         );
         return (
-          <span key={i} style={{ color: "#e0897d", background: "rgba(178,58,46,.20)",
+          <span key={i} style={{ color: T.dangerText, background: "rgba(178,58,46,.20)",
             textDecoration: "line-through", boxShadow: `inset 0 0 0 1px ${T.danger}66`, borderRadius: 2 }}>{s.text}</span>
         );
       })}

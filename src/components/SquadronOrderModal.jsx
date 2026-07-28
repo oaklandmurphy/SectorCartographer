@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { X, Rocket, Send, TriangleAlert } from "lucide-react";
-import { T, panelStyle, inputStyle, lbl, cut } from "../theme.js";
+import { T, F, panelStyle, inputStyle, lbl, cut } from "../theme.js";
 import { squadronsOf } from "../lib/carriers.js";
 import Btn from "./ui/Btn.jsx";
 
@@ -109,7 +109,7 @@ export default function SquadronOrderModal({ fleet, isMobile, onClose, onSubmit 
             <textarea value={text} onChange={(e) => setText(e.target.value)} autoFocus
               placeholder="Describe what this squadron order should attempt…"
               style={{ ...inputStyle, minHeight: 80, resize: "vertical",
-                fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace",
+                fontFamily: F.mono,
                 fontSize: 14, lineHeight: 1.65, padding: 10 }} />
           </div>
 

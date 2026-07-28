@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Dices, Crosshair } from "lucide-react";
-import { T, inputStyle, selStyle, lbl, cut } from "../theme.js";
+import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import {
   RATIO_COLS, EVEN_RATIO_INDEX, ROLLS, MIN_SHIFT, MAX_SHIFT,
   successGrade, casualtyPct, GRADE_COLORS, gradeColor,
@@ -87,7 +87,7 @@ export default function OddsView({ isMobile }) {
       <span className="mono" style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700, color, lineHeight: 1.1 }}>
         {value}
       </span>
-      {detail && <span style={{ fontSize: 10.5, color: T.faint, fontFamily: "'Oswald', sans-serif" }}>{detail}</span>}
+      {detail && <span style={{ fontSize: 10.5, color: T.faint, fontFamily: F.body }}>{detail}</span>}
     </div>
   );
 
@@ -101,7 +101,7 @@ export default function OddsView({ isMobile }) {
             display: "flex", alignItems: "center", gap: 7 }}>
             <Crosshair size={15} color={T.accent} /> MISSION ODDS
           </div>
-          <div style={{ fontSize: 11, color: T.faint, marginTop: 3, fontFamily: "'Oswald', sans-serif", letterSpacing: ".02em" }}>
+          <div style={{ fontSize: 11, color: T.faint, marginTop: 3, fontFamily: F.body, letterSpacing: ".02em" }}>
             E = 2d6 + ratio shift + mission shift · outcome and casualties shift independently · nothing here is saved
           </div>
         </div>
@@ -129,7 +129,7 @@ export default function OddsView({ isMobile }) {
 
         {/* ---------------------------------------- how the typed fleet sizes landed on a column */}
         {snapped !== null && (
-          <div style={{ fontSize: 11, color: T.faint, fontFamily: "'Oswald', sans-serif", letterSpacing: ".02em" }}>
+          <div style={{ fontSize: 11, color: T.faint, fontFamily: F.body, letterSpacing: ".02em" }}>
             {mine.value}:{theirs.value} → nearest column{" "}
             <b style={{ color: T.mut }}>{RATIO_COLS[snapped].label}</b> ({sign(RATIO_COLS[snapped].shift)})
             {beyond && <span style={{ color: T.amber }}> · beyond the table, clamped to the end column</span>}
@@ -195,7 +195,7 @@ export default function OddsView({ isMobile }) {
               <span className="mono" style={{ fontSize: 10.5, color: T.mut }}>{g}</span>
             </span>
           ))}
-          <span style={{ fontSize: 10.5, color: T.faint, fontFamily: "'Oswald', sans-serif", letterSpacing: ".02em" }}>
+          <span style={{ fontSize: 10.5, color: T.faint, fontFamily: F.body, letterSpacing: ".02em" }}>
             worse → better · the second figure in each cell is casualties
           </span>
         </div>

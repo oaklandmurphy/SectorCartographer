@@ -2,6 +2,21 @@ export const T = {
   void: "#0c0a06", panel: "#181510", panel2: "#211c15", panel3: "#2a2318",
   line: "#4a4030", text: "#d8d0b8", mut: "#a89c82", faint: "#6b6250",
   accent: "#9fc23a", amber: "#d98f2b", danger: "#b23a2e",
+  // near-black ink for borders/icon chips against a colored swatch
+  ink: "#14110b",
+  // dark text/icon color for use on top of the bright accent/amber fills
+  onAccent: "#0f1207",
+  // light red tint for danger text on dark backgrounds
+  dangerText: "#e5988c",
+};
+
+// Canonical font stacks. Keep in sync with the @import and .mono/.stencil
+// rules in index.css — those exist so plain (non-inline) markup and the
+// `button`/`input` resets also pick up the right family.
+export const F = {
+  body: "'Oswald', ui-sans-serif, system-ui, sans-serif",
+  display: "'Big Shoulders Stencil', 'Oswald', sans-serif",
+  mono: "'IBM Plex Mono', ui-monospace, \"SF Mono\", Menlo, Consolas, monospace",
 };
 
 // clip-path corner-cut ("chamfer") for angular console-plate panels
@@ -21,7 +36,7 @@ export const inputStyle = {
 export const selStyle = { ...inputStyle, cursor: "pointer" };
 export const lbl = {
   fontSize: 10, letterSpacing: ".14em", textTransform: "uppercase", color: T.faint, fontWeight: 600,
-  fontFamily: "'Oswald', sans-serif",
+  fontFamily: F.body,
 };
 
 // Backdrop shared by the map and politics scenes: a faint survey grid under a

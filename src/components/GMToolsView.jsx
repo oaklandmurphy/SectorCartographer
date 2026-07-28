@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Gavel, Copy, Trash2, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6,
-  ClipboardList, VenetianMask, Flag, Check, Clock, RotateCcw, Wand2, Users, Rocket, SkipForward } from "lucide-react";
-import { T, inputStyle, selStyle, lbl, cut } from "../theme.js";
+  ClipboardList, VenetianMask, Flag, Check, Clock, RotateCcw, Wand2, Users, Rocket, SkipForward,
+  Pencil, X } from "lucide-react";
+import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
 import ActionResolution from "./ui/ActionResolution.jsx";
 import GMNotesPanel from "./ui/GMNotesPanel.jsx";
@@ -43,8 +45,10 @@ const OUTCOME_LABEL = {
 // A modifier's point value is situational (the same modifier might swing +1 one
 // week and +2 the next), so it's typed in at the moment of use, not stored.
 export default function GMToolsView({ roles, factions, modifiers, notes, isMobile, addNote, removeNote,
-  actions, agents, resolveAction, reopenAction, removeAction,
+  actions, archivedActions, agents, resolveAction, reopenAction, removeAction, removeArchivedAction,
+  editActionResolution, editArchivedActionResolution,
   fleets, missions, resolveMission, removeMission, orders, nextTurn }) {
+  const confirm = useConfirm();
   const [section, setSection] = useState("actions"); // "actions" | "missions"
   const pendingMissionTotal = (missions || []).filter((m) => m.status !== "resolved").length;
   // What "Next Turn" is about to do: land every committed move order and close
@@ -183,26 +187,37 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
 
   /* ------------------------------------------------ action-request queue, split per player */
   // One group per player who has raised a request (keyed by their role id; a
-  // GM/open-mode submission with no role falls under a "GM" group).
+  // GM/open-mode submission with no role falls under a "GM" group), each
+  // carrying both its live queue (`items`) and whatever's piled up in
+  // `archivedActions` from turns already closed out (`archived`) — a player
+  // with nothing live right after a fresh "Next Turn" still gets a tab here
+  // so their Previous Actions stay reachable.
   const playerGroups = useMemo(() => {
     const map = new Map();
-    for (const a of actions || []) {
+    const groupOf = (a) => {
       const key = (a.createdBy && a.createdBy.roleId) || "";
       if (!map.has(key)) {
         const name = (roles.find((r) => r.id === key) || {}).name
           || (a.createdBy && a.createdBy.roleName) || (key ? "Unknown player" : "GM / open");
-        map.set(key, { key, name, items: [] });
+        map.set(key, { key, name, items: [], archived: [] });
       }
-      map.get(key).items.push(a);
-    }
+      return map.get(key);
+    };
+    for (const a of actions || []) groupOf(a).items.push(a);
+    for (const a of archivedActions || []) groupOf(a).archived.push(a);
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [actions, roles]);
+  }, [actions, archivedActions, roles]);
 
   const [playerTab, setPlayerTab] = useState(null);
   const activeKey = playerGroups.some((g) => g.key === playerTab)
     ? playerTab : (playerGroups[0] ? playerGroups[0].key : null);
   const activeGroup = playerGroups.find((g) => g.key === activeKey) || null;
   const pendingTotal = (actions || []).filter((a) => a.status !== "resolved").length;
+
+  // "Current Turn" (the live unresolved/resolved stack) vs "Previous Actions"
+  // (everything archived from turns already closed out) — a subtab per player
+  // so a fresh turn's queue stays clean without anything actually being lost.
+  const [requestView, setRequestView] = useState("current"); // "current" | "previous"
 
   // The active player's requests split for the two-tier stack: unresolved on top
   // (oldest first, the order they arrived), resolved below (newest first, a log).
@@ -212,6 +227,12 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
       unresolved: items.filter((a) => a.status !== "resolved").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)),
       resolved: items.filter((a) => a.status === "resolved").sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0)),
     };
+  }, [activeGroup]);
+
+  // The active player's archive, newest turn first.
+  const archivedForActive = useMemo(() => {
+    const items = activeGroup ? activeGroup.archived : [];
+    return [...items].sort((a, b) => (b.turnEndedAt || 0) - (a.turnEndedAt || 0));
   }, [activeGroup]);
 
   const describeAgent = (action) => {
@@ -227,7 +248,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
      so the same markup serves the desktop workspace (rail | requests | tool) and
      the stacked mobile layout without duplicating it. */
   const countBadge = (n, big) => (n > 0 ? (
-    <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: big ? 8 : 7,
+    <span className="mono" style={{ background: T.amber, color: T.onAccent, borderRadius: big ? 8 : 7,
       minWidth: big ? 16 : 14, height: big ? 16 : 14, padding: big ? "0 5px" : "0 4px",
       display: "inline-flex", alignItems: "center", justifyContent: "center",
       fontSize: big ? 10 : 9, fontWeight: 700 }}>{n}</span>
@@ -248,7 +269,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
         style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
           border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 2, padding: "7px 10px",
           background: on ? "rgba(159,194,58,.14)" : T.panel2, color: on ? T.accent : T.text,
-          fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
+          fontFamily: F.body, fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
           textTransform: "uppercase", justifyContent: vertical ? "flex-start" : "center",
           flex: vertical ? "none" : "0 0 auto", width: vertical ? "100%" : "auto" }}>
         <Users size={13} style={{ flexShrink: 0 }} />
@@ -271,11 +292,37 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
       <ActionCard key={action.id} action={action} faction={fac} agentLabel={label}
         modName={modName} isTarget={action.id === targetId}
         onResolveWithTool={() => startResolving(action)}
-        reopenAction={reopenAction} removeAction={removeAction} />
+        reopenAction={reopenAction} removeAction={removeAction}
+        editActionResolution={editActionResolution} />
+    );
+  };
+  const renderArchivedCard = (action) => {
+    const { faction: fac, label } = describeAgent(action);
+    return (
+      <ArchivedActionCard key={action.id} action={action} faction={fac} agentLabel={label}
+        modName={modName} removeArchivedAction={removeArchivedAction}
+        editArchivedActionResolution={editArchivedActionResolution} />
     );
   };
 
-  // The active player's two-tier stack: unresolved on top, resolved below.
+  // The Current Turn / Previous Actions subtab switch, shared by both panes.
+  const requestViewSwitch = () => (
+    <div style={{ display: "flex", gap: 3, background: T.panel3, padding: 3, border: `1px solid ${T.line}` }}>
+      <Btn active={requestView === "current"} onClick={() => setRequestView("current")}
+        style={{ border: "none", borderRadius: 0, flex: 1, justifyContent: "center" }}>
+        Current Turn {countBadge(unresolved.length + resolved.length)}
+      </Btn>
+      <Btn active={requestView === "previous"} onClick={() => setRequestView("previous")}
+        title="Actions from turns already closed out — nothing here is lost, just archived"
+        style={{ border: "none", borderRadius: 0, flex: 1, justifyContent: "center" }}>
+        Previous Actions {countBadge(archivedForActive.length)}
+      </Btn>
+    </div>
+  );
+
+  // The active player's two-tier stack: unresolved on top, resolved below —
+  // or, on the Previous Actions subtab, the read-only archive from turns
+  // already closed out.
   const requestsPane = () => {
     if (playerGroups.length === 0) {
       return (
@@ -293,20 +340,32 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
           <div className="stencil" style={{ fontSize: 18, fontWeight: 800, letterSpacing: ".03em", color: T.text }}>
             {activeGroup.name}
           </div>
-          <span className="mono" style={{ marginLeft: "auto", fontSize: 11, color: T.mut }}>
-            {unresolved.length} new · {resolved.length} resolved
-          </span>
         </div>
-        {unresolved.length === 0 && resolved.length === 0 && (
-          <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
-            border: `1px dashed ${T.line}` }}>
-            No requests from this player.
-          </div>
+        {requestViewSwitch()}
+        {requestView === "current" ? (
+          <>
+            {unresolved.length === 0 && resolved.length === 0 && (
+              <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+                border: `1px dashed ${T.line}` }}>
+                No requests from this player this turn.
+              </div>
+            )}
+            {unresolved.length > 0 && sectionLabel("UNRESOLVED")}
+            {unresolved.map(renderCard)}
+            {resolved.length > 0 && sectionLabel("RESOLVED")}
+            {resolved.map(renderCard)}
+          </>
+        ) : (
+          <>
+            {archivedForActive.length === 0 && (
+              <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+                border: `1px dashed ${T.line}` }}>
+                No archived actions yet — these pile up here once "Next Turn" closes out a round.
+              </div>
+            )}
+            {archivedForActive.map(renderArchivedCard)}
+          </>
         )}
-        {unresolved.length > 0 && sectionLabel("UNRESOLVED")}
-        {unresolved.map(renderCard)}
-        {resolved.length > 0 && sectionLabel("RESOLVED")}
-        {resolved.map(renderCard)}
       </div>
     );
   };
@@ -463,7 +522,8 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   const turnBar = () => (
     <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap",
       margin: isMobile ? "0 0 14px" : "12px 12px 0" }}>
-      <Btn kind="primary" onClick={nextTurn} disabled={!turnHasWork}
+      <Btn kind="primary" disabled={!turnHasWork}
+        onClick={async () => { if (await confirm(`Advance the turn — ${turnSummary()}?`)) nextTurn(); }}
         title={turnHasWork ? `Advance the turn — ${turnSummary()}` : "Nothing queued to resolve yet"}>
         <SkipForward size={13} /> Next Turn
       </Btn>
@@ -554,11 +614,58 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   );
 }
 
-// One action request in the GM's queue. Pending requests offer "Resolve with
-// tool" (which loads the resolution tool with this request's player + flagged
-// modifiers); resolved ones show the full result the tool wrote back — roll,
-// mods, verdict, and ruling — with Reopen. Either can be deleted outright.
-function ActionCard({ action, faction, agentLabel, modName, isTarget, onResolveWithTool, reopenAction, removeAction }) {
+// One action request in the GM's queue. The faction it belongs to isn't
+// labeled here — the player rail already puts you in that faction's queue,
+// so repeating its name on every card would just be noise; the color dot
+// still ties each card back to it at a glance. Pending requests offer
+// "Resolve with tool" (which loads the resolution tool with this request's
+// player + flagged modifiers); resolved ones show the full result the tool
+// wrote back — roll, mods, verdict, and ruling — with Reopen. Either can be
+// deleted outright.
+// A resolved request's outcome, with an inline "Edit response" affordance so
+// the GM can fix a typo or reword the ruling text — the free-text line under
+// the success/failure verdict — without Reopen, which would drop the request
+// back to pending and lose the roll/mods it was resolved with. Only offered
+// for the structured resolution shape (an object); older plain-string
+// resolutions just render read-only, same as ActionResolution always has.
+function ResolutionWithEdit({ action, editResolution }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const editable = editResolution && action.resolution && typeof action.resolution === "object";
+
+  if (editing) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
+          placeholder="What happens as a result…"
+          style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9 }} />
+        <div style={{ display: "flex", gap: 6 }}>
+          <Btn kind="primary" onClick={() => { editResolution(action.id, draft.trim()); setEditing(false); }}>
+            <Check size={13} /> Save
+          </Btn>
+          <Btn onClick={() => setEditing(false)}>
+            <X size={13} /> Cancel
+          </Btn>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <ActionResolution resolution={action.resolution} />
+      {editable && (
+        <Btn onClick={() => { setDraft(action.resolution.text || ""); setEditing(true); }}
+          style={{ alignSelf: "flex-start" }} title="Edit the response text without reopening this request">
+          <Pencil size={12} /> Edit response
+        </Btn>
+      )}
+    </div>
+  );
+}
+
+function ActionCard({ action, faction, agentLabel, modName, isTarget, onResolveWithTool, reopenAction, removeAction,
+  editActionResolution }) {
+  const confirm = useConfirm();
   const resolved = action.status === "resolved";
   const color = faction ? faction.color : T.accent;
   const flagged = (action.modifierIds || []).map((id) => ({ id, name: modName(id) })).filter((m) => m.name);
@@ -569,8 +676,6 @@ function ActionCard({ action, faction, agentLabel, modName, isTarget, onResolveW
       opacity: resolved ? 0.9 : 1, boxShadow: isTarget ? `0 0 0 1px ${T.accent}` : "none" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <span style={{ width: 9, height: 9, borderRadius: "50%", background: color, flexShrink: 0 }} />
-        <span style={{ fontSize: 12.5, fontWeight: 700, fontFamily: "'Oswald', sans-serif",
-          letterSpacing: ".03em", color: T.text }}>{faction ? faction.name : "Unknown faction"}</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.mut }}>
           <VenetianMask size={12} /> {agentLabel}
         </span>
@@ -604,14 +709,15 @@ function ActionCard({ action, faction, agentLabel, modName, isTarget, onResolveW
         <>
           <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 6 }}>
             {action.resolution
-              ? <ActionResolution resolution={action.resolution} />
+              ? <ResolutionWithEdit action={action} editResolution={editActionResolution} />
               : <div style={{ fontSize: 12, color: T.mut }}>Resolved with no result recorded.</div>}
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <Btn onClick={() => reopenAction(action.id)}>
               <RotateCcw size={13} /> Reopen
             </Btn>
-            <Btn kind="danger" onClick={() => removeAction(action.id)} style={{ marginLeft: "auto" }}>
+            <Btn kind="danger" style={{ marginLeft: "auto" }}
+              onClick={async () => { if (await confirm("Delete this action request?")) removeAction(action.id); }}>
               <Trash2 size={13} /> Delete
             </Btn>
           </div>
@@ -621,11 +727,74 @@ function ActionCard({ action, faction, agentLabel, modName, isTarget, onResolveW
           <Btn kind="primary" onClick={onResolveWithTool} title="Load this request into the resolution tool">
             <Wand2 size={13} /> {isTarget ? "In tool below" : "Resolve with tool"}
           </Btn>
-          <Btn kind="danger" onClick={() => removeAction(action.id)} style={{ marginLeft: "auto" }}>
+          <Btn kind="danger" style={{ marginLeft: "auto" }}
+            onClick={async () => { if (await confirm("Delete this action request?")) removeAction(action.id); }}>
             <Trash2 size={13} /> Delete
           </Btn>
         </div>
       )}
+    </div>
+  );
+}
+
+// A read-only entry in a player's Previous Actions archive — the same request
+// data an ActionCard shows, minus the controls that only make sense on the
+// live queue (Resolve/Reopen touch a turn that's already closed; a request
+// that never got resolved before the turn ended just says so). The only
+// action left is Delete, to prune the archive itself if it grows too large.
+function ArchivedActionCard({ action, faction, agentLabel, modName, removeArchivedAction, editArchivedActionResolution }) {
+  const confirm = useConfirm();
+  const resolved = action.status === "resolved";
+  const color = faction ? faction.color : T.accent;
+  const flagged = (action.modifierIds || []).map((id) => ({ id, name: modName(id) })).filter((m) => m.name);
+
+  return (
+    <div style={{ border: `1px solid ${T.line}`, borderRadius: 2,
+      background: T.panel2, display: "flex", flexDirection: "column", gap: 8, padding: 10, opacity: 0.9 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ width: 9, height: 9, borderRadius: "50%", background: color, flexShrink: 0 }} />
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.mut }}>
+          <VenetianMask size={12} /> {agentLabel}
+        </span>
+        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
+          fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
+          color: resolved ? T.accent : T.faint }}>
+          {resolved ? <Check size={11} /> : <Clock size={11} />}{resolved ? "Resolved" : "Never resolved"}
+        </span>
+      </div>
+
+      <div style={{ fontSize: 9.5, color: T.faint }}>
+        {action.createdAt ? new Date(action.createdAt).toLocaleString() : ""}
+        {action.turnEndedAt ? ` · turn ended ${new Date(action.turnEndedAt).toLocaleString()}` : ""}
+      </div>
+
+      <div style={{ fontSize: 13, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>{action.text}</div>
+
+      {flagged.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
+          <span style={{ ...lbl, color: T.mut }}>Flagged</span>
+          {flagged.map((m) => (
+            <span key={m.id} style={{ display: "inline-flex", alignItems: "center", gap: 3,
+              border: `1px solid ${color}`, borderRadius: 2, padding: "2px 6px",
+              fontSize: 10.5, color, background: `${color}1f` }}>
+              <Flag size={10} /> {m.name}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 6 }}>
+        {resolved
+          ? (action.resolution
+            ? <ResolutionWithEdit action={action} editResolution={editArchivedActionResolution} />
+            : <div style={{ fontSize: 12, color: T.mut }}>Resolved with no result recorded.</div>)
+          : <div style={{ fontSize: 12, color: T.faint }}>Turn ended before the GM resolved this one.</div>}
+      </div>
+
+      <Btn kind="danger" style={{ alignSelf: "flex-end" }}
+        onClick={async () => { if (await confirm("Delete this archived action?")) removeArchivedAction(action.id); }}>
+        <Trash2 size={13} /> Delete
+      </Btn>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { Ship, Anchor, GripVertical, Plus, Trash2, X, Maximize2, Rocket } from "
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { squadronsOf, craftInCarrier, craftInFleet, knownModels, knownCarrierModels } from "../lib/carriers.js";
 import { mergeNames } from "../lib/shipArt.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
 import MapPopup from "./ui/MapPopup.jsx";
 import ShipArt from "./ui/ShipArt.jsx";
@@ -15,6 +16,7 @@ export default function FleetPopup({
   addSquadron, patchSquadron, removeSquadron, goToFleet, roles, art = [],
   canOrderFor, submitMission,
 }) {
+  const confirm = useConfirm();
   const [orderOpen, setOrderOpen] = useState(false);
   const artNames = useMemo(() => art.map((a) => a.name), [art]);
   const models = useMemo(() => mergeNames(knownModels(fleets), artNames), [fleets, artNames]);
@@ -200,8 +202,8 @@ export default function FleetPopup({
         </div>
 
         {canEdit && (
-          <Btn kind="danger" onClick={() => deleteFleet(fleet.id)}
-            style={{ width: "100%", justifyContent: "center" }}>
+          <Btn kind="danger" style={{ width: "100%", justifyContent: "center" }}
+            onClick={async () => { if (await confirm(`Disband fleet "${fleet.name}"? This cannot be undone.`)) deleteFleet(fleet.id); }}>
             <Trash2 size={14} /> Disband fleet
           </Btn>
         )}

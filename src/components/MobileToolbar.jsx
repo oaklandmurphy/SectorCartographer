@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { T } from "../theme.js";
 import { MIN_ZOOM, MAX_ZOOM } from "../constants.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
 import { ModeToggle, DrawPalette } from "./ui/MapTools.jsx";
 import { SaveStatus } from "./Toolbar.jsx";
@@ -18,6 +19,7 @@ export default function MobileToolbar({
   saveStatus, mobileMenuOpen, setMobileMenuOpen,
   editLocked, setEditLocked, showLock,
 }) {
+  const confirm = useConfirm();
   return (
     <div style={{ position: "relative", zIndex: 40 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
@@ -28,7 +30,7 @@ export default function MobileToolbar({
         <div style={{ width: 22, height: 22, background: `linear-gradient(155deg, ${T.accent}, #5c7320 75%)`,
           clipPath: "polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px)",
           boxShadow: `0 0 8px ${T.accent}55`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <Star size={11} color="#14170a" fill="#14170a" />
+          <Star size={11} color={T.onAccent} fill={T.onAccent} />
         </div>
         <div className="stencil" style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: ".04em", flex: 1, minWidth: 0,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>SECTOR</div>
@@ -66,7 +68,10 @@ export default function MobileToolbar({
 
           <div style={{ display: "flex", gap: 8 }}>
             <Btn onClick={undoStroke} disabled={!strokes.length || !canEdit} title="Undo last stroke" style={{ flex: 1, justifyContent: "center" }}><Undo2 size={14} /> Undo</Btn>
-            <Btn kind="danger" onClick={clearStrokes} disabled={!strokes.length || !canEdit} title="Clear all drawing" style={{ flex: 1, justifyContent: "center" }}><Trash2 size={14} /> Clear</Btn>
+            <Btn kind="danger" disabled={!strokes.length || !canEdit} title="Clear all drawing" style={{ flex: 1, justifyContent: "center" }}
+              onClick={async () => { if (await confirm("Clear all drawing on the map? This cannot be undone.")) clearStrokes(); }}>
+              <Trash2 size={14} /> Clear
+            </Btn>
           </div>
 
           <div style={{ height: 1, background: T.line, margin: "2px 0" }} />

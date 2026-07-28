@@ -188,7 +188,7 @@ export default function MapCanvas({
                       ) : (
                         // fleet — solid triangle
                         <polygon points="-5,-5 7,0 -5,5" fill={color} fillOpacity={draft ? 0.85 : 1}
-                          stroke="#14110b" strokeWidth={0.7} strokeLinejoin="round" transform={xf} />
+                          stroke={T.ink} strokeWidth={0.7} strokeLinejoin="round" transform={xf} />
                       )}
                     </g>
                   );
@@ -222,15 +222,15 @@ export default function MapCanvas({
               )}
               {overview ? (
                 <div style={{ position: "absolute", inset: 0, ...cut(3),
-                  background: fac.color, border: "1px solid #14110b", boxShadow: "0 1px 3px rgba(0,0,0,.7)" }} />
+                  background: fac.color, border: `1px solid ${T.ink}`, boxShadow: "0 1px 3px rgba(0,0,0,.7)" }} />
               ) : (
                 <>
                   <div style={{ position: "absolute", inset: 2, ...cut(5),
                     background: `linear-gradient(155deg, ${fac.color}, ${fac.color}bb 55%, #000 140%)`,
-                    border: "1.5px solid #14110b",
+                    border: `1.5px solid ${T.ink}`,
                     boxShadow: "inset 0 2px 3px rgba(255,255,255,.16), inset 0 -4px 5px rgba(0,0,0,.55), 0 2px 5px rgba(0,0,0,.6)" }} />
                   <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
-                    width: 5, height: 5, borderRadius: "50%", background: "#15130c", boxShadow: `0 0 0 1px ${fac.color}` }} />
+                    width: 5, height: 5, borderRadius: "50%", background: T.ink, boxShadow: `0 0 0 1px ${fac.color}` }} />
                 </>
               )}
             </div>
@@ -246,7 +246,7 @@ export default function MapCanvas({
                   return (
                     <div key={m.id} title={`${m.label} · ${L.name}`}
                       style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 17, height: 17,
-                        borderRadius: 2, background: "#14110b", border: `1px solid ${L.color}`, color: L.color }}>
+                        borderRadius: 2, background: T.ink, border: `1px solid ${L.color}`, color: L.color }}>
                       <Ic size={11} />
                     </div>
                   );
@@ -276,12 +276,12 @@ export default function MapCanvas({
               transform: isHover ? "scale(1.18)" : "none", transition: "transform .1s" }}>
               {(isSel || isRouting) && <TargetBrackets color={isRouting ? T.amber : T.accent} inset={-6} armLen={8} thick={2} />}
               <svg width="30" height="30" viewBox="0 0 30 30">
-                <polygon points="15,2 27,26 15,20 3,26" fill={fac.color} stroke="#14110b" strokeWidth="1.6" strokeLinejoin="round" />
+                <polygon points="15,2 27,26 15,20 3,26" fill={fac.color} stroke={T.ink} strokeWidth="1.6" strokeLinejoin="round" />
                 <polygon points="15,3 15,20 3,26" fill="#000000" opacity="0.22" />
                 <polygon points="15,3 15,20 27,26" fill="#ffffff" opacity="0.10" />
               </svg>
               <div className="mono" style={{ position: "absolute", right: -7, bottom: -6, minWidth: 15, height: 14,
-                padding: "0 3px", background: "#14110b", border: `1px solid ${fac.color}`,
+                padding: "0 3px", background: T.ink, border: `1px solid ${fac.color}`,
                 color: fac.color, fontSize: 9.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {nCarriers}
               </div>
@@ -327,15 +327,15 @@ export default function MapCanvas({
               {(isSel || isRouting) && <TargetBrackets color={isRouting ? T.amber : T.accent} inset={-6} armLen={8} thick={2} />}
               <div style={{ position: "absolute", inset: 5, transform: "rotate(45deg)",
                 background: `radial-gradient(circle at 50% 32%, ${fac.color}, ${fac.color}bb 60%, #000 150%)`,
-                border: "1.5px solid #14110b",
+                border: `1.5px solid ${T.ink}`,
                 boxShadow: "inset 0 1px 2px rgba(255,255,255,.18)" }} />
               <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Icon size={16} color="#14110b" />
+                <Icon size={16} color={T.ink} />
               </div>
               {cap > 0 && (
                 <div className="mono" title={`${remaining} of ${cap} action requests available`}
                   style={{ position: "absolute", right: -7, bottom: -6, minWidth: 15, height: 14,
-                    padding: "0 3px", background: "#14110b", border: `1px solid ${fac.color}`,
+                    padding: "0 3px", background: T.ink, border: `1px solid ${fac.color}`,
                     color: fac.color, fontSize: 9.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {remaining}/{cap}
                 </div>

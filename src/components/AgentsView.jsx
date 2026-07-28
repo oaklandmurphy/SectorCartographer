@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { VenetianMask, Plus, Trash2, User, MapPin, ShieldAlert, ClipboardList, Send, Flag, Check, Clock } from "lucide-react";
-import { T, inputStyle, selStyle, lbl } from "../theme.js";
+import { T, F, inputStyle, selStyle, lbl } from "../theme.js";
 import { AGENT_ICONS, AGENT_ICON_KEYS } from "../constants.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
 import ActionResolution from "./ui/ActionResolution.jsx";
 import MobileTabRail from "./ui/MobileTabRail.jsx";
@@ -24,6 +25,7 @@ export default function AgentsView({
   actions, modifiers, submitAction, removeAction,
   initialAgentId, // deep-link: open straight to this agent (e.g. "Request Action" from the map/politics view)
 }) {
+  const confirm = useConfirm();
   const [selectedAgentId, setSelectedAgentId] = useState(initialAgentId || null);
 
   const activeId = factions.some((f) => f.id === activeFactionId)
@@ -78,7 +80,7 @@ export default function AgentsView({
         style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
           border: `1px solid ${on ? f.color : T.line}`, borderRadius: 2, padding: "7px 12px",
           background: on ? `${f.color}26` : T.panel2, color: on ? f.color : T.text,
-          fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
+          fontFamily: F.body, fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
           textTransform: "uppercase", flex: fullWidth ? "none" : "0 0 auto", width: fullWidth ? "100%" : "auto" }}>
         <span style={{ width: 9, height: 9, borderRadius: "50%", background: f.color, flexShrink: 0 }} />
         <span style={{ flex: 1, textAlign: "left" }}>{f.name}</span>
@@ -126,7 +128,7 @@ export default function AgentsView({
               flex: vertical ? "none" : "0 0 auto", textAlign: "left", minWidth: vertical ? 0 : 150 }}>
             <Icon size={15} style={{ color: on ? activeFaction.color : T.mut, flexShrink: 0 }} />
             <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis",
-              fontFamily: "'Oswald', sans-serif", fontSize: 13, fontWeight: 600, letterSpacing: ".03em",
+              fontFamily: F.body, fontSize: 13, fontWeight: 600, letterSpacing: ".03em",
               textTransform: "uppercase" }}>{agentLabel(a)}</span>
             {actionCap > 0 && (
               <span className="mono" title={`${remaining} of ${actionCap} action requests available`}
@@ -213,12 +215,14 @@ export default function AgentsView({
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px",
           background: `${activeFaction.color}1f`, borderBottom: `2px solid ${activeFaction.color}` }}>
           <HeaderIcon size={18} style={{ color: activeFaction.color, flexShrink: 0 }} />
-          <span style={{ flex: 1, minWidth: 0, fontSize: 17, fontWeight: 800, fontFamily: "'Oswald', sans-serif",
+          <span style={{ flex: 1, minWidth: 0, fontSize: 17, fontWeight: 800, fontFamily: F.body,
             letterSpacing: ".05em", textTransform: "uppercase", color: activeFaction.color,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentLabel(a)}</span>
           {canManage && (
-            <Btn kind="danger" onClick={() => { removeAgent(a.id); setSelectedAgentId(null); }}
-              title="Remove this agent">
+            <Btn kind="danger" title="Remove this agent"
+              onClick={async () => {
+                if (await confirm(`Remove ${agentLabel(a)}?`)) { removeAgent(a.id); setSelectedAgentId(null); }
+              }}>
               <Trash2 size={13} /> Remove
             </Btn>
           )}
@@ -262,7 +266,7 @@ export default function AgentsView({
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <div style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 2, display: "flex",
                     alignItems: "center", justifyContent: "center", color: activeFaction.color,
-                    background: "#14110b", border: `1px solid ${activeFaction.color}` }}>
+                    background: T.ink, border: `1px solid ${activeFaction.color}` }}>
                     <HeaderIcon size={14} />
                   </div>
                   <select style={selStyle} value={a.icon || ""}
@@ -351,6 +355,7 @@ export default function AgentsView({
 // agent has slots left and the viewer may manage it, a composer to write the next
 // one and flag which of the faction's modifiers should bear on it.
 function AgentActions({ agent, color, isMobile, actions, facModifiers, cap, canManage, canEdit, submitAction, removeAction, patchAgent, startOpen }) {
+  const confirm = useConfirm();
   const [text, setText] = useState("");
   const [picked, setPicked] = useState([]); // flagged modifier ids
   const [open, setOpen] = useState(!!startOpen);   // composer expanded — starts open when deep-linked here to raise a request
@@ -383,14 +388,15 @@ function AgentActions({ agent, color, isMobile, actions, facModifiers, cap, canM
           {/* A pending request can be withdrawn by its faction (freeing the slot);
               the GM resolves rather than deletes here — that lives in GM Tools. */}
           {canManage && !isResolved && (
-            <button onClick={() => removeAction(rq.id)} title="Withdraw this request"
+            <button title="Withdraw this request"
+              onClick={async () => { if (await confirm("Withdraw this action request?")) removeAction(rq.id); }}
               style={{ marginLeft: "auto", background: "none", border: "none", color: T.danger,
                 cursor: "pointer", padding: 0, display: "flex" }}>
               <Trash2 size={12} />
             </button>
           )}
         </div>
-        <div style={{ fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace",
+        <div style={{ fontFamily: F.mono,
           fontSize: 14, lineHeight: 1.65, color: T.text, whiteSpace: "pre-wrap",
           borderLeft: `2px solid ${color}`, paddingLeft: 12, marginTop: 2 }}>{rq.text}</div>
         {rq.modifierIds && rq.modifierIds.length > 0 && (
@@ -478,7 +484,7 @@ function AgentActions({ agent, color, isMobile, actions, facModifiers, cap, canM
           <textarea value={text} onChange={(e) => setText(e.target.value)} autoFocus
             placeholder="Describe the action this agent should attempt…"
             style={{ ...inputStyle, minHeight: 64, resize: "vertical",
-              fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace",
+              fontFamily: F.mono,
               fontSize: 14, lineHeight: 1.65, padding: 10 }} />
           {facModifiers.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -493,7 +499,7 @@ function AgentActions({ agent, color, isMobile, actions, facModifiers, cap, canM
                       style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer",
                         border: `1px solid ${on ? color : T.line}`, borderRadius: 2, padding: "3px 7px",
                         background: on ? `${color}26` : T.panel3, color: on ? color : T.mut,
-                        fontFamily: "'Oswald', sans-serif", fontSize: 10.5, fontWeight: 600,
+                        fontFamily: F.body, fontSize: 10.5, fontWeight: 600,
                         letterSpacing: ".03em", textTransform: "uppercase" }}>
                       {on && <Check size={10} />}{m.name || "Unnamed modifier"}
                     </button>

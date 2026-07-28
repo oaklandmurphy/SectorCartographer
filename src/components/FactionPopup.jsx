@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Users, Trash2, Plus, X, Share2, ChevronRight, Star } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { RELATION_TYPES, MEMBER_KINDS, relationType } from "../constants.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import { EDGE, popupMaxHeight } from "../lib/popupPlacement.js";
 import Btn from "./ui/Btn.jsx";
 import PanelPopup from "./ui/PanelPopup.jsx";
@@ -15,6 +16,7 @@ export default function FactionPopup({
   addMember, patchMember, patchMemberTitle, removeMember,
   goToCodex, createEntry, onClose,
 }) {
+  const confirm = useConfirm();
   const canEditTitle = canEdit || (viewer && viewer.kind === "player" && viewer.roleFactionId === faction.id);
   const others = factions.filter((f) => f.id !== faction.id);
   const relOf = (otherId) => {
@@ -95,7 +97,7 @@ export default function FactionPopup({
               return (
                 <div key={o.id} style={{ display: "flex", gap: 6, alignItems: "center",
                   background: T.panel2, border: `1px solid ${T.line}`, borderRadius: 2, padding: "4px 6px" }}>
-                  <span style={{ width: 10, height: 10, borderRadius: 2, background: o.color, flexShrink: 0, border: "1px solid #14110b" }} />
+                  <span style={{ width: 10, height: 10, borderRadius: 2, background: o.color, flexShrink: 0, border: `1px solid ${T.ink}` }} />
                   <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: T.text, overflow: "hidden",
                     textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.name}</span>
                   {canEdit ? (
@@ -135,7 +137,7 @@ export default function FactionPopup({
                   background: T.panel2, border: `1px solid ${T.line}`, borderRadius: 2, padding: 6 }}>
                   <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
                     <div style={{ width: 22, height: 22, flexShrink: 0, borderRadius: 2, display: "flex",
-                      alignItems: "center", justifyContent: "center", background: "#14110b",
+                      alignItems: "center", justifyContent: "center", background: T.ink,
                       border: `1px solid ${faction.color}`, color: faction.color }}>
                       <Ic size={13} />
                     </div>
@@ -148,7 +150,8 @@ export default function FactionPopup({
                       <Star size={14} style={{ fill: m.star ? T.amber : "none" }} />
                     </button>
                     {canEdit && (
-                      <button onClick={() => removeMember(faction.id, m.id)} title="Remove"
+                      <button title="Remove"
+                        onClick={async () => { if (await confirm(`Remove character "${m.name}"?`)) removeMember(faction.id, m.id); }}
                         style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", padding: 2 }}>
                         <X size={14} />
                       </button>
@@ -175,8 +178,8 @@ export default function FactionPopup({
         )}
 
         {canEdit && (
-          <Btn kind="danger" onClick={() => deleteFaction(faction.id)} disabled={factions.length <= 1}
-            style={{ width: "100%", justifyContent: "center" }}>
+          <Btn kind="danger" disabled={factions.length <= 1} style={{ width: "100%", justifyContent: "center" }}
+            onClick={async () => { if (await confirm(`Delete faction "${faction.name}"? This cannot be undone.`)) deleteFaction(faction.id); }}>
             <Trash2 size={14} /> Delete faction
           </Btn>
         )}

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Menu } from "lucide-react";
-import { T } from "../../theme.js";
+import { T, F } from "../../theme.js";
 
 // A mobile substitute for a horizontal-scrolling tab strip. Instead of a row of
 // chips that can run off the edge of a phone screen (and hide entries with no
@@ -16,7 +16,7 @@ export default function MobileTabRail({ label, icon, accentColor, children }) {
       <button onClick={() => setOpen((o) => !o)}
         style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
           border: "none", padding: "11px 12px", background: T.panel, color: accentColor || T.text,
-          fontFamily: "'Oswald', sans-serif", fontSize: 13, fontWeight: 600, letterSpacing: ".03em",
+          fontFamily: F.body, fontSize: 13, fontWeight: 600, letterSpacing: ".03em",
           textTransform: "uppercase" }}>
         {icon || <Menu size={15} />}
         <span style={{ flex: 1, minWidth: 0, textAlign: "left", overflow: "hidden",

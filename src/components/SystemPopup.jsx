@@ -1,6 +1,7 @@
 import { Star, Plus, Trash2, X, Rocket } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { ICONS, ICON_KEYS } from "../constants.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
 import MapPopup from "./ui/MapPopup.jsx";
 import CodexLink from "./CodexLink.jsx";
@@ -10,6 +11,7 @@ export default function SystemPopup({
   patchSystem, addMarker, patchMarker, removeMarker, deployFleetAt, deleteSystem, onClose,
   wiki, goToCodex, createEntry,
 }) {
+  const confirm = useConfirm();
   return (
     <MapPopup anchor={anchor} containerSize={containerSize} isMobile={isMobile} width={300}
       color={factionById(system.factionId).color} icon={<Star size={13} />}
@@ -42,7 +44,7 @@ export default function SystemPopup({
                   background: T.panel2, border: `1px solid ${T.line}`, borderRadius: 2, padding: 5 }}>
                   <div style={{ width: 22, height: 22, borderRadius: 2, flexShrink: 0, display: "flex",
                     alignItems: "center", justifyContent: "center", color: L ? L.color : T.mut,
-                    background: "#14110b", border: `1px solid ${L ? L.color : T.line}` }}>
+                    background: T.ink, border: `1px solid ${L ? L.color : T.line}` }}>
                     <Ic size={13} />
                   </div>
                   <input value={m.label} disabled={!canEdit} onChange={(e) => patchMarker(system.id, m.id, { label: e.target.value })}
@@ -77,7 +79,8 @@ export default function SystemPopup({
             <Btn onClick={() => deployFleetAt(system.id)} style={{ flex: 1, justifyContent: "center" }}>
               <Rocket size={14} /> Deploy fleet
             </Btn>
-            <Btn kind="danger" onClick={() => deleteSystem(system.id)} title="Delete system">
+            <Btn kind="danger" title="Delete system"
+              onClick={async () => { if (await confirm(`Delete system "${system.name}"? This cannot be undone.`)) deleteSystem(system.id); }}>
               <Trash2 size={14} />
             </Btn>
           </div>

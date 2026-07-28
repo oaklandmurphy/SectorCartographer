@@ -36,7 +36,7 @@ export const V1_ACCESS_KEY = "galaxy-sector-access:v1";
 export const COLLECTIONS = [
   "factions", "relations", "layers", "systems",
   "links", "fleets", "ships", "strokes", "wiki", "wikiReads", "roles", "art", "modifiers",
-  "agents", "orders", "actions", "missions",
+  "agents", "orders", "actions", "archivedActions", "missions",
 ];
 
 // GM Tools notes live at their own top-level path (sectorNotes/{sectorId}, see
@@ -59,6 +59,10 @@ const defaults = {
   agents: { memberId: null, notes: "", systemId: null, actionCap: 0, icon: null, x: 0, y: 0 },
   orders: { path: [], committed: false },
   actions: { modifierIds: [], text: "", status: "pending", resolution: null },
+  // Actions from a closed-out turn: see the `actions` codec comment below —
+  // an archived entry is the same shape, just moved here when the GM advances
+  // the turn instead of being deleted, so past rolls are never lost.
+  archivedActions: { modifierIds: [], text: "", status: "pending", resolution: null },
   missions: { detachments: [], text: "", status: "pending", resolution: null },
   relations: {}, layers: {}, links: {}, wikiReads: {}, roles: {}, art: {}, modifiers: {}, notes: { text: "" }, ships: {},
 };
@@ -116,6 +120,29 @@ const asArray = (v) => (Array.isArray(v) ? v : v && typeof v === "object" ? Obje
 
    Only collections with nested lists or visibility need one; the rest are flat
    and round-trip as themselves. */
+
+// An action request's `modifierIds` is a list of the modifier ids the player
+// flagged as bearing on the outcome; like a stroke's points or an order's path,
+// RTDB drops an empty one and hands a sparse one back as a numeric-keyed object.
+// A resolved request also carries a `resolution` object whose own `mods` list
+// (the named modifiers the GM applied, with values) needs the same treatment.
+// Shared by `actions` and `archivedActions` — an archived entry is the same
+// shape, just moved there wholesale when the GM closes out a turn.
+const actionCodec = {
+  encode: (a) => ({
+    ...a,
+    modifierIds: a.modifierIds || [],
+    ...(a.resolution && typeof a.resolution === "object"
+      ? { resolution: { ...a.resolution, mods: a.resolution.mods || [] } } : {}),
+  }),
+  decode: (a) => ({
+    ...a,
+    modifierIds: asArray(a.modifierIds),
+    ...(a.resolution && typeof a.resolution === "object"
+      ? { resolution: { ...a.resolution, mods: asArray(a.resolution.mods) } } : {}),
+  }),
+};
+
 const codecs = {
   // A carrier: visibility (GM-only/role-restricted, same as a wiki entry) plus
   // its squadrons list, same empty-array/sparse-object treatment as everywhere
@@ -144,25 +171,8 @@ const codecs = {
     encode: (o) => ({ ...o, path: o.path || [] }),
     decode: (o) => ({ ...o, path: asArray(o.path) }),
   },
-  // An action request's `modifierIds` is a list of the modifier ids the player
-  // flagged as bearing on the outcome; like a stroke's points or an order's path,
-  // RTDB drops an empty one and hands a sparse one back as a numeric-keyed object.
-  // A resolved request also carries a `resolution` object whose own `mods` list
-  // (the named modifiers the GM applied, with values) needs the same treatment.
-  actions: {
-    encode: (a) => ({
-      ...a,
-      modifierIds: a.modifierIds || [],
-      ...(a.resolution && typeof a.resolution === "object"
-        ? { resolution: { ...a.resolution, mods: a.resolution.mods || [] } } : {}),
-    }),
-    decode: (a) => ({
-      ...a,
-      modifierIds: asArray(a.modifierIds),
-      ...(a.resolution && typeof a.resolution === "object"
-        ? { resolution: { ...a.resolution, mods: asArray(a.resolution.mods) } } : {}),
-    }),
-  },
+  actions: actionCodec,
+  archivedActions: actionCodec,
   wiki: { encode: withVis, decode: readVis },
   // A squadron mission's `detachments` is the list of committed craft ({ shipId,
   // squadronId, model, count }) snapshotted off their source squadrons at submit

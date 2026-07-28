@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { T, cut } from "../theme.js";
 import { MIN_ZOOM, MAX_ZOOM } from "../constants.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
 import { ModeToggle, DrawPalette } from "./ui/MapTools.jsx";
 
@@ -16,6 +17,7 @@ export default function Toolbar({
   view, setView, panelOpen, setPanelOpen,
   editLocked, setEditLocked, showLock,
 }) {
+  const confirm = useConfirm();
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px",
       background: `linear-gradient(180deg, ${T.panel2}, ${T.panel})`, borderBottom: `2px solid ${T.line}`, flexWrap: "wrap", zIndex: 40 }}>
@@ -24,7 +26,7 @@ export default function Toolbar({
         <div style={{ position: "relative", width: 28, height: 28, background: `linear-gradient(155deg, ${T.accent}, #5c7320 75%)`,
           ...cut(6), boxShadow: `0 0 10px ${T.accent}55, inset 0 -3px 5px rgba(0,0,0,.35)`,
           display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Star size={14} color="#14170a" fill="#14170a" />
+          <Star size={14} color={T.onAccent} fill={T.onAccent} />
         </div>
         <div style={{ lineHeight: 1 }}>
           <div className="stencil" style={{ fontSize: 16, fontWeight: 800, letterSpacing: ".05em", color: T.text }}>The Fate of the Zotov Sector</div>
@@ -47,7 +49,10 @@ export default function Toolbar({
         <DrawPalette drawColor={drawColor} setDrawColor={setDrawColor} drawWidth={drawWidth} setDrawWidth={setDrawWidth} />
       )}
       <Btn onClick={undoStroke} disabled={!strokes.length || !canEdit} title="Undo last stroke"><Undo2 size={14} /> Undo</Btn>
-      <Btn kind="danger" onClick={clearStrokes} disabled={!strokes.length || !canEdit} title="Clear all drawing"><Trash2 size={14} /> Clear</Btn>
+      <Btn kind="danger" disabled={!strokes.length || !canEdit} title="Clear all drawing"
+        onClick={async () => { if (await confirm("Clear all drawing on the map? This cannot be undone.")) clearStrokes(); }}>
+        <Trash2 size={14} /> Clear
+      </Btn>
 
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
         <Btn onClick={() => setView((v) => ({ ...v, scale: Math.max(MIN_ZOOM, v.scale / 1.15) }))} title="Zoom out"><ZoomOut size={14} /></Btn>

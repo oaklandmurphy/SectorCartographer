@@ -1,4 +1,4 @@
-import { T } from "../../theme.js";
+import { T, F } from "../../theme.js";
 import { gradeColor } from "../../lib/missionOdds.js";
 
 // The read-only view of a resolved squadron mission's outcome, shared by the
@@ -29,7 +29,7 @@ export default function MissionResolution({ resolution }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 4, borderRadius: 2,
-          padding: "2px 8px", fontFamily: "'Oswald', sans-serif", fontSize: 11, fontWeight: 700,
+          padding: "2px 8px", fontFamily: F.body, fontSize: 11, fontWeight: 700,
           letterSpacing: ".05em", textTransform: "uppercase",
           border: `1px solid ${gColor}`, color: gColor, background: `${gColor}22` }}>
           Grade {grade}/5
@@ -49,7 +49,7 @@ export default function MissionResolution({ resolution }) {
       </div>
 
       {resolution.text && (
-        <div style={{ fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace",
+        <div style={{ fontFamily: F.mono,
           fontSize: 14, lineHeight: 1.65, color: T.text, whiteSpace: "pre-wrap",
           borderLeft: `2px solid ${T.accent}`, paddingLeft: 12, marginTop: 2 }}>
           {resolution.text}

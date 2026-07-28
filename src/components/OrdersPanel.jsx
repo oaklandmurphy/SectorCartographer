@@ -28,7 +28,7 @@ export default function OrdersPanel({
       ) : (
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
-            <span style={{ width: 9, height: 9, ...cut(2), background: color, border: "1px solid #14110b", flexShrink: 0 }} />
+            <span style={{ width: 9, height: 9, ...cut(2), background: color, border: `1px solid ${T.ink}`, flexShrink: 0 }} />
             <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700, color: T.text,
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pieceLabel}</span>
             {committed && (

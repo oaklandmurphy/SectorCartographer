@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { GripVertical, Lock, Plus, Trash2, Users, Zap } from "lucide-react";
-import { T, inputStyle } from "../theme.js";
+import { T, F, inputStyle } from "../theme.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
 import MobileTabRail from "./ui/MobileTabRail.jsx";
 
@@ -20,6 +21,7 @@ const LEVELS = [
 // whatever wiki entries it's handed.
 export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
   activeFactionId, setActiveFactionId, addModifier, patchModifier, removeModifier, reorderModifiers }) {
+  const confirm = useConfirm();
   const activeId = factions.some((f) => f.id === activeFactionId)
     ? activeFactionId : (factions[0] && factions[0].id) || null;
   const activeFaction = factions.find((f) => f.id === activeId) || null;
@@ -71,7 +73,7 @@ export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
             style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
               border: `1px solid ${on ? f.color : T.line}`, borderRadius: 2, padding: "7px 10px",
               background: on ? `${f.color}26` : T.panel2, color: on ? f.color : T.text,
-              fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
+              fontFamily: F.body, fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
               textTransform: "uppercase", justifyContent: vertical ? "flex-start" : "center", flex: vertical ? "none" : "0 0 auto" }}>
             <span style={{ width: 9, height: 9, borderRadius: "50%", background: f.color, flexShrink: 0 }} />
             <span style={{ flex: 1, textAlign: "left" }}>{f.name}</span>
@@ -105,11 +107,11 @@ export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
               placeholder="MODIFIER NAME…"
               style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", borderRadius: 0,
                 padding: "9px 10px", outline: "none",
-                fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif", letterSpacing: ".07em",
+                fontSize: 15, fontWeight: 800, fontFamily: F.body, letterSpacing: ".07em",
                 textTransform: "uppercase", color: activeFaction.color }} />
           ) : (
             <div style={{ flex: 1, minWidth: 0, padding: "9px 10px",
-              fontSize: 15, fontWeight: 800, fontFamily: "'Oswald', sans-serif",
+              fontSize: 15, fontWeight: 800, fontFamily: F.body,
               letterSpacing: ".07em", textTransform: "uppercase", color: activeFaction.color }}>
               {m.name || "Untitled modifier"}
             </div>
@@ -125,7 +127,7 @@ export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
                     border: `1px solid ${on ? l.color : T.line}`,
                     borderRadius: 2, padding: "6px 4px", background: on ? `${l.color}26` : T.panel3,
                     color: on ? l.color : T.faint, opacity: on ? 1 : 0.75,
-                    fontFamily: "'Oswald', sans-serif", fontSize: 11,
+                    fontFamily: F.body, fontSize: 11,
                     fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase" }}>
                   {l.label}
                 </button>
@@ -144,7 +146,7 @@ export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
             style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
               border: `1px solid ${m.private ? T.amber : T.line}`, borderRadius: 2, padding: "5px 9px",
               background: m.private ? `${T.amber}22` : T.panel3, color: m.private ? T.amber : T.faint,
-              fontFamily: "'Oswald', sans-serif", fontSize: 10.5, fontWeight: 700,
+              fontFamily: F.body, fontSize: 10.5, fontWeight: 700,
               letterSpacing: ".05em", textTransform: "uppercase" }}>
             {m.private ? <Lock size={12} /> : <Users size={12} />}
             {m.private ? "Private" : "Allies can see"}
@@ -152,7 +154,7 @@ export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
         ) : m.private ? (
           <div style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6,
             border: `1px solid ${T.amber}`, borderRadius: 2, padding: "4px 8px",
-            background: `${T.amber}22`, color: T.amber, fontFamily: "'Oswald', sans-serif",
+            background: `${T.amber}22`, color: T.amber, fontFamily: F.body,
             fontSize: 10, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>
             <Lock size={11} /> Private
           </div>
@@ -162,7 +164,8 @@ export default function ModifiersView({ factions, modifiers, canEdit, isMobile,
             <textarea value={m.text} onChange={(e) => patchModifier(m.id, { text: e.target.value })}
               placeholder="Description…"
               style={{ ...inputStyle, minHeight: packed ? 56 : 70, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 10 }} />
-            <Btn kind="danger" onClick={() => removeModifier(m.id)} style={{ alignSelf: "flex-start" }}>
+            <Btn kind="danger" style={{ alignSelf: "flex-start" }}
+              onClick={async () => { if (await confirm("Remove this modifier?")) removeModifier(m.id); }}>
               <Trash2 size={13} /> Remove
             </Btn>
           </>

@@ -1,12 +1,14 @@
 import { useMemo, useState } from "react";
 import { NotebookPen, Plus, Trash2 } from "lucide-react";
 import { T, inputStyle, lbl } from "../../theme.js";
+import { useConfirm } from "../../hooks/useConfirm.jsx";
 import Btn from "./Btn.jsx";
 
 // GM Tools' freeform log, shared by every resolution workbench (agent actions,
 // squadron missions, …) so there is exactly one notes feed regardless of which
 // section the GM is working in.
 export default function GMNotesPanel({ notes, addNote, removeNote }) {
+  const confirm = useConfirm();
   const [noteInput, setNoteInput] = useState("");
   function submitNote() {
     const text = noteInput.trim();
@@ -53,7 +55,8 @@ export default function GMNotesPanel({ notes, addNote, removeNote }) {
               <span style={{ fontSize: 9.5, color: T.faint, marginLeft: "auto" }}>
                 {n.createdAt ? new Date(n.createdAt).toLocaleString() : ""}
               </span>
-              <button onClick={() => removeNote(n.id)} title="Remove note"
+              <button title="Remove note"
+                onClick={async () => { if (await confirm("Remove this note?")) removeNote(n.id); }}
                 style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", padding: 2 }}>
                 <Trash2 size={13} />
               </button>

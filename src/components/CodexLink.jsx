@@ -1,5 +1,5 @@
 import { BookOpen, Link2, Unlink, Plus } from "lucide-react";
-import { T, inputStyle, selStyle, lbl } from "../theme.js";
+import { T, F, inputStyle, selStyle, lbl } from "../theme.js";
 import { WIKI_CATS } from "../constants.js";
 
 // Ties any map/politics element (system, fleet, faction, character, org) to a
@@ -25,7 +25,7 @@ export default function CodexLink({
           <button onClick={() => onNavigate(entry.id)} title="Open this entry in the codex"
             style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 7, cursor: "pointer",
               background: "rgba(159,194,58,.12)", border: `1px solid ${T.accent}`, borderRadius: 2, padding: "6px 9px",
-              color: T.accent, fontFamily: "'Oswald', sans-serif", fontSize: 12, textAlign: "left" }}>
+              color: T.accent, fontFamily: F.body, fontSize: 12, textAlign: "left" }}>
             <BookOpen size={14} style={{ flexShrink: 0 }} />
             <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {entry.title || "Untitled"}
@@ -63,7 +63,7 @@ export default function CodexLink({
             title={`Create a new "${createTitle}" codex entry and link it`}
             style={{ ...inputStyle, width: "auto", flexShrink: 0, display: "flex", alignItems: "center", gap: 4,
               cursor: "pointer", color: T.accent, borderColor: "rgba(159,194,58,.5)",
-              background: "rgba(159,194,58,.1)", fontFamily: "'Oswald', sans-serif", textTransform: "uppercase",
+              background: "rgba(159,194,58,.1)", fontFamily: F.body, textTransform: "uppercase",
               fontSize: 11, letterSpacing: ".04em" }}>
             <Plus size={13} /> New
           </button>

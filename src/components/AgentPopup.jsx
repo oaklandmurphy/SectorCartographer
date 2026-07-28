@@ -1,6 +1,7 @@
 import { VenetianMask, User, MapPin, Trash2, Send } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { AGENT_ICONS, AGENT_ICON_KEYS } from "../constants.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
 import MapPopup from "./ui/MapPopup.jsx";
 
@@ -17,6 +18,7 @@ export default function AgentPopup({
   agent, faction, anchor, containerSize, isMobile, canManage, canPlace,
   patchAgent, removeAgent, systems, onClose, onRequestAction,
 }) {
+  const confirm = useConfirm();
   const members = (faction && faction.members) || [];
   const member = members.find((m) => m.id === agent.memberId) || null;
   const systemName = (id) => (systems.find((s) => s.id === id) || {}).name || "";
@@ -85,7 +87,8 @@ export default function AgentPopup({
       )}
 
       {canManage && (
-        <Btn kind="danger" onClick={() => { removeAgent(agent.id); onClose(); }} style={{ alignSelf: "flex-start" }}>
+        <Btn kind="danger" style={{ alignSelf: "flex-start" }}
+          onClick={async () => { if (await confirm("Remove this agent?")) { removeAgent(agent.id); onClose(); } }}>
           <Trash2 size={13} /> Remove agent
         </Btn>
       )}

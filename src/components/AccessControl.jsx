@@ -1,5 +1,6 @@
 import { Lock, Unlock, Shield, UserCog, Users, Plus, Trash2, LogOut, KeyRound, Flag, Ship, EyeOff, MapPin } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
 import PanelPopup from "./ui/PanelPopup.jsx";
 
@@ -10,6 +11,7 @@ export default function AccessControl({
   accessOpen, setAccessOpen, codeInput, setCodeInput, codeError, setCodeError,
   setNewLockCode, removeLockCode, tryUnlock, signOut, addRole, patchRole, removeRole, compact,
 }) {
+  const confirm = useConfirm();
   const kind = viewer.kind;
   const badge = {
     open:   { label: "OPEN",      icon: <Unlock size={14} />, title: "Editing is open to everyone with this link" },
@@ -60,7 +62,8 @@ export default function AccessControl({
                 <Btn kind="primary" onClick={() => setNewLockCode(codeInput)} disabled={!codeInput.trim()} style={{ justifyContent: "center" }}>
                   Update GM code
                 </Btn>
-                <Btn kind="danger" onClick={removeLockCode} style={{ justifyContent: "center" }}>
+                <Btn kind="danger" style={{ justifyContent: "center" }}
+                  onClick={async () => { if (await confirm("Remove the GM lock? Editing will be open to anyone with this link.")) removeLockCode(); }}>
                   <Unlock size={13} /> Remove lock (open to all)
                 </Btn>
               </>
@@ -104,6 +107,7 @@ export default function AccessControl({
 // GM's list of player roles: name, login code, and the faction each is tied to.
 // The faction drives which fleet positions that login sees (its own + allies/vassals).
 function RoleManager({ roles, factions, addRole, patchRole, removeRole }) {
+  const confirm = useConfirm();
   const facList = factions || [];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
@@ -124,7 +128,8 @@ function RoleManager({ roles, factions, addRole, patchRole, removeRole }) {
             <div style={{ width: 4, alignSelf: "stretch", background: r.color || T.accent, flexShrink: 0, minHeight: 20 }} />
             <input value={r.name} onChange={(e) => patchRole(r.id, { name: e.target.value })}
               placeholder="Player / character" style={{ ...inputStyle, padding: "3px 6px", flex: 1 }} />
-            <button onClick={() => removeRole(r.id)} title="Remove player"
+            <button title="Remove player"
+              onClick={async () => { if (await confirm(`Remove player "${r.name || "this player"}"? They will lose their login.`)) removeRole(r.id); }}
               style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", padding: 2, flexShrink: 0 }}>
               <Trash2 size={14} />
             </button>

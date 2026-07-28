@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react";
 import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Zap, Bell, Gavel, VenetianMask, Menu, ChevronDown, ChevronUp } from "lucide-react";
-import { T, panelStyle, cut } from "./theme.js";
+import { T, F, panelStyle, cut } from "./theme.js";
 import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
 import { storage } from "./lib/storage.js";
 import { subscribeSector, saveSector, subscribeNotes, saveNotes, emptySector } from "./lib/sectorRepo.js";
@@ -11,6 +11,7 @@ import { uid } from "./utils/id.js";
 import { useResponsive } from "./hooks/useResponsive.js";
 import { useMapInteractions } from "./hooks/useMapInteractions.js";
 import { useHashRoute } from "./hooks/useHashRoute.js";
+import { ConfirmProvider } from "./hooks/useConfirm.jsx";
 import Btn from "./components/ui/Btn.jsx";
 import AccessControl from "./components/AccessControl.jsx";
 import Toolbar, { SaveStatus } from "./components/Toolbar.jsx";
@@ -44,6 +45,7 @@ export default function GalaxySectorMap() {
   const [agents, setAgents] = useState([]); // covert operatives, one optional character each, own-faction only
   const [orders, setOrders] = useState([]); // fleet/agent move-order proposals the GM resolves by hand
   const [actions, setActions] = useState([]); // text action requests players raise through an agent for the GM to resolve
+  const [archivedActions, setArchivedActions] = useState([]); // actions from turns already closed out — see nextTurn
   const [missions, setMissions] = useState([]); // squadron mission requests players raise from a fleet's hangar for the GM to resolve
 
   const [mode, setMode] = useState("select"); // select | link | draw | orders
@@ -79,7 +81,7 @@ export default function GalaxySectorMap() {
   // GM (or anyone in open mode) can browse the board at the table without
   // fat-fingering a piece out of place. Everything reached through a dedicated
   // tab instead (Fleet roster, Agents, Modifiers…) stays editable regardless.
-  const [editLocked, setEditLocked] = useState(false);
+  const [editLocked, setEditLocked] = useState(true);
   const editingEnabled = canEdit && !editLocked;
 
   const isMobile = useResponsive();
@@ -118,8 +120,8 @@ export default function GalaxySectorMap() {
   // `notes` is deliberately not part of this — it lives at its own path and is
   // saved on its own schedule below, so it's never part of the root diff/save.
   const sector = useMemo(
-    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, missions, lockCode, fleetsPublic }),
-    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, missions, lockCode, fleetsPublic],
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, archivedActions, missions, lockCode, fleetsPublic }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, archivedActions, missions, lockCode, fleetsPublic],
   );
   // The sector as the database currently has it. Null until the load below fills
   // it in, which is also what stops an autosave from firing against an empty
@@ -150,7 +152,7 @@ export default function GalaxySectorMap() {
       setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
       setStrokes(data.strokes); setWiki(data.wiki); setWikiReads(data.wikiReads); setRoles(data.roles); setArt(data.art);
       setModifiers(data.modifiers); setAgents(data.agents); setOrders(data.orders); setActions(data.actions);
-      setMissions(data.missions);
+      setArchivedActions(data.archivedActions); setMissions(data.missions);
       setLockCode(data.lockCode); setFleetsPublic(data.fleetsPublic !== false);
     };
     const unsub = subscribeSector(
@@ -721,14 +723,35 @@ export default function GalaxySectorMap() {
     setActions((acts) => acts.map((a) => (a.id === id
       ? { ...a, status: "pending", resolvedAt: null } : a)));
   }
+  // GM: fix a typo or reword the free-text ruling on an already-resolved
+  // request without reopening it (which would drop it back to pending and
+  // clear the roll/mods it was resolved with). Only meaningful for the
+  // structured resolution shape; older plain-string resolutions aren't touched.
+  function editActionResolution(id, text) {
+    if (!isGM) return;
+    setActions((acts) => acts.map((a) => (a.id === id && a.resolution && typeof a.resolution === "object"
+      ? { ...a, resolution: { ...a.resolution, text } } : a)));
+  }
+  function editArchivedActionResolution(id, text) {
+    if (!isGM) return;
+    setArchivedActions((arch) => arch.map((a) => (a.id === id && a.resolution && typeof a.resolution === "object"
+      ? { ...a, resolution: { ...a.resolution, text } } : a)));
+  }
+  // GM: permanently delete an entry from a closed-out turn's Previous Actions
+  // log (contrast removeAction, which acts on the live queue).
+  function removeArchivedAction(id) {
+    if (!isGM) return;
+    setArchivedActions((arch) => arch.filter((x) => x.id !== id));
+  }
 
   /* ---- turn advance: the GM's one bulk "resolve the round" button (GM Tools).
      Every *committed* move order — fleet or agent — lands its piece on the last
      stop in its path and is cleared; anything still a draft (uncommitted, or no
      stops) is left alone for next time. Every agent's action requests, resolved
-     or still pending, are archived into one GM note and wiped so each agent's
-     actionCap counts fresh for the new turn — same close-the-round idea as
-     movement, just for the other queue. */
+     or still pending, move into archivedActions (GM Tools' per-faction "Previous
+     Actions" tab) so each agent's actionCap counts fresh for the new turn without
+     losing the roll history — same close-the-round idea as movement, just for
+     the other queue. */
   function nextTurn() {
     if (!isGM) return;
     const ready = orders.filter((o) => o.committed && o.path.length > 0);
@@ -783,7 +806,11 @@ export default function GalaxySectorMap() {
       });
     }
     if (lines.length > 0) addNote(`Turn advanced — ${new Date().toLocaleString()}\n${lines.join("\n")}`, "turn");
-    if (actions.length > 0) setActions([]);
+    if (actions.length > 0) {
+      const turnEndedAt = Date.now();
+      setArchivedActions((arch) => [...actions.map((a) => ({ ...a, turnEndedAt })), ...arch]);
+      setActions([]);
+    }
   }
 
   /* ---- squadron missions: a player commits some of a fleet's fighters/bombers
@@ -1342,8 +1369,9 @@ export default function GalaxySectorMap() {
   }
 
   return (
+    <ConfirmProvider>
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: T.void,
-      color: T.text, fontFamily: "'Oswald', ui-sans-serif, system-ui, sans-serif", overflow: "hidden" }}>
+      color: T.text, fontFamily: F.body, overflow: "hidden" }}>
 
       {/* loading gate — avoids flashing an empty sector before the saved sector loads */}
       {!loaded && (
@@ -1353,7 +1381,7 @@ export default function GalaxySectorMap() {
             <Satellite size={20} color={T.accent} style={{ animation: "sweep 1.3s linear infinite" }} />
             <div>
               <div className="stencil" style={{ fontSize: 15, letterSpacing: ".06em", color: T.text }}>ACCESSING ARCHIVE</div>
-              <div style={{ fontSize: 9.5, color: T.faint, letterSpacing: ".16em", marginTop: 2, fontFamily: "'Oswald', sans-serif" }}>
+              <div style={{ fontSize: 9.5, color: T.faint, letterSpacing: ".16em", marginTop: 2, fontFamily: F.body }}>
                 RETRIEVING SECTOR RECORD
               </div>
             </div>
@@ -1372,7 +1400,7 @@ export default function GalaxySectorMap() {
           <button onClick={() => { setNavMenuOpen((o) => !o); setMobileMenuOpen(false); }}
             style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", flex: "1 1 auto", minWidth: 0,
               background: T.panel3, border: `1px solid ${T.line}`, borderRadius: 2, padding: "7px 10px", color: T.text,
-              fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em", textTransform: "uppercase" }}>
+              fontFamily: F.body, fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em", textTransform: "uppercase" }}>
             {navMenuOpen ? <Menu size={15} color={T.accent} /> : <activeNavTab.icon size={15} color={T.accent} />}
             <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {activeNavTab.label}
@@ -1387,7 +1415,7 @@ export default function GalaxySectorMap() {
                 style={{ border: "none", borderRadius: 0, background: activeTab === t.id ? undefined : "transparent" }}>
                 <t.icon size={14} /> {t.label}
                 {t.badge > 0 && (
-                  <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 8,
+                  <span className="mono" style={{ background: T.amber, color: T.onAccent, borderRadius: 8,
                     minWidth: 15, height: 15, padding: "0 4px", display: "inline-flex", alignItems: "center",
                     justifyContent: "center", fontSize: 9.5, fontWeight: 700, lineHeight: 1 }}>
                     {t.badge}
@@ -1410,12 +1438,12 @@ export default function GalaxySectorMap() {
                   style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", width: "100%",
                     border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 2, padding: "9px 11px",
                     background: on ? "rgba(159,194,58,.14)" : T.panel2, color: on ? T.accent : T.text,
-                    fontFamily: "'Oswald', sans-serif", fontSize: 13, fontWeight: 600, letterSpacing: ".03em",
+                    fontFamily: F.body, fontSize: 13, fontWeight: 600, letterSpacing: ".03em",
                     textTransform: "uppercase" }}>
                   <t.icon size={15} />
                   <span style={{ flex: 1, textAlign: "left" }}>{t.label}</span>
                   {t.badge > 0 && (
-                    <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: 8,
+                    <span className="mono" style={{ background: T.amber, color: T.onAccent, borderRadius: 8,
                       minWidth: 16, height: 16, padding: "0 5px", display: "inline-flex", alignItems: "center",
                       justifyContent: "center", fontSize: 10, fontWeight: 700 }}>
                       {t.badge}
@@ -1579,8 +1607,10 @@ export default function GalaxySectorMap() {
           <GMToolsView
             roles={roles} factions={factions} modifiers={modifiers} notes={notes} isMobile={isMobile}
             addNote={addNote} removeNote={removeNote}
-            actions={actions} agents={agents}
+            actions={actions} archivedActions={archivedActions} agents={agents}
             resolveAction={resolveAction} reopenAction={reopenAction} removeAction={removeAction}
+            removeArchivedAction={removeArchivedAction}
+            editActionResolution={editActionResolution} editArchivedActionResolution={editArchivedActionResolution}
             fleets={fleets} missions={missions}
             resolveMission={resolveMission} removeMission={removeMission}
             orders={orders} nextTurn={nextTurn}
@@ -1600,5 +1630,6 @@ export default function GalaxySectorMap() {
         </div>
       )}
     </div>
+    </ConfirmProvider>
   );
 }

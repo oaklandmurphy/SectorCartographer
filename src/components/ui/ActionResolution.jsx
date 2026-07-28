@@ -1,5 +1,5 @@
 import { Check, X } from "lucide-react";
-import { T } from "../../theme.js";
+import { T, F } from "../../theme.js";
 
 // The read-only view of a resolved action request's outcome, shared by the
 // player's agent card and the GM's request queue so the two never drift. It
@@ -45,7 +45,7 @@ export default function ActionResolution({ resolution }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 4, borderRadius: 2,
-          padding: "2px 8px", fontFamily: "'Oswald', sans-serif", fontSize: 11, fontWeight: 700,
+          padding: "2px 8px", fontFamily: F.body, fontSize: 11, fontWeight: 700,
           letterSpacing: ".05em", textTransform: "uppercase",
           border: `1px solid ${meta.color}`, color: meta.color, background: `${meta.color}22` }}>
           {meta.good ? <Check size={12} /> : <X size={12} />}{meta.label}
@@ -66,7 +66,7 @@ export default function ActionResolution({ resolution }) {
       )}
 
       {resolution.text && (
-        <div style={{ fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace",
+        <div style={{ fontFamily: F.mono,
           fontSize: 14, lineHeight: 1.65, color: T.text, whiteSpace: "pre-wrap",
           borderLeft: `2px solid ${T.accent}`, paddingLeft: 12, marginTop: 2 }}>
           {resolution.text}

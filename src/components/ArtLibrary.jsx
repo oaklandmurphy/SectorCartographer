@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState } from "react";
 import { Images, Plus, X, ChevronRight, ChevronDown, AlertTriangle } from "lucide-react";
-import { T, inputStyle, lbl } from "../theme.js";
+import { T, F, inputStyle, lbl } from "../theme.js";
 import { artDataUri, artUsage, validateSvg, mergeNames } from "../lib/shipArt.js";
 import { knownModels, knownCarrierModels } from "../lib/carriers.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
 
 // Upload / rename / remove the sector's ship art. Art is matched to ships by
@@ -11,6 +12,7 @@ import Btn from "./ui/Btn.jsx";
 export default function ArtLibrary({ art, fleets, canEdit, addArt, patchArt, removeArt, defaultOpen = false }) {
   // Collapsed by default so the roster stays the star of the tab; the count and
   // the upload button live in the always-visible header, so art is still findable.
+  const confirm = useConfirm();
   const [open, setOpen] = useState(defaultOpen);
   const [errors, setErrors] = useState([]);
   const fileRef = useRef(null);
@@ -63,7 +65,7 @@ export default function ArtLibrary({ art, fleets, canEdit, addArt, patchArt, rem
         <button onClick={() => setOpen((o) => !o)}
           style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none",
             color: T.text, cursor: "pointer", padding: 0, flex: 1, textAlign: "left",
-            fontFamily: "'Oswald', sans-serif" }}>
+            fontFamily: F.body }}>
           {open ? <ChevronDown size={14} style={{ color: T.faint }} /> : <ChevronRight size={14} style={{ color: T.faint }} />}
           <Images size={14} style={{ color: T.accent }} />
           <span className="stencil" style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".06em" }}>SHIP ART</span>
@@ -83,14 +85,14 @@ export default function ArtLibrary({ art, fleets, canEdit, addArt, patchArt, rem
 
       {errors.length > 0 && (
         <div style={{ margin: "0 10px 8px", padding: "6px 8px", background: "rgba(178,58,46,.12)",
-          border: `1px solid rgba(178,58,46,.5)`, borderRadius: 2, fontSize: 10.5, color: "#e5988c",
+          border: `1px solid rgba(178,58,46,.5)`, borderRadius: 2, fontSize: 10.5, color: T.dangerText,
           display: "flex", gap: 6, alignItems: "flex-start" }}>
           <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ flex: 1, lineHeight: 1.5 }}>
             {errors.map((e, i) => <div key={i}>{e}</div>)}
           </div>
           <button onClick={() => setErrors([])}
-            style={{ background: "none", border: "none", color: "#e5988c", cursor: "pointer", padding: 0 }}>
+            style={{ background: "none", border: "none", color: T.dangerText, cursor: "pointer", padding: 0 }}>
             <X size={12} />
           </button>
         </div>
@@ -140,7 +142,8 @@ export default function ArtLibrary({ art, fleets, canEdit, addArt, patchArt, rem
                   )}
                 </div>
                 {canEdit && (
-                  <button onClick={() => removeArt(a.id)} title="Remove this art"
+                  <button title="Remove this art"
+                    onClick={async () => { if (await confirm(`Remove art "${a.name}"?`)) removeArt(a.id); }}
                     style={{ background: "none", border: "none", color: T.danger, cursor: "pointer",
                       padding: 2, flexShrink: 0 }}>
                     <X size={14} />

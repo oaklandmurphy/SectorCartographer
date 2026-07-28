@@ -1,5 +1,5 @@
 import { Eye, Users, EyeOff } from "lucide-react";
-import { T, lbl } from "../theme.js";
+import { T, F, lbl } from "../theme.js";
 import { visibilitySummary } from "../lib/visibility.js";
 
 // GM-only control for choosing who can see one codex entry or carrier.
@@ -22,7 +22,7 @@ export default function VisibilityRow({ roles, value, onChange, compact }) {
       style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer", whiteSpace: "nowrap",
         border: `1px solid ${active ? color : T.line}`, borderRadius: 2, padding: compact ? "3px 7px" : "4px 8px",
         background: active ? `${color}26` : T.panel2, color: active ? color : T.mut,
-        fontFamily: "'Oswald', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: ".03em", textTransform: "uppercase" }}>
+        fontFamily: F.body, fontSize: 11, fontWeight: 600, letterSpacing: ".03em", textTransform: "uppercase" }}>
       {children}
     </button>
   );

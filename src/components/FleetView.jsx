@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Ship, Anchor, Plus, X, Columns2, StickyNote, Rocket, Clock, Check } from "lucide-react";
-import { T, inputStyle, selStyle, lbl, cut } from "../theme.js";
+import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import { squadronsOf, craftInCarrier, craftInFleet, knownModels, knownCarrierModels } from "../lib/carriers.js";
 import { mergeNames } from "../lib/shipArt.js";
 import Btn from "./ui/Btn.jsx";
@@ -244,7 +244,7 @@ export default function FleetView({
           </span>
           <span className="mono" style={{ fontSize: 10.5, color: T.mut }}>{detachmentSummary(m)}</span>
         </div>
-        <div style={{ fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace",
+        <div style={{ fontFamily: F.mono,
           fontSize: 13, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>{m.text}</div>
         {resolved && (
           <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 6 }}>

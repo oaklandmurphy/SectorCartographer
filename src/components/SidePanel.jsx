@@ -1,10 +1,12 @@
 import { X, Layers, Users, Plus, Eye, EyeOff, Rocket, VenetianMask, Route } from "lucide-react";
 import { T, cut } from "../theme.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 
 export default function SidePanel({
   factions, layers, systems, fleets, canEdit, isMobile, onClose, addFaction, patchFaction, deleteFaction, addLayer, patchLayer, toggleLayer,
   showFleets, setShowFleets, showAgents, setShowAgents, showOrders, setShowOrders, canOrder,
 }) {
+  const confirm = useConfirm();
   return (
     <div className="scroll" style={isMobile ? {
         position: "fixed", inset: 0, zIndex: 500, background: T.panel,
@@ -46,7 +48,7 @@ export default function SidePanel({
                 <label style={{ position: "relative", width: 16, height: 16, flexShrink: 0, cursor: canEdit ? "pointer" : "default" }}>
                   <span style={{ display: "block", width: 16, height: 16, ...cut(3), background: f.color,
                     boxShadow: "inset 0 1px 2px rgba(255,255,255,.25), inset 0 -2px 3px rgba(0,0,0,.5)",
-                    border: "1px solid #14110b" }} />
+                    border: `1px solid ${T.ink}` }} />
                   <input type="color" value={f.color} disabled={!canEdit} onChange={(e) => patchFaction(f.id, { color: e.target.value })}
                     style={{ position: "absolute", inset: 0, opacity: 0, cursor: canEdit ? "pointer" : "default" }} />
                 </label>
@@ -54,7 +56,8 @@ export default function SidePanel({
                   style={{ background: "none", border: "none", color: T.text, fontSize: 11.5, flex: 1, outline: "none", minWidth: 0, fontFamily: "inherit" }} />
                 <span className="mono" style={{ fontSize: 9, color: T.faint }} title={`${count} systems · ${fc} fleets`}>{count}·{fc}</span>
                 {canEdit && (
-                  <button onClick={() => deleteFaction(f.id)} title="Delete faction"
+                  <button title="Delete faction"
+                    onClick={async () => { if (await confirm(`Delete faction "${f.name}"? This cannot be undone.`)) deleteFaction(f.id); }}
                     style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", padding: 0, display: "flex" }}>
                     <X size={13} />
                   </button>
@@ -88,7 +91,7 @@ export default function SidePanel({
                 {l.visible ? <Eye size={15} /> : <EyeOff size={15} />}
               </button>
               <label style={{ position: "relative", width: 14, height: 14, flexShrink: 0, cursor: canEdit ? "pointer" : "default" }}>
-                <span style={{ display: "block", width: 14, height: 14, borderRadius: 2, background: l.color, border: "1px solid #14110b" }} />
+                <span style={{ display: "block", width: 14, height: 14, borderRadius: 2, background: l.color, border: `1px solid ${T.ink}` }} />
                 <input type="color" value={l.color} disabled={!canEdit} onChange={(e) => patchLayer(l.id, { color: e.target.value })}
                   style={{ position: "absolute", inset: 0, opacity: 0, cursor: canEdit ? "pointer" : "default" }} />
               </label>

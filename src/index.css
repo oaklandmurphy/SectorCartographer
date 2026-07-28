@@ -6,6 +6,8 @@ button { font-family: inherit; }
 input, select { font-family: inherit; }
 input:focus, select:focus { border-color: #9fc23a !important; }
 
+/* Keep these three stacks in sync with F.mono/F.display/F.body in theme.js —
+   this is the CSS-side half of the same font tokens, for plain classNames. */
 .mono { font-family: 'IBM Plex Mono', ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 .stencil { font-family: 'Big Shoulders Stencil', 'Oswald', sans-serif; }
 .scroll::-webkit-scrollbar { width: 9px; height: 9px; }

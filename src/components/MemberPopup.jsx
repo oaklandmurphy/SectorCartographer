@@ -1,6 +1,7 @@
 import { Trash2, User, Star, Send } from "lucide-react";
 import { T, inputStyle, lbl } from "../theme.js";
 import { EDGE, popupMaxHeight } from "../lib/popupPlacement.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
 import PanelPopup from "./ui/PanelPopup.jsx";
 import CodexLink from "./CodexLink.jsx";
@@ -13,6 +14,7 @@ export default function MemberPopup({
   patchMember, patchMemberTitle, removeMember, goToCodex, createEntry, onClose,
   agent, canManageAgent, onRequestAction,
 }) {
+  const confirm = useConfirm();
   const star = !!member.star;
   const canEditTitle = canEdit || (viewer && viewer.kind === "player" && viewer.roleFactionId === faction.id);
   // Same bottom-sheet fallback as FactionPopup — a 288px anchored card has no
@@ -61,7 +63,8 @@ export default function MemberPopup({
           </Btn>
         )}
         {canEdit && (
-          <Btn kind="danger" onClick={() => removeMember(faction.id, member.id)} style={{ width: "100%", justifyContent: "center" }}>
+          <Btn kind="danger" style={{ width: "100%", justifyContent: "center" }}
+            onClick={async () => { if (await confirm(`Remove character "${member.name}"?`)) removeMember(faction.id, member.id); }}>
             <Trash2 size={14} /> Remove character
           </Btn>
         )}

@@ -1,11 +1,12 @@
 import { useMemo, useRef, useState } from "react";
 import { Rocket, Trash2, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6,
   Users, Check, Clock, Wand2, Ship } from "lucide-react";
-import { T, inputStyle, selStyle, lbl, cut } from "../theme.js";
+import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import {
   RATIO_COLS, EVEN_RATIO_INDEX, MIN_SHIFT, MAX_SHIFT,
   successGrade, casualtyPct, rollTwoD6, nearestRatioIndex, isBeyondTable,
 } from "../lib/missionOdds.js";
+import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
 import MissionResolution from "./ui/MissionResolution.jsx";
 import MobileTabRail from "./ui/MobileTabRail.jsx";
@@ -32,6 +33,7 @@ const totalCraft = (m) => (m.detachments || []).reduce((n, d) => n + (Number(d.c
 export default function SquadronMissionsPanel({
   roles, factions, fleets, missions, isMobile, resolveMission, removeMission, notesPane,
 }) {
+  const confirm = useConfirm();
   const [targetId, setTargetId] = useState("");
   const toolRef = useRef(null);
 
@@ -124,7 +126,7 @@ export default function SquadronMissionsPanel({
   }, [activeGroup]);
 
   const countBadge = (n, big) => (n > 0 ? (
-    <span className="mono" style={{ background: T.amber, color: "#0f1207", borderRadius: big ? 8 : 7,
+    <span className="mono" style={{ background: T.amber, color: T.onAccent, borderRadius: big ? 8 : 7,
       minWidth: big ? 16 : 14, height: big ? 16 : 14, padding: big ? "0 5px" : "0 4px",
       display: "inline-flex", alignItems: "center", justifyContent: "center",
       fontSize: big ? 10 : 9, fontWeight: 700 }}>{n}</span>
@@ -143,7 +145,7 @@ export default function SquadronMissionsPanel({
         style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
           border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 2, padding: "7px 10px",
           background: on ? "rgba(159,194,58,.14)" : T.panel2, color: on ? T.accent : T.text,
-          fontFamily: "'Oswald', sans-serif", fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
+          fontFamily: F.body, fontSize: 12.5, fontWeight: 600, letterSpacing: ".03em",
           textTransform: "uppercase", justifyContent: vertical ? "flex-start" : "center",
           flex: vertical ? "none" : "0 0 auto", width: vertical ? "100%" : "auto" }}>
         <Users size={13} style={{ flexShrink: 0 }} />
@@ -171,8 +173,6 @@ export default function SquadronMissionsPanel({
         opacity: resolvedM ? 0.9 : 1, boxShadow: m.id === targetId ? `0 0 0 1px ${T.accent}` : "none" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ width: 9, height: 9, borderRadius: "50%", background: color, flexShrink: 0 }} />
-          <span style={{ fontSize: 12.5, fontWeight: 700, fontFamily: "'Oswald', sans-serif",
-            letterSpacing: ".03em", color: T.text }}>{fac ? fac.name : "Unknown faction"}</span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.mut }}>
             <Ship size={12} /> {fleet ? fleet.name : "Fleet (removed)"}
           </span>
@@ -197,7 +197,8 @@ export default function SquadronMissionsPanel({
                 : <div style={{ fontSize: 12, color: T.mut }}>Resolved with no result recorded.</div>}
             </div>
             <div style={{ display: "flex", gap: 6 }}>
-              <Btn kind="danger" onClick={() => removeMission(m.id)} style={{ marginLeft: "auto" }}>
+              <Btn kind="danger" style={{ marginLeft: "auto" }}
+                onClick={async () => { if (await confirm("Delete this mission?")) removeMission(m.id); }}>
                 <Trash2 size={13} /> Delete
               </Btn>
             </div>
@@ -207,8 +208,8 @@ export default function SquadronMissionsPanel({
             <Btn kind="primary" onClick={() => startResolving(m)} title="Load this mission into the resolution tool">
               <Wand2 size={13} /> {m.id === targetId ? "In tool below" : "Resolve with tool"}
             </Btn>
-            <Btn kind="danger" onClick={() => removeMission(m.id)} style={{ marginLeft: "auto" }}
-              title="Withdraw and return its craft">
+            <Btn kind="danger" style={{ marginLeft: "auto" }} title="Withdraw and return its craft"
+              onClick={async () => { if (await confirm("Withdraw this mission and return its craft?")) removeMission(m.id); }}>
               <Trash2 size={13} /> Delete
             </Btn>
           </div>
@@ -307,7 +308,7 @@ export default function SquadronMissionsPanel({
               ))}
             </div>
             {snapped !== null && (
-              <div style={{ fontSize: 11, color: T.faint, fontFamily: "'Oswald', sans-serif", letterSpacing: ".02em" }}>
+              <div style={{ fontSize: 11, color: T.faint, fontFamily: F.body, letterSpacing: ".02em" }}>
                 {mine}:{theirsValue} → nearest column <b style={{ color: T.mut }}>{RATIO_COLS[snapped].label}</b>
                 {beyond && <span style={{ color: T.amber }}> · beyond the table, clamped to the end column</span>}
                 {snapped !== ratioIdx && (
