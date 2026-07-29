@@ -48,6 +48,23 @@ export default function MissionResolution({ resolution }) {
         <Chip color={T.mut}>Casualty E {resolution.casualtyE} ({sign(resolution.casualtyShift || 0)} mission)</Chip>
       </div>
 
+      {resolution.detachmentLosses && resolution.detachmentLosses.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 2 }}>
+          <span style={{ fontSize: 10, letterSpacing: ".14em", textTransform: "uppercase",
+            color: T.faint, fontWeight: 600, fontFamily: F.body }}>Losses</span>
+          {resolution.detachmentLosses.map((d) => (
+            <div key={d.squadronId} className="mono" style={{ fontSize: 11, display: "flex", gap: 8,
+              color: d.loss > 0 ? T.dangerText : T.mut }}>
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis",
+                whiteSpace: "nowrap" }}>
+                {d.model || "unnamed"} ({d.shipName || "?"})
+              </span>
+              <span style={{ flexShrink: 0 }}>-{d.loss}/{d.count}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {resolution.text && (
         <div style={{ fontFamily: F.mono,
           fontSize: 14, lineHeight: 1.65, color: T.text, whiteSpace: "pre-wrap",

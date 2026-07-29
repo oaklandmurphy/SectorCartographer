@@ -922,15 +922,23 @@ export default function GalaxySectorMap() {
     setMissions((ms) => ms.filter((x) => x.id !== id));
   }
   // GM: adjudicate a pending mission against the odds table (see missionOdds.js)
-  // and return the survivors in the same step — `resolution.casualtyPct` says how
-  // many of each detachment came back, and those are added straight back onto
-  // their source squadron (or a fresh one, if it was deleted while they were away).
+  // and return the survivors in the same step. The panel's resolution tool spreads
+  // `casualtyPct` evenly across detachments by default but lets the GM tweak exact
+  // per-squadron losses (resolution.detachmentLosses) against a percentage tracker
+  // before committing — that exact split, not a recomputed uniform one, is what's
+  // applied here, so ships the GM marked destroyed never come back to their carrier.
   function resolveMission(id, resolution) {
     if (!isGM) return;
     const m = missions.find((x) => x.id === id);
     if (!m || m.status !== "pending") return;
     const cas = Number(resolution && resolution.casualtyPct) || 0;
-    const survivors = (m.detachments || []).map((d) => ({ ...d, count: Math.round(d.count * (1 - cas / 100)) }));
+    const lossMap = new Map((resolution && resolution.detachmentLosses || []).map((d) => [d.squadronId, d.loss]));
+    const survivors = (m.detachments || []).map((d) => {
+      const loss = lossMap.has(d.squadronId)
+        ? Math.max(0, Math.min(d.count, Math.floor(Number(lossMap.get(d.squadronId)) || 0)))
+        : Math.round(d.count * (cas / 100));
+      return { ...d, count: d.count - loss };
+    });
     setFleets((fs) => returnDetachments(fs, m.fleetId, survivors));
     setMissions((ms) => ms.map((x) => (x.id === id
       ? { ...x, status: "resolved", resolution: resolution || null, resolvedAt: Date.now() } : x)));

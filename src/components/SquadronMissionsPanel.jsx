@@ -39,6 +39,9 @@ export default function SquadronMissionsPanel({
 
   const targetMission = targetId ? (missions || []).find((m) => m.id === targetId) : null;
   const mine = targetMission ? totalCraft(targetMission) : 0;
+  const targetFleet = targetMission ? (fleets || []).find((f) => f.id === targetMission.fleetId) : null;
+  const shipNameFor = (shipId) =>
+    ((targetFleet && targetFleet.ships.find((s) => s.id === shipId)) || {}).name || "Unknown ship";
 
   const [theirsText, setTheirsText] = useState("10");
   const [ratioIdx, setRatioIdx] = useState(EVEN_RATIO_INDEX);
@@ -47,6 +50,10 @@ export default function SquadronMissionsPanel({
   const [rollText, setRollText] = useState("");
   const [dice, setDice] = useState(null);
   const [outcomeText, setOutcomeText] = useState("");
+  // Per-squadron loss overrides, keyed by squadronId, raw typed text. A
+  // squadron with no entry here just follows the calculated split live as the
+  // roll/shifts change; typing a value pins that one squadron until Reset.
+  const [lossTexts, setLossTexts] = useState({});
 
   const theirsValue = clampInt(theirsText, 0, Infinity);
   const outShiftValue = clampInt(outShiftText, MIN_SHIFT, MAX_SHIFT);
@@ -61,6 +68,28 @@ export default function SquadronMissionsPanel({
   const grade = successGrade(outE);
   const cas = casualtyPct(casE);
 
+  // The calculated split (casualty % spread evenly, per squadron) with any GM
+  // overrides applied on top, plus a live comparison of where the GM's actual
+  // total losses sit against that calculated casualty %.
+  const lossRows = useMemo(() => (targetMission ? targetMission.detachments || [] : []).map((d) => {
+    const calculated = Math.max(0, Math.min(d.count, Math.round(d.count * (cas / 100))));
+    const text = lossTexts[d.squadronId];
+    const loss = text === undefined ? calculated : clampInt(text, 0, d.count);
+    return { ...d, calculated, loss, shipName: shipNameFor(d.shipId) };
+  }), [targetMission, cas, lossTexts, targetFleet]);
+  const totalLoss = lossRows.reduce((n, r) => n + r.loss, 0);
+  const actualPct = mine > 0 ? Math.round((totalLoss / mine) * 1000) / 10 : 0;
+  const deviation = Math.round((actualPct - cas) * 10) / 10;
+  const deviationAbs = Math.abs(deviation);
+  const trackerColor = deviationAbs <= 5 ? T.accent : deviationAbs <= 15 ? T.amber : T.danger;
+
+  function setLossText(squadronId, v) {
+    setLossTexts((t) => ({ ...t, [squadronId]: v }));
+  }
+  function resetLosses() {
+    setLossTexts({});
+  }
+
   function onTheirsChange(e) {
     setTheirsText(e.target.value);
     const idx = nearestRatioIndex(mine, clampInt(e.target.value, 0, Infinity));
@@ -73,7 +102,7 @@ export default function SquadronMissionsPanel({
   }
   function clearTool() {
     setTheirsText("10"); setRatioIdx(EVEN_RATIO_INDEX); setOutShiftText("0"); setCasShiftText("0");
-    setDice(null); setRollText(""); setOutcomeText("");
+    setDice(null); setRollText(""); setOutcomeText(""); setLossTexts({});
   }
   function startResolving(mission) {
     setTargetId(mission.id);
@@ -85,11 +114,16 @@ export default function SquadronMissionsPanel({
   }
   function resolve() {
     if (!targetMission) return;
+    const detachmentLosses = lossRows.map((r) => ({
+      shipId: r.shipId, squadronId: r.squadronId, model: r.model, shipName: r.shipName,
+      count: r.count, loss: r.loss,
+    }));
     const resolution = {
       mine, enemyCount: theirsValue, ratioLabel: ratio.label, ratioShift: ratio.shift,
       outcomeShift: outShiftValue, casualtyShift: casShiftValue,
       roll: rollValue, dice: dice || null,
       outcomeE: outE, casualtyE: casE, grade, casualtyPct: cas,
+      actualCasualtyPct: actualPct, detachmentLosses,
       text: outcomeText.trim(),
     };
     resolveMission(targetMission.id, resolution);
@@ -353,6 +387,52 @@ export default function SquadronMissionsPanel({
               <div>
                 <div style={lbl}>Casualties</div>
                 <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: T.text }}>{cas}%</div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, background: T.panel2,
+              border: `1px solid ${T.line}`, borderRadius: 2, padding: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={lbl}>Ship losses</span>
+                <span className="mono" style={{ marginLeft: "auto", fontSize: 11, color: trackerColor }}>
+                  {totalLoss}/{mine} lost · {actualPct}% (calc {cas}%, {sign(deviation)})
+                </span>
+                <Btn onClick={resetLosses} title="Reset every squadron's losses back to the calculated split">
+                  Reset
+                </Btn>
+              </div>
+
+              <div title={`Actual ${actualPct}% vs calculated ${cas}%`}
+                style={{ position: "relative", height: 8, background: T.void,
+                  border: `1px solid ${T.line}`, borderRadius: 2 }}>
+                <div style={{ position: "absolute", top: 0, bottom: 0, left: 0,
+                  width: `${Math.min(100, Math.max(0, actualPct))}%`, background: trackerColor, opacity: .85 }} />
+                <div title={`Calculated ${cas}%`} style={{ position: "absolute", top: -2, bottom: -2,
+                  left: `${Math.min(100, Math.max(0, cas))}%`, width: 2, background: T.text }} />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {lossRows.map((r) => (
+                  <div key={r.squadronId} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: T.text, overflow: "hidden", textOverflow: "ellipsis",
+                        whiteSpace: "nowrap" }}>
+                        {r.model || <span style={{ color: T.faint, fontStyle: "italic" }}>unnamed model</span>}
+                      </div>
+                      <div className="mono" style={{ fontSize: 10, color: T.faint }}>
+                        {r.shipName} · {r.count} committed
+                      </div>
+                    </div>
+                    <input className="mono" type="number" min="0" max={r.count} step="1"
+                      value={lossTexts[r.squadronId] ?? String(r.calculated)}
+                      onChange={(e) => setLossText(r.squadronId, e.target.value)}
+                      style={{ ...inputStyle, width: 60, textAlign: "right", padding: "4px 6px",
+                        borderColor: r.loss !== r.calculated ? T.amber : T.line }} />
+                    <span className="mono" style={{ fontSize: 10, color: T.faint, width: 34, flexShrink: 0 }}>
+                      lost /{r.count}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
 
