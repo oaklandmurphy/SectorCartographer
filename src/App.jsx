@@ -7,6 +7,7 @@ import { subscribeSector, saveSector, subscribeNotes, saveNotes, emptySector } f
 import { buildSectorUpdates, buildCollectionUpdates } from "./lib/sectorSchema.js";
 import { resolveViewer, canSee, canSeeSubmission, visibleFleets, friendlyFactionIds, visibleAgents, visibleOrders, visibleActions, visibleMissions } from "./lib/visibility.js";
 import { craftInCarrier, withSquadrons, squadronsOf, commitDetachments, returnDetachments } from "./lib/carriers.js";
+import { moveShips, moveSquadron, moveVessel, disbandEmptyFleets, spawnFleet } from "./lib/fleets.js";
 import { uid } from "./utils/id.js";
 import { useResponsive } from "./hooks/useResponsive.js";
 import { useMapInteractions } from "./hooks/useMapInteractions.js";
@@ -18,6 +19,7 @@ import Toolbar, { SaveStatus } from "./components/Toolbar.jsx";
 import MobileToolbar from "./components/MobileToolbar.jsx";
 import SidePanel from "./components/SidePanel.jsx";
 import MapCanvas from "./components/MapCanvas.jsx";
+import FleetTransferModal from "./components/FleetTransferModal.jsx";
 const FleetView = lazy(() => import("./components/FleetView.jsx"));
 const WikiView = lazy(() => import("./components/WikiView.jsx"));
 const PoliticsView = lazy(() => import("./components/PoliticsView.jsx"));
@@ -58,6 +60,7 @@ export default function GalaxySectorMap() {
   const [selSystem, setSelSystem] = useState(null);
   const [selFleet, setSelFleet] = useState(null);
   const [selAgent, setSelAgent] = useState(null); // agent whose popup is open on the map
+  const [transferFleetId, setTransferFleetId] = useState(null); // fleet the fleet transfer modal is open for
   const [routing, setRouting] = useState(null);   // { type, id, factionId } — the piece being plotted in orders mode
   const [linkSource, setLinkSource] = useState(null);
   const [panelOpen, setPanelOpen] = useState(true);
@@ -350,6 +353,14 @@ export default function GalaxySectorMap() {
     }
   };
   const patchFleet = (id, p) => { if (canEdit) setFleets((fs) => fs.map((f) => (f.id === id ? { ...f, ...p } : f))); };
+  // Renaming (unlike affiliation/other patchFleet fields, which stay GM-only)
+  // is a player self-service action on their own faction's fleets — same
+  // canOrderFor gate as squadron orders and fleet transfer.
+  function renameFleet(id, name) {
+    const f = fleets.find((x) => x.id === id);
+    if (!f || !canOrderFor(f.factionId)) return;
+    setFleets((fs) => fs.map((x) => (x.id === id ? { ...x, name } : x)));
+  }
 
   function addMarker(sysId, layerId) {
     if (!canEdit) return;
@@ -392,6 +403,60 @@ export default function GalaxySectorMap() {
       return stripped.map((f) => (f.id === toId ? { ...f, ships: [...f.ships, ship] } : f));
     });
   }
+
+  /* ---- fleet transfer: move carriers or a single squadron between two
+     friendly fleets in the same system, or spin off a brand-new fleet as the
+     target. Gated on canOrderFor (covers the GM/open-mode and a player acting
+     on their own faction's fleets), not the plain canEdit moveShip above uses
+     — this is meant to be a player self-service tool, not GM-only. Target
+     fleet must always share the source's factionId: a player may shuffle
+     carriers between two of their own fleets, never donate one to another
+     faction's, even a friendly one. */
+  function afterFleetTransfer(fromFleetId, emptied) {
+    if (!emptied) return;
+    setOrders((os) => os.filter((o) => !(o.pieceType === "fleet" && o.pieceId === fromFleetId)));
+    setSelFleet((cur) => (cur === fromFleetId ? null : cur));
+    setTransferFleetId((cur) => (cur === fromFleetId ? null : cur));
+  }
+  function transferShips(fromFleetId, toFleetId, shipIds) {
+    const from = fleets.find((f) => f.id === fromFleetId);
+    const to = fleets.find((f) => f.id === toFleetId);
+    if (!from || !to || from.factionId !== to.factionId || !canOrderFor(from.factionId)) return;
+    const emptied = from.ships.length > 0 && from.ships.every((s) => shipIds.includes(s.id));
+    setFleets((fs) => disbandEmptyFleets(moveShips(fs, fromFleetId, toFleetId, shipIds), [fromFleetId]));
+    afterFleetTransfer(fromFleetId, emptied);
+  }
+  function transferSquadron(fromFleetId, fromShipId, toFleetId, toShipId, squadronId) {
+    const from = fleets.find((f) => f.id === fromFleetId);
+    const to = fleets.find((f) => f.id === toFleetId);
+    if (!from || !to || from.factionId !== to.factionId || !canOrderFor(from.factionId)) return;
+    setFleets((fs) => moveSquadron(fs, fromFleetId, fromShipId, toFleetId, toShipId, squadronId));
+  }
+  // A squadron is just a count of one model on a carrier, not a command unit —
+  // this moves a single vessel out of it onto a different carrier, merging
+  // into a same-model squadron there or starting a new one-vessel squadron.
+  function transferVessel(fromFleetId, fromShipId, toFleetId, toShipId, squadronId) {
+    const from = fleets.find((f) => f.id === fromFleetId);
+    const to = fleets.find((f) => f.id === toFleetId);
+    if (!from || !to || from.factionId !== to.factionId || !canOrderFor(from.factionId)) return;
+    setFleets((fs) => moveVessel(fs, fromFleetId, fromShipId, toFleetId, toShipId, squadronId));
+  }
+  function splitToNewFleet(fromFleetId, shipIds, name) {
+    const from = fleets.find((f) => f.id === fromFleetId);
+    if (!from || !canOrderFor(from.factionId)) return null;
+    const created = spawnFleet(from, name);
+    const emptied = from.ships.length > 0 && from.ships.every((s) => shipIds.includes(s.id));
+    setFleets((fs) => disbandEmptyFleets(moveShips([...fs, created], fromFleetId, created.id, shipIds), [fromFleetId]));
+    afterFleetTransfer(fromFleetId, emptied);
+    return created.id;
+  }
+  function openFleetTransfer(fleetId) { setTransferFleetId(fleetId); }
+  // Close the fleet transfer modal on its own if its source fleet disappears
+  // mid-session (auto-disbanded by the transfer it just made, or deleted by
+  // someone else entirely).
+  useEffect(() => {
+    if (transferFleetId && !fleets.some((f) => f.id === transferFleetId)) setTransferFleetId(null);
+  }, [fleets, transferFleetId]);
 
   /* ---- squadrons (the craft in a carrier's hangar: a count of one model) ---- */
   function updateSquadrons(fleetId, shipId, fn) {
@@ -1519,7 +1584,7 @@ export default function GalaxySectorMap() {
               setSelSystem={setSelSystem} setSelFleet={setSelFleet} setSelAgent={setSelAgent}
               patchSystem={patchSystem} addMarker={addMarker} patchMarker={patchMarker} removeMarker={removeMarker}
               deployFleetAt={deployFleetAt} deleteSystem={deleteSystem}
-              patchFleet={patchFleet} addShip={addShip} patchShip={patchShip} removeShip={removeShip}
+              patchFleet={patchFleet} renameFleet={renameFleet} addShip={addShip} patchShip={patchShip} removeShip={removeShip}
               moveShip={moveShip} deleteFleet={deleteFleet} beginShipDrag={mapInt.beginShipDrag}
               addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
               patchAgent={patchAgent} removeAgent={removeAgent} canManageAgents={canManageAgents}
@@ -1527,6 +1592,7 @@ export default function GalaxySectorMap() {
               canOrderFor={canOrderFor} submitMission={submitMission}
               goToFleet={goToFleet} goToAgentAction={goToAgentAction} art={art}
               wiki={displayWiki} roles={roles} goToCodex={goToCodex} createEntry={createEntry}
+              openFleetTransfer={openFleetTransfer}
             />
           </div>
         </>
@@ -1539,10 +1605,11 @@ export default function GalaxySectorMap() {
             factionById={factionById}
             primaryId={fleetPrimaryId} setPrimaryId={setFleetPrimaryId}
             compareId={fleetCompareId} setCompareId={setFleetCompareId}
-            addShip={addShip} patchShip={patchShip} removeShip={removeShip}
+            addShip={addShip} patchShip={patchShip} removeShip={removeShip} renameFleet={renameFleet}
             addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
             art={art} addArt={addArt} patchArt={patchArt} removeArt={removeArt}
             missions={displayMissions} canOrderFor={canOrderFor} submitMission={submitMission}
+            onOpenFleetTransfer={openFleetTransfer}
           />
         )}
 
@@ -1628,6 +1695,16 @@ export default function GalaxySectorMap() {
             <span style={{ color: T.accent }}> → drop</span>
           )}
         </div>
+      )}
+
+      {transferFleetId && fleets.some((f) => f.id === transferFleetId) && (
+        <FleetTransferModal
+          fleetId={transferFleetId} fleets={displayFleets} systems={systems}
+          factionById={factionById} art={art} isMobile={isMobile}
+          onClose={() => setTransferFleetId(null)}
+          transferShips={transferShips} transferSquadron={transferSquadron} transferVessel={transferVessel}
+          splitToNewFleet={splitToNewFleet} renameFleet={renameFleet}
+        />
       )}
     </div>
     </ConfirmProvider>

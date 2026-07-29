@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Ship, Anchor, Plus, X, Columns2, StickyNote, Rocket, Clock, Check } from "lucide-react";
+import { Ship, Anchor, Plus, X, Columns2, StickyNote, Rocket, Clock, Check, SplitSquareHorizontal } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import { squadronsOf, craftInCarrier, craftInFleet, knownModels, knownCarrierModels } from "../lib/carriers.js";
 import { mergeNames } from "../lib/shipArt.js";
@@ -19,10 +19,10 @@ import MissionResolution from "./ui/MissionResolution.jsx";
 export default function FleetView({
   fleets, systems, canEdit, isMobile, factionById,
   primaryId, setPrimaryId, compareId, setCompareId,
-  addShip, patchShip, removeShip,
+  addShip, patchShip, removeShip, renameFleet,
   addSquadron, patchSquadron, removeSquadron,
   art = [], addArt, patchArt, removeArt,
-  missions = [], canOrderFor, submitMission,
+  missions = [], canOrderFor, submitMission, onOpenFleetTransfer,
 }) {
   // Which fleet's squadron-order composer is open, if any (by fleet id).
   const [orderFleetId, setOrderFleetId] = useState(null);
@@ -201,15 +201,27 @@ export default function FleetView({
         flexShrink: 0, display: "flex", flexDirection: "column", gap: 5 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ width: 10, height: 10, background: fac.color, flexShrink: 0, ...cut(2) }} />
-          <span className="stencil" style={{ fontSize: 17, fontWeight: 800, letterSpacing: ".04em",
-            color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {fleet.name}
-          </span>
+          {(canEdit || canGiveOrder) ? (
+            <input value={fleet.name} onChange={(e) => renameFleet(fleet.id, e.target.value)}
+              className="stencil" style={{ ...inputStyle, flex: "0 1 auto", minWidth: 80, maxWidth: 220,
+                fontSize: 17, fontWeight: 800, letterSpacing: ".04em", padding: "3px 6px" }} />
+          ) : (
+            <span className="stencil" style={{ fontSize: 17, fontWeight: 800, letterSpacing: ".04em",
+              color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {fleet.name}
+            </span>
+          )}
           {canGiveOrder && (
             <Btn kind="primary" onClick={() => setOrderFleetId(fleet.id)} disabled={craftInFleet(fleet) === 0}
               title={craftInFleet(fleet) === 0 ? "No craft in this fleet's hangars" : "Send fighters/bombers on a mission"}
               style={{ marginLeft: "auto", flexShrink: 0 }}>
               <Rocket size={12} /> {!isMobile && "Squadron order"}
+            </Btn>
+          )}
+          {canGiveOrder && (
+            <Btn onClick={() => onOpenFleetTransfer(fleet.id)}
+              title="Transfer carriers or squadrons to another fleet in this system" style={{ flexShrink: 0 }}>
+              <SplitSquareHorizontal size={12} /> {!isMobile && "Transfer"}
             </Btn>
           )}
         </div>

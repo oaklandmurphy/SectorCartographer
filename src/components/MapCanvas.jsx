@@ -36,10 +36,10 @@ export default function MapCanvas({
   onAgentTap, undoOrderStop, clearRoutingOrder, commitRoutingOrder, setRoutingNotes,
   setSelSystem, setSelFleet, setSelAgent,
   patchSystem, addMarker, patchMarker, removeMarker, deployFleetAt, deleteSystem,
-  patchFleet, addShip, patchShip, removeShip, moveShip, deleteFleet, beginShipDrag,
+  patchFleet, renameFleet, addShip, patchShip, removeShip, moveShip, deleteFleet, beginShipDrag,
   addSquadron, patchSquadron, removeSquadron, goToFleet, goToAgentAction, art,
   patchAgent, removeAgent, canManageAgents, canPlaceAgents, canOrderFor, submitMission,
-  wiki, roles, goToCodex, createEntry,
+  wiki, roles, goToCodex, createEntry, openFleetTransfer,
 }) {
   const overview = view.scale <= OVERVIEW_ZOOM; // zoomed out far enough — simplify systems to plain markers
   const selSystemObj = systems.find((s) => s.id === selSystem);
@@ -384,12 +384,13 @@ export default function MapCanvas({
           containerSize={containerSize} isMobile={isMobile} canEdit={canEdit} factions={factions} fleets={fleets}
           factionColor={factionById(selFleetObj.factionId).color}
           home={selFleetObj.systemId ? systems.find((s) => s.id === selFleetObj.systemId) : null}
-          patchFleet={patchFleet} addShip={addShip} patchShip={patchShip} removeShip={removeShip}
+          patchFleet={patchFleet} renameFleet={renameFleet} addShip={addShip} patchShip={patchShip} removeShip={removeShip}
           moveShip={moveShip} deleteFleet={deleteFleet} onClose={() => setSelFleet(null)}
           addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
           onShipDragStart={(ship, e) => beginShipDrag(ship, selFleetObj.id, e)}
           goToFleet={goToFleet} roles={roles} art={art}
           canOrderFor={canOrderFor} submitMission={submitMission}
+          onOpenFleetTransfer={openFleetTransfer}
         />
       )}
 
