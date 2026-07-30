@@ -36,7 +36,7 @@ export const V1_ACCESS_KEY = "galaxy-sector-access:v1";
 export const COLLECTIONS = [
   "factions", "relations", "layers", "systems",
   "links", "fleets", "ships", "strokes", "wiki", "wikiReads", "roles", "art", "modifiers",
-  "agents", "orders", "actions", "archivedActions", "missions",
+  "agents", "orders", "actions", "archivedActions", "missions", "actionReads", "missionReads",
 ];
 
 // GM Tools notes live at their own top-level path (sectorNotes/{sectorId}, see
@@ -65,6 +65,7 @@ const defaults = {
   archivedActions: { modifierIds: [], text: "", status: "pending", resolution: null },
   missions: { detachments: [], text: "", status: "pending", resolution: null },
   relations: {}, layers: {}, links: {}, wikiReads: {}, roles: {}, art: {}, modifiers: {}, notes: { text: "" }, ships: {},
+  actionReads: {}, missionReads: {},
 };
 
 /* ------------------------------------------------ visibility

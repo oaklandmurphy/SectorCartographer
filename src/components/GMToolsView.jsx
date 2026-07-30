@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Gavel, Copy, Trash2, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6,
   ClipboardList, VenetianMask, Flag, Check, Clock, RotateCcw, Wand2, Users, Rocket, SkipForward,
-  Pencil, X } from "lucide-react";
+  Pencil, X, MapPin } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
@@ -45,7 +45,7 @@ const OUTCOME_LABEL = {
 // A modifier's point value is situational (the same modifier might swing +1 one
 // week and +2 the next), so it's typed in at the moment of use, not stored.
 export default function GMToolsView({ roles, factions, modifiers, notes, isMobile, addNote, removeNote,
-  actions, archivedActions, agents, resolveAction, reopenAction, removeAction, removeArchivedAction,
+  actions, archivedActions, agents, systems, resolveAction, reopenAction, removeAction, removeArchivedAction,
   editActionResolution, editArchivedActionResolution,
   fleets, missions, resolveMission, removeMission, orders, nextTurn }) {
   const confirm = useConfirm();
@@ -240,7 +240,9 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     const agent = (agents || []).find((a) => a.id === action.agentId) || null;
     const member = agent && fac ? (fac.members || []).find((m) => m.id === agent.memberId) : null;
     const label = member ? member.name : (agent ? "Agent" : "Agent (removed)");
-    return { faction: fac, label };
+    const system = agent && agent.systemId ? (systems || []).find((s) => s.id === agent.systemId) : null;
+    const systemLabel = agent ? (system ? system.name : "Unplaced") : "";
+    return { faction: fac, label, systemLabel };
   };
   const modName = (id) => (modifiers.find((m) => m.id === id) || {}).name || "";
 
@@ -287,9 +289,9 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   );
 
   const renderCard = (action) => {
-    const { faction: fac, label } = describeAgent(action);
+    const { faction: fac, label, systemLabel } = describeAgent(action);
     return (
-      <ActionCard key={action.id} action={action} faction={fac} agentLabel={label}
+      <ActionCard key={action.id} action={action} faction={fac} agentLabel={label} systemLabel={systemLabel}
         modName={modName} isTarget={action.id === targetId}
         onResolveWithTool={() => startResolving(action)}
         reopenAction={reopenAction} removeAction={removeAction}
@@ -297,9 +299,9 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     );
   };
   const renderArchivedCard = (action) => {
-    const { faction: fac, label } = describeAgent(action);
+    const { faction: fac, label, systemLabel } = describeAgent(action);
     return (
-      <ArchivedActionCard key={action.id} action={action} faction={fac} agentLabel={label}
+      <ArchivedActionCard key={action.id} action={action} faction={fac} agentLabel={label} systemLabel={systemLabel}
         modName={modName} removeArchivedAction={removeArchivedAction}
         editArchivedActionResolution={editArchivedActionResolution} />
     );
@@ -663,7 +665,7 @@ function ResolutionWithEdit({ action, editResolution }) {
   );
 }
 
-function ActionCard({ action, faction, agentLabel, modName, isTarget, onResolveWithTool, reopenAction, removeAction,
+function ActionCard({ action, faction, agentLabel, systemLabel, modName, isTarget, onResolveWithTool, reopenAction, removeAction,
   editActionResolution }) {
   const confirm = useConfirm();
   const resolved = action.status === "resolved";
@@ -679,6 +681,11 @@ function ActionCard({ action, faction, agentLabel, modName, isTarget, onResolveW
         <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.mut }}>
           <VenetianMask size={12} /> {agentLabel}
         </span>
+        {systemLabel && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.mut }}>
+            <MapPin size={12} /> {systemLabel}
+          </span>
+        )}
         <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
           fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
           color: resolved ? T.accent : T.amber }}>
@@ -742,7 +749,7 @@ function ActionCard({ action, faction, agentLabel, modName, isTarget, onResolveW
 // live queue (Resolve/Reopen touch a turn that's already closed; a request
 // that never got resolved before the turn ended just says so). The only
 // action left is Delete, to prune the archive itself if it grows too large.
-function ArchivedActionCard({ action, faction, agentLabel, modName, removeArchivedAction, editArchivedActionResolution }) {
+function ArchivedActionCard({ action, faction, agentLabel, systemLabel, modName, removeArchivedAction, editArchivedActionResolution }) {
   const confirm = useConfirm();
   const resolved = action.status === "resolved";
   const color = faction ? faction.color : T.accent;
@@ -756,6 +763,11 @@ function ArchivedActionCard({ action, faction, agentLabel, modName, removeArchiv
         <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.mut }}>
           <VenetianMask size={12} /> {agentLabel}
         </span>
+        {systemLabel && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.mut }}>
+            <MapPin size={12} /> {systemLabel}
+          </span>
+        )}
         <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
           fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
           color: resolved ? T.accent : T.faint }}>

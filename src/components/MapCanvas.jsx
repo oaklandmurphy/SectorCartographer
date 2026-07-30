@@ -177,13 +177,14 @@ export default function MapCanvas({
                   return (
                     <g key={i}>
                       <line x1={ax} y1={ay} x2={bx} y2={by}
-                        stroke={color} strokeOpacity={draft ? 0.75 : 1}
-                        strokeWidth={isAgent ? (draft ? 1 : 1.4) : (draft ? 1.2 : 1.8)}
-                        strokeDasharray={draft ? "7 6" : undefined} strokeLinecap="round" />
+                        stroke={color} strokeOpacity={isAgent ? (draft ? 0.6 : 0.8) : (draft ? 0.75 : 1)}
+                        strokeWidth={isAgent ? (draft ? 0.75 : 1) : (draft ? 1.2 : 1.8)}
+                        strokeDasharray={isAgent ? (draft ? "3 5" : "2 4") : (draft ? "7 6" : undefined)}
+                        strokeLinecap="round" />
                       {isAgent ? (
-                        // agent — open chevron
-                        <polyline points="-5,-6 7,0 -5,6" fill="none" stroke={color}
-                          strokeOpacity={draft ? 0.85 : 1} strokeWidth={2.2}
+                        // agent — open chevron, small and faint next to a fleet's solid triangle
+                        <polyline points="-3,-3.5 3.5,0 -3,3.5" fill="none" stroke={color}
+                          strokeOpacity={draft ? 0.7 : 0.9} strokeWidth={1.4}
                           strokeLinecap="round" strokeLinejoin="round" transform={xf} />
                       ) : (
                         // fleet — solid triangle

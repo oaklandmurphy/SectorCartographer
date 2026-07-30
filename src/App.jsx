@@ -48,7 +48,9 @@ export default function GalaxySectorMap() {
   const [orders, setOrders] = useState([]); // fleet/agent move-order proposals the GM resolves by hand
   const [actions, setActions] = useState([]); // text action requests players raise through an agent for the GM to resolve
   const [archivedActions, setArchivedActions] = useState([]); // actions from turns already closed out — see nextTurn
+  const [actionReads, setActionReads] = useState([]); // shared per-faction "seen this resolved action" receipts, same idea as wikiReads
   const [missions, setMissions] = useState([]); // squadron mission requests players raise from a fleet's hangar for the GM to resolve
+  const [missionReads, setMissionReads] = useState([]); // shared per-faction "seen this resolved mission" receipts, same idea as wikiReads
 
   const [mode, setMode] = useState("select"); // select | link | draw | orders
   const [showOrders, setShowOrders] = useState(true); // personal: show/hide the move-order overlay on the map
@@ -123,8 +125,8 @@ export default function GalaxySectorMap() {
   // `notes` is deliberately not part of this — it lives at its own path and is
   // saved on its own schedule below, so it's never part of the root diff/save.
   const sector = useMemo(
-    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, archivedActions, missions, lockCode, fleetsPublic }),
-    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, archivedActions, missions, lockCode, fleetsPublic],
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, archivedActions, actionReads, missions, missionReads, lockCode, fleetsPublic }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, archivedActions, actionReads, missions, missionReads, lockCode, fleetsPublic],
   );
   // The sector as the database currently has it. Null until the load below fills
   // it in, which is also what stops an autosave from firing against an empty
@@ -155,7 +157,8 @@ export default function GalaxySectorMap() {
       setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
       setStrokes(data.strokes); setWiki(data.wiki); setWikiReads(data.wikiReads); setRoles(data.roles); setArt(data.art);
       setModifiers(data.modifiers); setAgents(data.agents); setOrders(data.orders); setActions(data.actions);
-      setArchivedActions(data.archivedActions); setMissions(data.missions);
+      setArchivedActions(data.archivedActions); setActionReads(data.actionReads);
+      setMissions(data.missions); setMissionReads(data.missionReads);
       setLockCode(data.lockCode); setFleetsPublic(data.fleetsPublic !== false);
     };
     const unsub = subscribeSector(
@@ -1179,6 +1182,68 @@ export default function GalaxySectorMap() {
     });
   }
 
+  // Same receipt idea as markWikiSeen, but keyed off when the GM resolved the
+  // request rather than an edit timestamp — a receipt only counts once it's at
+  // least as fresh as the resolution it's acknowledging.
+  function markActionSeen(action) {
+    const factionId = viewer.roleFactionId;
+    if (!factionId || !action || action.status !== "resolved") return;
+    const latest = action.resolvedAt || 0;
+    setActionReads((reads) => {
+      const id = `read_${factionId}_${action.id}`;
+      const existing = reads.find((r) => r.id === id);
+      if (existing && existing.seenAt >= latest) return reads;
+      const receipt = { id, factionId, actionId: action.id, seenAt: Date.now() };
+      return existing ? reads.map((r) => r.id === id ? receipt : r) : [...reads, receipt];
+    });
+  }
+  function acknowledgeAllActionUpdates() {
+    const factionId = viewer.roleFactionId;
+    if (!factionId) return;
+    const now = Date.now();
+    setActionReads((reads) => {
+      let next = reads;
+      unseenResolvedActions.forEach((action) => {
+        const latest = action.resolvedAt || 0;
+        const id = `read_${factionId}_${action.id}`;
+        const existing = next.find((r) => r.id === id);
+        if (existing && existing.seenAt >= latest) return;
+        const receipt = { id, factionId, actionId: action.id, seenAt: now };
+        next = existing ? next.map((r) => (r.id === id ? receipt : r)) : [...next, receipt];
+      });
+      return next;
+    });
+  }
+  function markMissionSeen(mission) {
+    const factionId = viewer.roleFactionId;
+    if (!factionId || !mission || mission.status !== "resolved") return;
+    const latest = mission.resolvedAt || 0;
+    setMissionReads((reads) => {
+      const id = `read_${factionId}_${mission.id}`;
+      const existing = reads.find((r) => r.id === id);
+      if (existing && existing.seenAt >= latest) return reads;
+      const receipt = { id, factionId, missionId: mission.id, seenAt: Date.now() };
+      return existing ? reads.map((r) => r.id === id ? receipt : r) : [...reads, receipt];
+    });
+  }
+  function acknowledgeAllMissionUpdates() {
+    const factionId = viewer.roleFactionId;
+    if (!factionId) return;
+    const now = Date.now();
+    setMissionReads((reads) => {
+      let next = reads;
+      unseenResolvedMissions.forEach((mission) => {
+        const latest = mission.resolvedAt || 0;
+        const id = `read_${factionId}_${mission.id}`;
+        const existing = next.find((r) => r.id === id);
+        if (existing && existing.seenAt >= latest) return;
+        const receipt = { id, factionId, missionId: mission.id, seenAt: now };
+        next = existing ? next.map((r) => (r.id === id ? receipt : r)) : [...next, receipt];
+      });
+      return next;
+    });
+  }
+
   /* ------------------------------------------------ map gesture handlers (mode-aware click/tap/drop routing) */
   function onSystemTap(id) {
     if (mode === "orders") { addOrderStop(id); return; } // plotting a route — a system is the next stop
@@ -1274,8 +1339,12 @@ export default function GalaxySectorMap() {
         const sys = systems.find((s) => s.id === f.systemId);
         if (sys) {
           const arr = grouping[f.systemId]; const idx = arr.indexOf(f.id); const n = arr.length;
-          const R = 46 + Math.floor(idx / 6) * 26;
-          const ang = -Math.PI / 2 + (idx % 6) * (Math.PI * 2 / Math.min(6, Math.max(3, n)));
+          const ring = Math.floor(idx / 6); const idxInRing = idx % 6;
+          const countInRing = Math.min(6, n - ring * 6);
+          const R = 46 + ring * 26;
+          // Right-hand semicircle: top (-90°) through east (0°) to bottom (+90°),
+          // so fleets never overlap the agent column that hugs the system's left side.
+          const ang = countInRing <= 1 ? 0 : -Math.PI / 2 + idxInRing * (Math.PI / (countInRing - 1));
           out[f.id] = { x: sys.x + Math.cos(ang) * R, y: sys.y + Math.sin(ang) * R };
           return;
         }
@@ -1379,7 +1448,46 @@ export default function GalaxySectorMap() {
   const displayAgents = useMemo(() => visibleAgents(agents, viewer), [agents, viewer]);
   const displayOrders = useMemo(() => visibleOrders(orders, viewer), [orders, viewer]);
   const displayActions = useMemo(() => visibleActions(actions, viewer), [actions, viewer]);
+  // Same own-faction filter as displayActions — a resolved request can be swept
+  // into archivedActions by nextTurn before its faction ever sees the ruling
+  // (see nextTurn's comment), so Updates has to watch both piles, not just the
+  // live one, or a resolution can silently vanish off the list unacknowledged.
+  const displayArchivedActions = useMemo(() => visibleActions(archivedActions, viewer), [archivedActions, viewer]);
   const displayMissions = useMemo(() => visibleMissions(missions, viewer), [missions, viewer]);
+  // This faction's resolved action requests it hasn't acknowledged yet — same
+  // "receipt older than the thing it's for" comparison as unseenArticles, but
+  // against resolvedAt rather than updatedAt, and pulled from both the live and
+  // archived piles (see displayArchivedActions above).
+  const unseenResolvedActions = useMemo(() => {
+    const factionId = viewer.roleFactionId;
+    if (!factionId) return [];
+    return [...displayActions, ...displayArchivedActions]
+      .filter((a) => a.status === "resolved")
+      .filter((a) => {
+        const seen = actionReads.find((r) => r.factionId === factionId && r.actionId === a.id);
+        return !seen || seen.seenAt < (a.resolvedAt || 0);
+      })
+      .map((a) => {
+        const agent = agents.find((x) => x.id === a.agentId);
+        const fac = agent && factions.find((f) => f.id === agent.factionId);
+        const member = fac && (fac.members || []).find((m) => m.id === agent.memberId);
+        return { ...a, agentName: member ? member.name : "Agent" };
+      })
+      .sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0));
+  }, [displayActions, displayArchivedActions, actionReads, agents, factions, viewer.roleFactionId]);
+  // Same idea for resolved squadron missions — missions have no archive
+  // collection, so this only ever reads displayMissions.
+  const unseenResolvedMissions = useMemo(() => {
+    const factionId = viewer.roleFactionId;
+    if (!factionId) return [];
+    return displayMissions.filter((m) => m.status === "resolved").filter((m) => {
+      const seen = missionReads.find((r) => r.factionId === factionId && r.missionId === m.id);
+      return !seen || seen.seenAt < (m.resolvedAt || 0);
+    }).map((m) => {
+      const fleet = fleets.find((f) => f.id === m.fleetId);
+      return { ...m, fleetName: fleet ? fleet.name : "Fleet" };
+    }).sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0));
+  }, [displayMissions, missionReads, fleets, viewer.roleFactionId]);
   // The Agents page's faction subtabs: every faction for the GM, only their own
   // for a player, none for an anonymous viewer.
   const displayAgentFactions = useMemo(() => {
@@ -1429,8 +1537,8 @@ export default function GalaxySectorMap() {
     { id: "politics", label: "Politics", icon: Network, title: "Faction politics", show: true },
     { id: "codex", label: "Codex", icon: Library, title: "Setting codex / wiki", show: true,
       badge: canEdit ? pendingWikiCount : 0 },
-    { id: "updates", label: "Updates", icon: Bell, title: "Articles your faction has not seen", show: true,
-      badge: unseenArticles.length },
+    { id: "updates", label: "Updates", icon: Bell, title: "Articles, action resolutions & mission resolutions your faction has not seen", show: true,
+      badge: unseenArticles.length + unseenResolvedActions.length + unseenResolvedMissions.length },
     { id: "modifiers", label: "Modifiers", icon: Zap, title: "Faction modifiers / events", show: true },
     { id: "odds", label: "Odds", icon: Dices, title: "Mission odds table", show: true },
     { id: "gmtools", label: "GM Tools", icon: Gavel, title: "GM tools: action & mission requests, roll resolution & notes",
@@ -1647,7 +1755,11 @@ export default function GalaxySectorMap() {
 
         {activeTab === "updates" && (
           <UpdatesView articles={unseenArticles} factionName={currentFaction && currentFaction.name} isMobile={isMobile}
-            openArticle={goToCodex} acknowledgeArticle={markWikiSeen} acknowledgeAll={acknowledgeAllUpdates} />
+            openArticle={goToCodex} acknowledgeArticle={markWikiSeen} acknowledgeAll={acknowledgeAllUpdates}
+            resolvedActions={unseenResolvedActions} openAction={goToAgentAction}
+            acknowledgeAction={markActionSeen} acknowledgeAllActions={acknowledgeAllActionUpdates}
+            resolvedMissions={unseenResolvedMissions} openMission={goToFleet}
+            acknowledgeMission={markMissionSeen} acknowledgeAllMissions={acknowledgeAllMissionUpdates} />
         )}
 
         {activeTab === "modifiers" && (
@@ -1682,7 +1794,7 @@ export default function GalaxySectorMap() {
           <GMToolsView
             roles={roles} factions={factions} modifiers={modifiers} notes={notes} isMobile={isMobile}
             addNote={addNote} removeNote={removeNote}
-            actions={actions} archivedActions={archivedActions} agents={agents}
+            actions={actions} archivedActions={archivedActions} agents={agents} systems={systems}
             resolveAction={resolveAction} reopenAction={reopenAction} removeAction={removeAction}
             removeArchivedAction={removeArchivedAction}
             editActionResolution={editActionResolution} editArchivedActionResolution={editArchivedActionResolution}
