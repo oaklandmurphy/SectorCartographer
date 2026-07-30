@@ -1684,7 +1684,7 @@ export default function GalaxySectorMap() {
 
             <MapCanvas
               mapRef={mapInt.mapRef} canvasRef={mapInt.canvasRef} containerSize={mapInt.containerSize}
-              isMobile={isMobile} mode={mode} canEdit={editingEnabled} editLocked={editLocked} view={view} w2s={w2s}
+              isMobile={isMobile} mode={mode} canEdit={editingEnabled} isGM={canEdit} editLocked={editLocked} view={view} w2s={w2s}
               systems={systems} fleets={displayFleets} links={links} fleetPos={fleetPos}
               agents={displayAgents} agentPos={agentPos} orders={displayOrders} showOrders={showOrders}
               actions={displayActions}

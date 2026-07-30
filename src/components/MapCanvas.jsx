@@ -25,7 +25,7 @@ function brightenColor(hex, amt = 0.5) {
 
 export default function MapCanvas({
   mapRef, canvasRef, containerSize, isMobile,
-  mode, canEdit, editLocked, view, w2s,
+  mode, canEdit, isGM, editLocked, view, w2s,
   systems, fleets, links, fleetPos,
   agents, agentPos, orders, actions, showOrders, showFleets = true, showAgents = true,
   factions, layers, factionById, layerById,
@@ -309,8 +309,11 @@ export default function MapCanvas({
         // Dragging is a GM-always, player-if-the-GM's-flipped-their-toggle
         // permission (see canPlaceAgents/AccessControl's per-role switch) — a
         // viewer without it still just taps the marker to open its popup, same
-        // as before this existed.
-        const canDrag = mode !== "draw" && !editLocked && !!(canPlaceAgents && canPlaceAgents(a.factionId));
+        // as before this existed. The editLocked toggle is a GM-only, per-browser
+        // accidental-drag guard (players never see the button to unlock it), so
+        // it only gates the GM's own drag — a player's independently-granted
+        // permission isn't subject to it.
+        const canDrag = mode !== "draw" && !!(canPlaceAgents && canPlaceAgents(a.factionId)) && (!isGM || !editLocked);
         const Icon = AGENT_ICONS[a.icon] || VenetianMask;
         // Same idea as a fleet's carrier-count badge, bottom-right: how many
         // action requests this agent has left against its GM-set quota.
