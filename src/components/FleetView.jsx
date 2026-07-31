@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Ship, Anchor, Plus, X, Columns2, StickyNote, Rocket, Clock, Check, SplitSquareHorizontal,
-  History, ChevronDown, ChevronUp } from "lucide-react";
+  History, ChevronDown, ChevronUp, Route } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import { squadronsOf, craftInCarrier, craftInFleet, knownModels, knownCarrierModels } from "../lib/carriers.js";
 import { mergeNames } from "../lib/shipArt.js";
@@ -23,7 +23,7 @@ export default function FleetView({
   addShip, patchShip, removeShip, renameFleet,
   addSquadron, patchSquadron, removeSquadron,
   art = [], addArt, patchArt, removeArt,
-  missions = [], archivedMissions = [], canOrderFor, submitMission, onOpenFleetTransfer,
+  missions = [], archivedMissions = [], canOrderFor, submitMission, onOpenFleetTransfer, onOrderFleetMove,
 }) {
   // Which fleet's squadron-order composer is open, if any (by fleet id).
   const [orderFleetId, setOrderFleetId] = useState(null);
@@ -227,6 +227,12 @@ export default function FleetView({
             <Btn onClick={() => onOpenFleetTransfer(fleet.id)}
               title="Transfer carriers or squadrons to another fleet in this system" style={{ flexShrink: 0 }}>
               <SplitSquareHorizontal size={12} /> {!isMobile && "Transfer"}
+            </Btn>
+          )}
+          {canGiveOrder && (
+            <Btn onClick={() => onOrderFleetMove(fleet.id)}
+              title="Jump to the map, zoomed in on this fleet, ready to plot its move order" style={{ flexShrink: 0 }}>
+              <Route size={12} /> {!isMobile && "Move"}
             </Btn>
           )}
         </div>

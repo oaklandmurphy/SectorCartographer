@@ -79,3 +79,9 @@ export const DRAW_COLORS = ["#9fc23a", "#d98f2b", "#a83d31", "#5f83a0", "#d8d0b8
 
 // Chip colors cycled through when the GM creates player roles.
 export const ROLE_COLORS = ["#5f9098", "#a06840", "#8a9a4a", "#6b6a9e", "#b3763e", "#4f8f6f", "#9a7a2e", "#a0517a"];
+
+// Sentinel `toFactionId` a resource send can target instead of a faction —
+// the GM, who doesn't hold a resource pool. Shared between AssetsView (the
+// "Send To" dropdown) and App.jsx's sendResource, which special-cases it to
+// skip crediting any faction while still logging the transaction.
+export const GM_RECIPIENT = "gm";

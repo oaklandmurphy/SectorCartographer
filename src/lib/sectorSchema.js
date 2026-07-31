@@ -35,7 +35,7 @@ export const V1_ACCESS_KEY = "galaxy-sector-access:v1";
 // before; only sectorSchema.js and sectorRepo.js know the DB stores them apart.
 export const COLLECTIONS = [
   "factions", "relations", "layers", "systems",
-  "links", "fleets", "ships", "strokes", "wiki", "wikiReads", "roles", "art", "modifiers",
+  "links", "fleets", "ships", "strokes", "wiki", "wikiReads", "roles", "art", "modifiers", "resources", "resourceTransactions",
   "agents", "orders", "actions", "archivedActions", "missions", "archivedMissions", "actionReads", "missionReads",
 ];
 
@@ -67,7 +67,7 @@ const defaults = {
   // Missions from a closed-out turn — same idea as archivedActions above: moved
   // here when the GM advances the turn instead of being deleted.
   archivedMissions: { detachments: [], text: "", status: "pending", resolution: null },
-  relations: {}, layers: {}, links: {}, wikiReads: {}, roles: {}, art: {}, modifiers: {}, notes: { text: "" }, ships: {},
+  relations: {}, layers: {}, links: {}, wikiReads: {}, roles: {}, art: {}, modifiers: {}, resources: {}, resourceTransactions: {}, notes: { text: "" }, ships: {},
   actionReads: {}, missionReads: {},
 };
 
@@ -298,7 +298,7 @@ export function decodeV2Fleets(rawFleetsNode) {
 // entities without its lock, which reads as "no lock set", which means open to
 // everyone. One path in means the lock cannot be left behind.
 export const emptySector = () =>
-  COLLECTIONS.reduce((acc, c) => ({ ...acc, [c]: [] }), { lockCode: "", fleetsPublic: true, turnNumber: 1 });
+  COLLECTIONS.reduce((acc, c) => ({ ...acc, [c]: [] }), { lockCode: "", fleetsPublic: true, turnNumber: 0 });
 
 function deepEqual(a, b) {
   if (a === b) return true;
@@ -349,8 +349,8 @@ export function buildSectorUpdates(prev, next) {
   // The GM's turn counter — its own node for the same reason as the lock code:
   // a bump on Next Turn shouldn't rewrite sector content, but still needs to
   // ride along through this diff so it survives a migration.
-  const turnBefore = p.turnNumber || 1;
-  const turnAfter = n.turnNumber || 1;
+  const turnBefore = p.turnNumber || 0;
+  const turnAfter = n.turnNumber || 0;
   if (turnBefore !== turnAfter) updates["turn/number"] = turnAfter;
   return updates;
 }

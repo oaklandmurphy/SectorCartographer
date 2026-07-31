@@ -14,7 +14,7 @@
 //   #/fleet · #/fleet/<fleetId> · #/fleet/<fleetId>/vs/<fleetId>
 //   #/politics
 //   #/codex · #/codex/<category> · #/codex/<category>/<entryId>
-//   #/modifiers · #/modifiers/<factionId>
+//   #/assets · #/assets/<factionId>
 //   #/agents · #/agents/<factionId> · #/agents/<factionId>/<agentId>
 //   #/odds
 //   #/gmtools
@@ -26,7 +26,7 @@
 
 import { WIKI_CATS } from "../constants.js";
 
-export const TABS = ["map", "fleet", "politics", "codex", "updates", "modifiers", "agents", "odds", "gmtools"];
+export const TABS = ["map", "fleet", "politics", "codex", "updates", "assets", "agents", "odds", "gmtools"];
 
 export const DEFAULT_ROUTE = {
   tab: "map",
@@ -34,7 +34,8 @@ export const DEFAULT_ROUTE = {
   wikiId: null,
   fleetId: null,   // null = whichever fleet FleetView falls back to
   compareId: null,
-  modFactionId: null, // null = whichever faction ModifiersView falls back to
+  assetFactionId: null, // null = whichever faction AssetsView falls back to
+  assetSubtab: null, // null = AssetsView's default subtab ("modifiers")
   agentFactionId: null, // null = whichever faction AgentsView falls back to
   agentId: null, // null = whichever agent AgentsView falls back to; set when deep-linking to one (e.g. "Request Action" from the map or politics view)
 };
@@ -64,8 +65,8 @@ export function parseHash(hash) {
   if (tab === "fleet") {
     return { tab, fleetId: rest[0] || null, compareId: rest[1] === "vs" ? rest[2] || null : null };
   }
-  if (tab === "modifiers") {
-    return { tab, modFactionId: rest[0] || null };
+  if (tab === "assets") {
+    return { tab, assetFactionId: rest[0] || null, assetSubtab: rest[1] || null };
   }
   if (tab === "agents") {
     return { tab, agentFactionId: rest[0] || null, agentId: rest[1] || null };
@@ -81,8 +82,9 @@ export function formatHash(route) {
   } else if (route.tab === "fleet" && route.fleetId) {
     seg.push(route.fleetId);
     if (route.compareId) seg.push("vs", route.compareId);
-  } else if (route.tab === "modifiers" && route.modFactionId) {
-    seg.push(route.modFactionId);
+  } else if (route.tab === "assets" && route.assetFactionId) {
+    seg.push(route.assetFactionId);
+    if (route.assetSubtab) seg.push(route.assetSubtab);
   } else if (route.tab === "agents" && route.agentFactionId) {
     seg.push(route.agentFactionId);
     if (route.agentId) seg.push(route.agentId);

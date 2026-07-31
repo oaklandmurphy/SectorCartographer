@@ -58,10 +58,11 @@ function readAccess(data, raw) {
 
 // The GM's turn counter, bumped by nextTurn() in App.jsx and stamped onto
 // actions as they're archived so Previous Actions can show which turn a
-// request was resolved on. Absent (a sector predating this, or v1) means 1.
+// request was resolved on. Absent (a sector predating this, or v1) means 0 —
+// campaigns start at turn 0.
 function readTurn(data, raw) {
   const n = raw.turn && Number(raw.turn.number);
-  data.turnNumber = Number.isFinite(n) && n > 0 ? n : 1;
+  data.turnNumber = Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
 // Current tree shape (schema >= SCHEMA_VERSION): every collection, including

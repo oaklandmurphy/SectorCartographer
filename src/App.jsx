@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react";
-import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Zap, Bell, Gavel, VenetianMask, Menu, ChevronDown, ChevronUp } from "lucide-react";
+import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Package, Bell, Gavel, VenetianMask, Menu, ChevronDown, ChevronUp, Eye, EyeOff } from "lucide-react";
 import { T, F, panelStyle, cut } from "./theme.js";
-import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE } from "./constants.js";
+import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE, GM_RECIPIENT, MAX_ZOOM } from "./constants.js";
 import { storage } from "./lib/storage.js";
 import { subscribeSector, saveSector, subscribeNotes, saveNotes, emptySector } from "./lib/sectorRepo.js";
 import { buildSectorUpdates, buildCollectionUpdates } from "./lib/sectorSchema.js";
@@ -23,11 +23,17 @@ import FleetTransferModal from "./components/FleetTransferModal.jsx";
 const FleetView = lazy(() => import("./components/FleetView.jsx"));
 const WikiView = lazy(() => import("./components/WikiView.jsx"));
 const PoliticsView = lazy(() => import("./components/PoliticsView.jsx"));
-const ModifiersView = lazy(() => import("./components/ModifiersView.jsx"));
+const AssetsView = lazy(() => import("./components/AssetsView.jsx"));
 const OddsView = lazy(() => import("./components/OddsView.jsx"));
 const UpdatesView = lazy(() => import("./components/UpdatesView.jsx"));
 const AgentsView = lazy(() => import("./components/AgentsView.jsx"));
 const GMToolsView = lazy(() => import("./components/GMToolsView.jsx"));
+
+// Severity colors/labels for the tracker badges in the top bar — kept in sync
+// with the LEVELS list AssetsView uses for the actual tracker cards.
+const TRACKER_LEVEL_COLOR = { low: T.accent, moderate: T.amber, high: "#c2551f", critical: T.danger };
+const TRACKER_LEVEL_ABBR = { low: "L", moderate: "M", high: "H", critical: "C" };
+const TRACKER_LEVEL_LABEL = { low: "Low", moderate: "Moderate", high: "High", critical: "Critical" };
 
 export default function GalaxySectorMap() {
   // Empty until the saved sector loads from storage; the loading gate below keeps
@@ -42,7 +48,9 @@ export default function GalaxySectorMap() {
   const [wikiReads, setWikiReads] = useState([]); // shared per-faction article read receipts
   const [roles, setRoles] = useState([]); // player roles for asymmetric-info games
   const [art, setArt] = useState([]);     // ship-art library
-  const [modifiers, setModifiers] = useState([]); // per-faction event snippets (Modifiers tab)
+  const [modifiers, setModifiers] = useState([]); // per-faction event snippets (Assets tab: Modifiers/Trackers subtabs)
+  const [resources, setResources] = useState([]); // per-faction integer counters (Assets tab: Resources subtab)
+  const [resourceTransactions, setResourceTransactions] = useState([]); // log of resource sends between factions (and to the GM) — GM Tools: Transactions tab
   const [notes, setNotes] = useState([]); // GM Tools: freeform notes + tracked roll resolutions
   const [agents, setAgents] = useState([]); // covert operatives, one optional character each, own-faction only
   const [orders, setOrders] = useState([]); // fleet/agent move-order proposals the GM resolves by hand
@@ -57,6 +65,7 @@ export default function GalaxySectorMap() {
   const [showOrders, setShowOrders] = useState(true); // personal: show/hide the move-order overlay on the map
   const [showFleets, setShowFleets] = useState(true); // personal: show/hide fleet pieces on the map
   const [showAgents, setShowAgents] = useState(true); // personal: show/hide agent pieces on the map
+  const [showAssetsBar, setShowAssetsBar] = useState(true); // personal: show/hide the resource/tracker strip in the top bar
   const [view, setView] = useState({ scale: 1, ox: 60, oy: 40 });
   const [strokes, setStrokes] = useState([]);
 
@@ -65,6 +74,7 @@ export default function GalaxySectorMap() {
   const [selAgent, setSelAgent] = useState(null); // agent whose popup is open on the map
   const [transferFleetId, setTransferFleetId] = useState(null); // fleet the fleet transfer modal is open for
   const [routing, setRouting] = useState(null);   // { type, id, factionId } — the piece being plotted in orders mode
+  const [focusMapFleetId, setFocusMapFleetId] = useState(null); // fleet to center the map on once the map tab is up (see orderFleetMove)
   const [linkSource, setLinkSource] = useState(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -72,7 +82,7 @@ export default function GalaxySectorMap() {
 
   const [lockCode, setLockCode] = useState("");   // shared: "" means editing is open to everyone; else the GM code
   const [fleetsPublic, setFleetsPublic] = useState(true); // shared: false hides fleet positions from anyone without a matching login
-  const [turnNumber, setTurnNumber] = useState(1); // shared: bumped by nextTurn(), stamped onto actions as they're archived
+  const [turnNumber, setTurnNumber] = useState(0); // shared: bumped by nextTurn(), stamped onto actions as they're archived — the campaign starts at turn 0
   const [knownCode, setKnownCode] = useState(""); // personal: the GM/player code this browser has entered
   const [accessOpen, setAccessOpen] = useState(false);
   const [codeInput, setCodeInput] = useState("");
@@ -87,7 +97,7 @@ export default function GalaxySectorMap() {
   // and drawing on the Map and faction dragging/add/delete on Politics, so the
   // GM (or anyone in open mode) can browse the board at the table without
   // fat-fingering a piece out of place. Everything reached through a dedicated
-  // tab instead (Fleet roster, Agents, Modifiers…) stays editable regardless.
+  // tab instead (Fleet roster, Agents, Assets…) stays editable regardless.
   const [editLocked, setEditLocked] = useState(true);
   const editingEnabled = canEdit && !editLocked;
 
@@ -101,7 +111,7 @@ export default function GalaxySectorMap() {
      so pages are shareable and Back works. */
   const [route, navigate] = useHashRoute();
   const { tab: activeTab, cat: activeCat, wikiId: selectedWikiId,
-    fleetId: fleetPrimaryId, compareId: fleetCompareId, modFactionId, agentFactionId, agentId: initialAgentId } = route;
+    fleetId: fleetPrimaryId, compareId: fleetCompareId, assetFactionId, assetSubtab, agentFactionId, agentId: initialAgentId } = route;
 
   // Setters keeping the useState signature (a value or an updater) that the
   // views below already call them with, so only their plumbing changed.
@@ -115,7 +125,8 @@ export default function GalaxySectorMap() {
     return { fleetId, compareId: r.compareId === fleetId ? null : r.compareId }; // never compare a fleet with itself
   });
   const setFleetCompareId = (v) => navigate((r) => ({ compareId: fromSetter(v, r.compareId) }));
-  const setModFactionId = (v) => navigate((r) => ({ modFactionId: fromSetter(v, r.modFactionId) }));
+  const setAssetFactionId = (v) => navigate((r) => ({ assetFactionId: fromSetter(v, r.assetFactionId) }));
+  const setAssetSubtab = (v) => navigate((r) => ({ assetSubtab: fromSetter(v, r.assetSubtab) }));
   const setAgentFactionId = (v) => navigate((r) => ({ agentFactionId: fromSetter(v, r.agentFactionId) }));
 
   useEffect(() => { if (isMobile) setPanelOpen(false); }, [isMobile]); // avoid opening full-screen on first mobile load
@@ -127,8 +138,8 @@ export default function GalaxySectorMap() {
   // `notes` is deliberately not part of this — it lives at its own path and is
   // saved on its own schedule below, so it's never part of the root diff/save.
   const sector = useMemo(
-    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, lockCode, fleetsPublic, turnNumber }),
-    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, lockCode, fleetsPublic, turnNumber],
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, resources, resourceTransactions, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, lockCode, fleetsPublic, turnNumber }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, resources, resourceTransactions, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, lockCode, fleetsPublic, turnNumber],
   );
   // The sector as the database currently has it. Null until the load below fills
   // it in, which is also what stops an autosave from firing against an empty
@@ -158,11 +169,12 @@ export default function GalaxySectorMap() {
       setFactions(data.factions); setRelations(data.relations); setLayers(data.layers);
       setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
       setStrokes(data.strokes); setWiki(data.wiki); setWikiReads(data.wikiReads); setRoles(data.roles); setArt(data.art);
-      setModifiers(data.modifiers); setAgents(data.agents); setOrders(data.orders); setActions(data.actions);
+      setModifiers(data.modifiers); setResources(data.resources); setResourceTransactions(data.resourceTransactions);
+      setAgents(data.agents); setOrders(data.orders); setActions(data.actions);
       setArchivedActions(data.archivedActions); setActionReads(data.actionReads);
       setMissions(data.missions); setArchivedMissions(data.archivedMissions); setMissionReads(data.missionReads);
       setLockCode(data.lockCode); setFleetsPublic(data.fleetsPublic !== false);
-      setTurnNumber(data.turnNumber || 1);
+      setTurnNumber(data.turnNumber || 0);
     };
     const unsub = subscribeSector(
       ({ data, schema }) => {
@@ -520,6 +532,7 @@ export default function GalaxySectorMap() {
     // gate doesn't silently dangle on a faction that no longer exists.
     setRoles((rs) => rs.map((r) => (r.factionId === id ? { ...r, factionId: undefined } : r)));
     setModifiers((ms) => ms.filter((m) => m.factionId !== id));
+    setResources((rs) => rs.filter((r) => r.factionId !== id));
     // A faction's agents, move orders, and action requests go with it.
     setAgents((as) => as.filter((a) => a.factionId !== id));
     setOrders((os) => os.filter((o) => o.factionId !== id));
@@ -590,6 +603,61 @@ export default function GalaxySectorMap() {
       let cursor = 0;
       return ms.map((m) => (idSet.has(m.id) ? byId.get(orderedIds[cursor++]) : m));
     });
+  }
+
+  /* ---- resources: integer counters attached to a faction (Assets tab,
+     Resources subtab) — GM-only, same gate as modifiers. `text` is what the
+     resource is spent on/used for, shown to players so a counter isn't just
+     a bare number. The first resource added for a faction defaults its name
+     to "Ossite Surplus" so a fresh faction starts with a recognizable
+     counter instead of a blank one. */
+  function addResource(factionId) {
+    if (!isGM) return;
+    const already = resources.some((r) => r.factionId === factionId);
+    const entry = { id: uid("res"), factionId, name: already ? "" : "Ossite Surplus", value: 0, text: "", createdAt: Date.now() };
+    setResources((rs) => [...rs, entry]);
+  }
+  function patchResource(id, p) {
+    if (!isGM) return;
+    setResources((rs) => rs.map((r) => (r.id === id ? { ...r, ...p } : r)));
+  }
+  function removeResource(id) {
+    if (!isGM) return;
+    setResources((rs) => rs.filter((r) => r.id !== id));
+  }
+  // A player may send some of their own faction's resource holdings to any
+  // other faction (not just an ally — any player) or to the GM (the
+  // GM_RECIPIENT sentinel, for a tribute/cost with nowhere else to go) —
+  // unlike name/value/description edits above, this isn't GM-only, just
+  // gated on actually owning the resource being sent. The GM can send on any
+  // faction's behalf, same as every other edit. Merges into a same-named
+  // resource the recipient already holds, or opens a new one for them if
+  // they don't; sending to the GM just removes it, since the GM doesn't
+  // hold a resource pool. Every send — whoever it's to — is logged to
+  // `resourceTransactions` so the GM has a full ledger (see GM Tools' Transactions tab).
+  function sendResource(id, toFactionId, amount, message) {
+    const r = resources.find((x) => x.id === id);
+    if (!r || !toFactionId || toFactionId === r.factionId) return;
+    if (!isGM && viewer.roleFactionId !== r.factionId) return;
+    const send = Math.max(0, Math.min(Math.trunc(Number(amount)) || 0, r.value || 0));
+    if (send <= 0) return;
+    const toGM = toFactionId === GM_RECIPIENT;
+    setResources((rs) => {
+      const afterSend = rs.map((x) => (x.id === id ? { ...x, value: (x.value || 0) - send } : x));
+      if (toGM) return afterSend;
+      const target = afterSend.find((x) => x.factionId === toFactionId && x.name === r.name);
+      return target
+        ? afterSend.map((x) => (x.id === target.id ? { ...x, value: (x.value || 0) + send } : x))
+        : [...afterSend, { id: uid("res"), factionId: toFactionId, name: r.name, value: send, text: r.text || "", createdAt: Date.now() }];
+    });
+    setResourceTransactions((ts) => [...ts, {
+      id: uid("txn"), resourceName: r.name, fromFactionId: r.factionId, toFactionId,
+      amount: send, message: (message || "").trim(), createdAt: Date.now(),
+    }]);
+  }
+  function removeResourceTransaction(id) {
+    if (!isGM) return;
+    setResourceTransactions((ts) => ts.filter((t) => t.id !== id));
   }
 
   /* ---- GM Tools notes: freeform log entries, plus roll resolutions the GM
@@ -923,7 +991,7 @@ export default function GalaxySectorMap() {
       setArchivedMissions((arch) => [...resolvedMissionsNow.map((m) => ({ ...m, turnEndedAt, turn: turnNumber })), ...arch]);
       setMissions((ms) => ms.filter((m) => m.status !== "resolved"));
     }
-    setTurnNumber((n) => (Number(n) || 1) + 1);
+    setTurnNumber((n) => (Number(n) || 0) + 1);
   }
 
   /* ---- squadron missions: a player commits some of a fleet's fighters/bombers
@@ -1082,6 +1150,28 @@ export default function GalaxySectorMap() {
   // One navigate() per jump, not one per field — the whole jump is a single Back.
   function goToFleet(fleetId) {
     navigate((r) => ({ tab: "fleet", fleetId, compareId: r.compareId === fleetId ? null : r.compareId }));
+    setAccessOpen(false);
+    setMobileMenuOpen(false);
+  }
+  // jump the other way: from a fleet's roster straight to the map, switched to
+  // Orders mode with that fleet already selected for routing and the view
+  // centered on it. The actual centering happens in the effect below, once the
+  // map tab is actually up and its canvas has a real size to center within.
+  function orderFleetMove(fleetId) {
+    const f = fleets.find((x) => x.id === fleetId);
+    if (!f || !canOrderFor(f.factionId)) return;
+    navigate(() => ({ tab: "map" }));
+    setMode("orders");
+    setLinkSource(null);
+    beginOrder("fleet", fleetId, f.factionId);
+    setFocusMapFleetId(fleetId);
+    setAccessOpen(false);
+    setMobileMenuOpen(false);
+  }
+  // jump from a top-bar resource/tracker badge straight to the Assets tab,
+  // that entry's faction, and the subtab it actually lives on.
+  function goToAssets(factionId, subtab) {
+    navigate(() => ({ tab: "assets", assetFactionId: factionId, assetSubtab: subtab }));
     setAccessOpen(false);
     setMobileMenuOpen(false);
   }
@@ -1406,6 +1496,20 @@ export default function GalaxySectorMap() {
     return out;
   }, [fleets, systems]);
 
+  // Consumes focusMapFleetId (set by orderFleetMove above) once the map tab is
+  // actually mounted: reads the canvas's real DOM size directly rather than
+  // mapInt.containerSize, since that state update from the map's own mount/resize
+  // effect hasn't necessarily landed yet in this same pass.
+  useEffect(() => {
+    if (!focusMapFleetId || activeTab !== "map") return;
+    const pos = fleetPos[focusMapFleetId];
+    const el = mapInt.mapRef.current;
+    if (!pos || !el) return;
+    const scale = Math.min(MAX_ZOOM, Math.max(view.scale, 1.6));
+    setView({ scale, ox: el.clientWidth / 2 - pos.x * scale, oy: el.clientHeight / 2 - pos.y * scale });
+    setFocusMapFleetId(null);
+  }, [focusMapFleetId, activeTab, fleetPos]);
+
   /* ------------------------------------------------ derived agent positions.
      Agents sit at a system, stacked in a column just to its left so they never
      cover the system name (which hangs below the plate) or the fleets that fan
@@ -1558,7 +1662,7 @@ export default function GalaxySectorMap() {
   const canOrder = viewer.seesAll || !!viewer.roleFactionId;
   // The order currently being plotted, resolved from the routing selection.
   const routingOrder = routing ? orderForPiece(routing.type, routing.id) : null;
-  // Modifiers tab: GM sees every faction's subtab; a player sees their own
+  // Assets tab: GM sees every faction's subtab; a player sees their own
   // faction's plus any allied/vassal to it; anyone with no faction tied to
   // their login (anon, or a role the GM hasn't assigned a faction) sees none.
   const modifierFactionIds = useMemo(() => {
@@ -1578,6 +1682,29 @@ export default function GalaxySectorMap() {
       modifierFactionIds.has(m.factionId) &&
       (!m.private || m.factionId === viewer.roleFactionId));
   }, [modifiers, modifierFactionIds, viewer.roleFactionId]);
+  // Resources have no private flag — just the same per-faction visibility as modifiers.
+  const displayResources = useMemo(() => {
+    if (!modifierFactionIds) return resources; // GM: no filter
+    return resources.filter((r) => modifierFactionIds.has(r.factionId));
+  }, [resources, modifierFactionIds]);
+  // The always-visible resource strip at the top of the page: a signed-in
+  // player's own faction's counters, so they're visible from any tab instead
+  // of only inside Assets > Resources. Nothing to show for the GM (no single
+  // "own faction") or an anonymous viewer.
+  const myResources = useMemo(
+    () => (viewer.roleFactionId ? resources.filter((r) => r.factionId === viewer.roleFactionId) : []),
+    [resources, viewer.roleFactionId]
+  );
+  // Badges next to the resource strip: the trackers a signed-in player can
+  // currently see — their own faction's plus any allied/vassal's, same
+  // visibility `displayModifiers` already applies. Nothing for the GM (no
+  // single "own faction" to badge against) or an anonymous viewer.
+  const visibleTrackers = useMemo(
+    () => (viewer.roleFactionId
+      ? displayModifiers.filter((m) => (m.kind || "text") === "slider")
+      : []),
+    [displayModifiers, viewer.roleFactionId]
+  );
 
   const accessProps = {
     viewer, roles, factions, canEdit, lockCode, fleetsPublic, toggleFleetsPublic,
@@ -1598,7 +1725,7 @@ export default function GalaxySectorMap() {
       badge: canEdit ? pendingWikiCount : 0 },
     { id: "updates", label: "Updates", icon: Bell, title: "Articles, action resolutions & mission resolutions your faction has not seen", show: true,
       badge: unseenArticles.length + unseenResolvedActions.length + unseenResolvedMissions.length },
-    { id: "modifiers", label: "Modifiers", icon: Zap, title: "Faction modifiers / events", show: true },
+    { id: "assets", label: "Assets", icon: Package, title: "Faction assets: modifiers, trackers & resources", show: true },
     { id: "odds", label: "Odds", icon: Dices, title: "Mission odds table", show: true },
     { id: "gmtools", label: "GM Tools", icon: Gavel, title: "GM tools: action & mission requests, roll resolution & notes",
       show: isGM, badge: isGM ? pendingActionCount + pendingMissionCount : 0 },
@@ -1696,6 +1823,67 @@ export default function GalaxySectorMap() {
         )}
 
         <div style={{ marginLeft: "auto", flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
+          {/* A signed-in player's own faction's resource counters, inline with the
+              tab bar so a glance at the top of the page shows where they stand
+              regardless of what tab they're on. Neutral chrome (no faction color —
+              this strip is always the viewer's own faction, so tinting it adds
+              nothing). Desktop only — no room for it alongside the tab dropdown
+              trigger on mobile. Jumps to Assets > Resources on click. */}
+          {!isMobile && showAssetsBar && currentFaction && myResources.length > 0 && (
+            <div className="scroll" style={{ display: "flex", alignItems: "center", gap: 6, overflowX: "auto", minWidth: 0 }}>
+              {myResources.map((r) => (
+                <button key={r.id} onClick={() => goToAssets(currentFaction.id, "resources")} title={r.text || undefined}
+                  style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flexShrink: 0,
+                    border: `1px solid ${T.line}`, borderRadius: 2, padding: "4px 8px", background: T.panel3 }}>
+                  <span className="stencil" style={{ fontSize: 9.5, letterSpacing: ".06em", color: T.faint }}>
+                    {r.name || "RESOURCE"}
+                  </span>
+                  <span className="mono" style={{ fontSize: 13, fontWeight: 800, color: T.text }}>
+                    {r.value || 0}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {/* Tracker badges: one per tracker visible to this player (own +
+              allied/vassal factions), a one-letter severity abbreviation plus its
+              name. Jumps to Assets > Trackers, on that tracker's own faction, on click. */}
+          {!isMobile && showAssetsBar && visibleTrackers.length > 0 && (
+            <div className="scroll" style={{ display: "flex", alignItems: "center", gap: 6, overflowX: "auto", minWidth: 0 }}>
+              {visibleTrackers.map((t) => {
+                const color = TRACKER_LEVEL_COLOR[t.level] || TRACKER_LEVEL_COLOR.low;
+                const abbr = TRACKER_LEVEL_ABBR[t.level] || TRACKER_LEVEL_ABBR.low;
+                const levelLabel = TRACKER_LEVEL_LABEL[t.level] || TRACKER_LEVEL_LABEL.low;
+                return (
+                  <button key={t.id} onClick={() => goToAssets(t.factionId, "trackers")}
+                    title={`${t.name || "Untitled tracker"} — ${levelLabel}`}
+                    style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flexShrink: 0,
+                      border: `1px solid ${color}55`, borderRadius: 2, padding: "4px 8px 4px 4px", background: `${color}14`,
+                      color, fontFamily: F.body }}>
+                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 16, height: 16,
+                      borderRadius: 2, background: color, color: T.onAccent, fontSize: 10, fontWeight: 800, flexShrink: 0 }}>
+                      {abbr}
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase" }}>
+                      {t.name || "Untitled tracker"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {/* Personal show/hide for the resource + tracker strip above — a player
+              who finds it noisy (or wants to screenshot without it) can collapse
+              it without losing the underlying data. */}
+          {!isMobile && (myResources.length > 0 || visibleTrackers.length > 0) && (
+            <button onClick={() => setShowAssetsBar((v) => !v)}
+              title={showAssetsBar ? "Hide resource/tracker strip" : "Show resource/tracker strip"}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
+                width: 26, height: 26, border: `1px solid ${T.line}`, borderRadius: 2,
+                background: T.panel3, color: showAssetsBar ? T.text : T.faint }}>
+              {showAssetsBar ? <Eye size={13} /> : <EyeOff size={13} />}
+            </button>
+          )}
           {(canEdit || viewer.kind === "player") && <SaveStatus saveStatus={saveStatus} isMobile={isMobile} />}
           <AccessControl compact={isMobile} {...accessProps} />
         </div>
@@ -1785,7 +1973,7 @@ export default function GalaxySectorMap() {
             art={art} addArt={addArt} patchArt={patchArt} removeArt={removeArt}
             missions={displayMissions} archivedMissions={displayArchivedMissions}
             canOrderFor={canOrderFor} submitMission={submitMission}
-            onOpenFleetTransfer={openFleetTransfer}
+            onOpenFleetTransfer={openFleetTransfer} onOrderFleetMove={orderFleetMove}
           />
         )}
 
@@ -1822,12 +2010,16 @@ export default function GalaxySectorMap() {
             acknowledgeMission={markMissionSeen} acknowledgeAllMissions={acknowledgeAllMissionUpdates} />
         )}
 
-        {activeTab === "modifiers" && (
-          <ModifiersView
-            factions={displayModifierFactions} modifiers={displayModifiers} canEdit={isGM} isMobile={isMobile}
-            activeFactionId={modFactionId} setActiveFactionId={setModFactionId}
+        {activeTab === "assets" && (
+          <AssetsView
+            factions={displayModifierFactions} allFactions={factions} modifiers={displayModifiers} resources={displayResources} canEdit={isGM} isMobile={isMobile}
+            viewerFactionId={viewer.roleFactionId}
+            activeFactionId={assetFactionId} setActiveFactionId={setAssetFactionId}
+            subtab={assetSubtab || "modifiers"} setSubtab={setAssetSubtab}
             addModifier={addModifier} patchModifier={patchModifier} removeModifier={removeModifier}
             reorderModifiers={reorderModifiers}
+            addResource={addResource} patchResource={patchResource} removeResource={removeResource}
+            sendResource={sendResource}
           />
         )}
 
@@ -1853,6 +2045,7 @@ export default function GalaxySectorMap() {
         {activeTab === "gmtools" && isGM && (
           <GMToolsView
             roles={roles} factions={factions} modifiers={modifiers} notes={notes} isMobile={isMobile}
+            resourceTransactions={resourceTransactions} removeResourceTransaction={removeResourceTransaction}
             addNote={addNote} removeNote={removeNote}
             actions={actions} archivedActions={archivedActions} agents={agents} systems={systems}
             resolveAction={resolveAction} reopenAction={reopenAction} removeAction={removeAction}

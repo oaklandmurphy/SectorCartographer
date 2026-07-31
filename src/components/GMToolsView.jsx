@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Gavel, Copy, Trash2, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6,
   ClipboardList, VenetianMask, Flag, Check, Clock, RotateCcw, Wand2, Users, Rocket, SkipForward,
-  Pencil, X, MapPin, History, Star, Sparkles } from "lucide-react";
+  Pencil, X, MapPin, History, Star, Sparkles, ArrowLeftRight, ArrowRight } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
@@ -63,6 +63,9 @@ function buildNarrativePrompt(turn, items) {
 //      runs the mission odds table (lib/missionOdds.js): a force ratio plus an
 //      independently-shifted roll for outcome and for casualties, and resolving
 //      immediately returns the surviving craft to their fleet.
+//   TRANSACTIONS — the read-only ledger of every resource a player has sent
+//      (Assets tab → Resources → Send To), to another faction or to the GM,
+//      newest first, with whatever purpose message they attached.
 //
 // NOTES — a freeform log plus any tracked roll resolutions — sits underneath
 // whichever section is active; it's one shared log, not per-section.
@@ -73,9 +76,9 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   actions, archivedActions, agents, systems, resolveAction, reopenAction, removeAction, removeArchivedAction,
   editActionResolution, editArchivedActionResolution, setActionImportant, setArchivedActionImportant,
   fleets, missions, archivedMissions, resolveMission, removeMission, removeArchivedMission,
-  orders, nextTurn, turnNumber }) {
+  orders, nextTurn, turnNumber, resourceTransactions, removeResourceTransaction }) {
   const confirm = useConfirm();
-  const [section, setSection] = useState("actions"); // "actions" | "missions" | "narrative"
+  const [section, setSection] = useState("actions"); // "actions" | "missions" | "narrative" | "transactions"
   const pendingMissionTotal = (missions || []).filter((m) => m.status !== "resolved").length;
   // What "Next Turn" is about to do: land every committed move order and close
   // out every agent's action requests. Shown beside the button so the GM isn't
@@ -285,7 +288,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   // `nextTurn` archives a closed-out turn's resolved actions stamped with the
   // turn number that just ended, then bumps turnNumber — so "last turn" is
   // always turnNumber - 1 among archivedActions, no separate bookkeeping needed.
-  const lastTurnNumber = (Number(turnNumber) || 1) - 1;
+  const lastTurnNumber = (Number(turnNumber) || 0) - 1;
   const importantLastTurn = useMemo(
     () => (archivedActions || [])
       .filter((a) => a.important && a.turn === lastTurnNumber)
@@ -623,8 +626,70 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     </div>
   );
 
+  // The full resource-send ledger (Assets tab → Resources subtab → Send To),
+  // newest first — every transfer between factions, or to the GM, with
+  // whatever purpose message the sender attached. A faction that's since
+  // been deleted still shows up by whatever id it sent/received under,
+  // labeled "Unknown faction" same as elsewhere in this app.
+  const factionById = (id) => factions.find((f) => f.id === id) || null;
+  const transactionsPane = () => {
+    const sorted = [...(resourceTransactions || [])].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const party = (id) => {
+      if (id === "gm") return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: T.amber, fontWeight: 700 }}>
+        <Gavel size={12} /> GM
+      </span>;
+      const fac = factionById(id);
+      return (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: fac ? fac.color : T.faint, flexShrink: 0 }} />
+          {fac ? fac.name : "Unknown faction"}
+        </span>
+      );
+    };
+    return (
+      <div>
+        <div className="stencil" style={{ fontSize: 16, letterSpacing: ".06em", color: T.text,
+          display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
+          <ArrowLeftRight size={15} color={T.accent} /> RESOURCE TRANSACTIONS
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {sorted.length === 0 && (
+            <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+              border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
+              No resources have been sent between players yet — see the Send To button on a resource in the Assets tab.
+            </div>
+          )}
+          {sorted.map((t) => (
+            <div key={t.id} style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel2,
+              padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
+                {party(t.fromFactionId)}
+                <ArrowRight size={12} color={T.faint} />
+                {party(t.toFactionId)}
+                <span className="mono" style={{ marginLeft: "auto", fontSize: 9.5, color: T.faint }}>
+                  {t.createdAt ? new Date(t.createdAt).toLocaleString() : ""}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, color: T.text }}>
+                <span className="mono" style={{ fontWeight: 800 }}>{t.amount}</span> × {t.resourceName || "resource"}
+              </div>
+              {t.message && (
+                <div style={{ fontSize: 12, lineHeight: 1.5, color: T.mut, whiteSpace: "pre-wrap" }}>{t.message}</div>
+              )}
+              <Btn kind="danger" style={{ alignSelf: "flex-end" }}
+                onClick={async () => { if (await confirm("Delete this transaction record?")) removeResourceTransaction(t.id); }}>
+                <Trash2 size={13} /> Delete
+              </Btn>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   // The section switch: agent actions vs. squadron missions vs. narrative
-  // prompt. Each owns its own content; Notes stays shared underneath either one.
+  // prompt vs. resource transactions. Each owns its own content; Notes stays
+  // shared underneath either one.
   const sectionBar = () => (
     <div style={{ display: "flex", gap: 3, background: T.panel3, padding: 3, border: `1px solid ${T.line}`,
       margin: isMobile ? "0 0 14px" : "12px 12px 0", alignSelf: isMobile ? "stretch" : "flex-start" }}>
@@ -640,6 +705,10 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
         style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
         <Sparkles size={13} /> Narrative {countBadge(importantLastTurn.length)}
       </Btn>
+      <Btn active={section === "transactions"} onClick={() => setSection("transactions")} title="Resource transfers between factions, and to the GM"
+        style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
+        <ArrowLeftRight size={13} /> Transactions
+      </Btn>
     </div>
   );
 
@@ -654,7 +723,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
       margin: isMobile ? "0 0 14px" : "12px 12px 0" }}>
       <span className="mono" title="The current turn — stamped onto action requests as they're resolved"
         style={{ fontSize: 10.5, color: T.faint, border: `1px solid ${T.line}`, borderRadius: 2, padding: "3px 7px" }}>
-        Turn {turnNumber || 1}
+        Turn {turnNumber || 0}
       </span>
       <Btn kind="primary" disabled={!turnHasWork}
         onClick={async () => { if (await confirm(`Advance the turn — ${turnSummary()}?`)) nextTurn(); }}
@@ -683,6 +752,8 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
             removeArchivedMission={removeArchivedMission} />
         ) : section === "narrative" ? (
           narrativePane()
+        ) : section === "transactions" ? (
+          transactionsPane()
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
             <div>
@@ -731,6 +802,17 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
           display: "flex", gap: 22, maxWidth: 900 }}>
           <div style={{ flex: 1, minWidth: 0 }}>{narrativePane()}</div>
           <div style={{ width: 320, flexShrink: 0 }}>{notes_}</div>
+        </div>
+      </div>
+    );
+  }
+  if (section === "transactions") {
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.void }}>
+        {sectionBar()}
+        {turnBar()}
+        <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 18, maxWidth: 700 }}>
+          {transactionsPane()}
         </div>
       </div>
     );
