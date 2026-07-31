@@ -56,6 +56,14 @@ function readAccess(data, raw) {
   data.fleetsPublic = !(raw.access && raw.access.fleetsPublic === false);
 }
 
+// The GM's turn counter, bumped by nextTurn() in App.jsx and stamped onto
+// actions as they're archived so Previous Actions can show which turn a
+// request was resolved on. Absent (a sector predating this, or v1) means 1.
+function readTurn(data, raw) {
+  const n = raw.turn && Number(raw.turn.number);
+  data.turnNumber = Number.isFinite(n) && n > 0 ? n : 1;
+}
+
 // Current tree shape (schema >= SCHEMA_VERSION): every collection, including
 // ships, decoded generically, then regrouped onto their fleets — see
 // nestFleets in sectorSchema.js.
@@ -63,6 +71,7 @@ function fromCurrent(raw) {
   const data = emptySector();
   for (const c of COLLECTIONS) data[c] = decodeCollection(c, raw[c]);
   readAccess(data, raw);
+  readTurn(data, raw);
   return { data: nestFleets(data), schema: SCHEMA_VERSION };
 }
 
@@ -79,6 +88,7 @@ function fromV2Legacy(raw) {
   }
   data.fleets = decodeV2Fleets(raw.fleets);
   readAccess(data, raw);
+  readTurn(data, raw);
   return { data, schema: 2 };
 }
 

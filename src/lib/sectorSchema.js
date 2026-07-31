@@ -36,7 +36,7 @@ export const V1_ACCESS_KEY = "galaxy-sector-access:v1";
 export const COLLECTIONS = [
   "factions", "relations", "layers", "systems",
   "links", "fleets", "ships", "strokes", "wiki", "wikiReads", "roles", "art", "modifiers",
-  "agents", "orders", "actions", "archivedActions", "missions", "actionReads", "missionReads",
+  "agents", "orders", "actions", "archivedActions", "missions", "archivedMissions", "actionReads", "missionReads",
 ];
 
 // GM Tools notes live at their own top-level path (sectorNotes/{sectorId}, see
@@ -64,6 +64,9 @@ const defaults = {
   // the turn instead of being deleted, so past rolls are never lost.
   archivedActions: { modifierIds: [], text: "", status: "pending", resolution: null },
   missions: { detachments: [], text: "", status: "pending", resolution: null },
+  // Missions from a closed-out turn — same idea as archivedActions above: moved
+  // here when the GM advances the turn instead of being deleted.
+  archivedMissions: { detachments: [], text: "", status: "pending", resolution: null },
   relations: {}, layers: {}, links: {}, wikiReads: {}, roles: {}, art: {}, modifiers: {}, notes: { text: "" }, ships: {},
   actionReads: {}, missionReads: {},
 };
@@ -144,6 +147,13 @@ const actionCodec = {
   }),
 };
 
+// Shared by `missions` and `archivedMissions` — same relationship as
+// actions/archivedActions above.
+const missionCodec = {
+  encode: (m) => ({ ...m, detachments: m.detachments || [] }),
+  decode: (m) => ({ ...m, detachments: asArray(m.detachments) }),
+};
+
 const codecs = {
   // A carrier: visibility (GM-only/role-restricted, same as a wiki entry) plus
   // its squadrons list, same empty-array/sparse-object treatment as everywhere
@@ -178,10 +188,10 @@ const codecs = {
   // A squadron mission's `detachments` is the list of committed craft ({ shipId,
   // squadronId, model, count }) snapshotted off their source squadrons at submit
   // time — same empty-array/sparse-object treatment as an action's modifierIds.
-  missions: {
-    encode: (m) => ({ ...m, detachments: m.detachments || [] }),
-    decode: (m) => ({ ...m, detachments: asArray(m.detachments) }),
-  },
+  // Shared by `missions` and `archivedMissions` — same relationship as
+  // actions/archivedActions above.
+  missions: missionCodec,
+  archivedMissions: missionCodec,
 };
 
 // One entity -> the object stored at sectors/{id}/{collection}/{entityId}.
@@ -288,7 +298,7 @@ export function decodeV2Fleets(rawFleetsNode) {
 // entities without its lock, which reads as "no lock set", which means open to
 // everyone. One path in means the lock cannot be left behind.
 export const emptySector = () =>
-  COLLECTIONS.reduce((acc, c) => ({ ...acc, [c]: [] }), { lockCode: "", fleetsPublic: true });
+  COLLECTIONS.reduce((acc, c) => ({ ...acc, [c]: [] }), { lockCode: "", fleetsPublic: true, turnNumber: 1 });
 
 function deepEqual(a, b) {
   if (a === b) return true;
@@ -336,6 +346,12 @@ export function buildSectorUpdates(prev, next) {
   const pubBefore = p.fleetsPublic !== false;
   const pubAfter = n.fleetsPublic !== false;
   if (pubBefore !== pubAfter) updates["access/fleetsPublic"] = pubAfter;
+  // The GM's turn counter — its own node for the same reason as the lock code:
+  // a bump on Next Turn shouldn't rewrite sector content, but still needs to
+  // ride along through this diff so it survives a migration.
+  const turnBefore = p.turnNumber || 1;
+  const turnAfter = n.turnNumber || 1;
+  if (turnBefore !== turnAfter) updates["turn/number"] = turnAfter;
   return updates;
 }
 

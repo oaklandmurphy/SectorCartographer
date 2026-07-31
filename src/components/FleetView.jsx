@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Ship, Anchor, Plus, X, Columns2, StickyNote, Rocket, Clock, Check, SplitSquareHorizontal } from "lucide-react";
+import { Ship, Anchor, Plus, X, Columns2, StickyNote, Rocket, Clock, Check, SplitSquareHorizontal,
+  History, ChevronDown, ChevronUp } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import { squadronsOf, craftInCarrier, craftInFleet, knownModels, knownCarrierModels } from "../lib/carriers.js";
 import { mergeNames } from "../lib/shipArt.js";
@@ -22,10 +23,14 @@ export default function FleetView({
   addShip, patchShip, removeShip, renameFleet,
   addSquadron, patchSquadron, removeSquadron,
   art = [], addArt, patchArt, removeArt,
-  missions = [], canOrderFor, submitMission, onOpenFleetTransfer,
+  missions = [], archivedMissions = [], canOrderFor, submitMission, onOpenFleetTransfer,
 }) {
   // Which fleet's squadron-order composer is open, if any (by fleet id).
   const [orderFleetId, setOrderFleetId] = useState(null);
+  // Per-fleet: whether that fleet's archived (previous-turn) missions are
+  // revealed below the current ones — keyed by fleet id so comparing two
+  // fleets side by side doesn't share one toggle between them.
+  const [openMissionHistory, setOpenMissionHistory] = useState({});
   const orderFleet = fleets.find((f) => f.id === orderFleetId) || null;
   const artNames = useMemo(() => art.map((a) => a.name), [art]);
   // suggest library entries alongside names already in use, so picking a model
@@ -277,6 +282,11 @@ export default function FleetView({
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     const resolvedMissions = fleetMissions.filter((m) => m.status === "resolved")
       .sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0));
+    // Previous turns' resolved missions — see App.jsx's nextTurn — hidden by
+    // default behind the toggle below, same idea as AgentsView's Past Turns.
+    const archivedFleetMissions = archivedMissions.filter((m) => m.fleetId === fleet.id)
+      .sort((a, b) => (b.turnEndedAt || 0) - (a.turnEndedAt || 0));
+    const historyOpen = !!openMissionHistory[fleet.id];
     return (
     <div key={isCompare ? "cmp" : "pri"}
       style={{ flex: 1, minWidth: 0, minHeight: isMobile ? "auto" : 0, display: "flex",
@@ -287,16 +297,6 @@ export default function FleetView({
       <div className={isMobile ? "" : "scroll"}
         style={{ flex: 1, minHeight: 0, overflowY: isMobile ? "visible" : "auto", padding: 10,
           display: "flex", flexDirection: "column", gap: 8 }}>
-        {fleetMissions.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingBottom: 4,
-            borderBottom: `1px solid ${T.line}` }}>
-            <span style={{ ...lbl, display: "flex", alignItems: "center", gap: 5 }}>
-              <Rocket size={11} /> Squadron missions
-            </span>
-            {pendingMissions.map((m) => missionCard(fleet, m))}
-            {resolvedMissions.map((m) => missionCard(fleet, m))}
-          </div>
-        )}
         {fleet.ships.length === 0 && (
           <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
             border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
@@ -308,6 +308,27 @@ export default function FleetView({
           <Btn kind="primary" onClick={() => addShip(fleet.id)} style={{ justifyContent: "center" }}>
             <Plus size={14} /> Add carrier
           </Btn>
+        )}
+        {(fleetMissions.length > 0 || archivedFleetMissions.length > 0) && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 8, marginTop: 2,
+            borderTop: `1px solid ${T.line}` }}>
+            <span style={{ ...lbl, display: "flex", alignItems: "center", gap: 5 }}>
+              <Rocket size={11} /> Squadron missions
+            </span>
+            {pendingMissions.map((m) => missionCard(fleet, m))}
+            {resolvedMissions.map((m) => missionCard(fleet, m))}
+            {archivedFleetMissions.length > 0 && (
+              <>
+                <Btn onClick={() => setOpenMissionHistory((o) => ({ ...o, [fleet.id]: !o[fleet.id] }))}
+                  title={historyOpen ? "Hide previous turns' missions" : "See this fleet's missions from previous turns"}
+                  style={{ justifyContent: "center", marginTop: 2 }}>
+                  <History size={13} /> {historyOpen ? "Hide" : "Show"} past missions ({archivedFleetMissions.length})
+                  {historyOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                </Btn>
+                {historyOpen && archivedFleetMissions.map((m) => missionCard(fleet, m))}
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>

@@ -50,6 +50,7 @@ export default function GalaxySectorMap() {
   const [archivedActions, setArchivedActions] = useState([]); // actions from turns already closed out — see nextTurn
   const [actionReads, setActionReads] = useState([]); // shared per-faction "seen this resolved action" receipts, same idea as wikiReads
   const [missions, setMissions] = useState([]); // squadron mission requests players raise from a fleet's hangar for the GM to resolve
+  const [archivedMissions, setArchivedMissions] = useState([]); // missions from turns already closed out — see nextTurn
   const [missionReads, setMissionReads] = useState([]); // shared per-faction "seen this resolved mission" receipts, same idea as wikiReads
 
   const [mode, setMode] = useState("select"); // select | link | draw | orders
@@ -71,6 +72,7 @@ export default function GalaxySectorMap() {
 
   const [lockCode, setLockCode] = useState("");   // shared: "" means editing is open to everyone; else the GM code
   const [fleetsPublic, setFleetsPublic] = useState(true); // shared: false hides fleet positions from anyone without a matching login
+  const [turnNumber, setTurnNumber] = useState(1); // shared: bumped by nextTurn(), stamped onto actions as they're archived
   const [knownCode, setKnownCode] = useState(""); // personal: the GM/player code this browser has entered
   const [accessOpen, setAccessOpen] = useState(false);
   const [codeInput, setCodeInput] = useState("");
@@ -125,8 +127,8 @@ export default function GalaxySectorMap() {
   // `notes` is deliberately not part of this — it lives at its own path and is
   // saved on its own schedule below, so it's never part of the root diff/save.
   const sector = useMemo(
-    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, archivedActions, actionReads, missions, missionReads, lockCode, fleetsPublic }),
-    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, archivedActions, actionReads, missions, missionReads, lockCode, fleetsPublic],
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, lockCode, fleetsPublic, turnNumber }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, lockCode, fleetsPublic, turnNumber],
   );
   // The sector as the database currently has it. Null until the load below fills
   // it in, which is also what stops an autosave from firing against an empty
@@ -158,8 +160,9 @@ export default function GalaxySectorMap() {
       setStrokes(data.strokes); setWiki(data.wiki); setWikiReads(data.wikiReads); setRoles(data.roles); setArt(data.art);
       setModifiers(data.modifiers); setAgents(data.agents); setOrders(data.orders); setActions(data.actions);
       setArchivedActions(data.archivedActions); setActionReads(data.actionReads);
-      setMissions(data.missions); setMissionReads(data.missionReads);
+      setMissions(data.missions); setArchivedMissions(data.archivedMissions); setMissionReads(data.missionReads);
       setLockCode(data.lockCode); setFleetsPublic(data.fleetsPublic !== false);
+      setTurnNumber(data.turnNumber || 1);
     };
     const unsub = subscribeSector(
       ({ data, schema }) => {
@@ -805,6 +808,19 @@ export default function GalaxySectorMap() {
     setArchivedActions((arch) => arch.map((a) => (a.id === id && a.resolution && typeof a.resolution === "object"
       ? { ...a, resolution: { ...a.resolution, text } } : a)));
   }
+  // GM-only: flag a resolved request as narratively important — a private note
+  // to self that never reaches a player's view (AgentsView never reads this
+  // field) for future turn-summary tooling to pull from instead of re-reading
+  // every ruling. Works on either pile: still in the live queue (resolved but
+  // not yet archived) or already moved to Previous Actions.
+  function setActionImportant(id, important) {
+    if (!isGM) return;
+    setActions((acts) => acts.map((a) => (a.id === id ? { ...a, important: !!important } : a)));
+  }
+  function setArchivedActionImportant(id, important) {
+    if (!isGM) return;
+    setArchivedActions((arch) => arch.map((a) => (a.id === id ? { ...a, important: !!important } : a)));
+  }
   // GM: permanently delete an entry from a closed-out turn's Previous Actions
   // log (contrast removeAction, which acts on the live queue).
   function removeArchivedAction(id) {
@@ -815,11 +831,15 @@ export default function GalaxySectorMap() {
   /* ---- turn advance: the GM's one bulk "resolve the round" button (GM Tools).
      Every *committed* move order — fleet or agent — lands its piece on the last
      stop in its path and is cleared; anything still a draft (uncommitted, or no
-     stops) is left alone for next time. Every agent's action requests, resolved
-     or still pending, move into archivedActions (GM Tools' per-faction "Previous
-     Actions" tab) so each agent's actionCap counts fresh for the new turn without
-     losing the roll history — same close-the-round idea as movement, just for
-     the other queue. */
+     stops) is left alone for next time. Every agent's *resolved* action requests
+     move into archivedActions (GM Tools' per-faction "Previous Actions" tab) so
+     the roll history isn't lost — same close-the-round idea as movement, just
+     for the other queue. Requests still pending when the turn closes did NOT get
+     a ruling, so they aren't archived — they stay in the live queue, stamped
+     carriedOver so the UI can flag them as held over from an earlier turn. They
+     still count against the agent's actionCap (nothing frees the slot until the
+     GM rules on it or the player withdraws it) and remain withdrawable/resolvable
+     exactly like a fresh request. */
   function nextTurn() {
     if (!isGM) return;
     const ready = orders.filter((o) => o.committed && o.path.length > 0);
@@ -870,15 +890,40 @@ export default function GalaxySectorMap() {
         const fac = factions.find((f) => f.id === a.factionId);
         const member = fac && (fac.members || []).find((m) => m.id === a.memberId);
         const label = member ? member.name : "Agent";
-        own.forEach((x) => lines.push(`  ${label}: "${x.text}" — ${x.status === "resolved" ? "resolved" : "unresolved"}`));
+        own.forEach((x) => lines.push(`  ${label}: "${x.text}" — ${x.status === "resolved" ? "resolved" : "carried over, still pending"}`));
+      });
+    }
+    const resolvedMissionsNow = missions.filter((m) => m.status === "resolved");
+    if (resolvedMissionsNow.length > 0) {
+      if (lines.length > 0) lines.push("");
+      lines.push("SQUADRON MISSIONS RESOLVED");
+      resolvedMissionsNow.forEach((m) => {
+        const fleet = fleets.find((f) => f.id === m.fleetId);
+        lines.push(`  ${fleet ? fleet.name : "Fleet"}: "${m.text}"`);
       });
     }
     if (lines.length > 0) addNote(`Turn advanced — ${new Date().toLocaleString()}\n${lines.join("\n")}`, "turn");
     if (actions.length > 0) {
-      const turnEndedAt = Date.now();
-      setArchivedActions((arch) => [...actions.map((a) => ({ ...a, turnEndedAt })), ...arch]);
-      setActions([]);
+      const resolvedActions = actions.filter((a) => a.status === "resolved");
+      const pendingActions = actions.filter((a) => a.status !== "resolved");
+      if (resolvedActions.length > 0) {
+        const turnEndedAt = Date.now();
+        // `turn` is the turn number that's closing out right now — the one the
+        // GM's ruling actually happened on — not the one about to start.
+        setArchivedActions((arch) => [...resolvedActions.map((a) => ({ ...a, turnEndedAt, turn: turnNumber })), ...arch]);
+      }
+      setActions(pendingActions.map((a) => (a.carriedOver ? a : { ...a, carriedOver: true })));
     }
+    // Same close-the-round move as actions above: a resolved mission moves into
+    // archivedMissions stamped with the turn that closed, so the Fleet tab only
+    // ever shows the current turn's missions live; a still-pending one stays in
+    // `missions` untouched (nothing to archive until the GM rules on it).
+    if (resolvedMissionsNow.length > 0) {
+      const turnEndedAt = Date.now();
+      setArchivedMissions((arch) => [...resolvedMissionsNow.map((m) => ({ ...m, turnEndedAt, turn: turnNumber })), ...arch]);
+      setMissions((ms) => ms.filter((m) => m.status !== "resolved"));
+    }
+    setTurnNumber((n) => (Number(n) || 1) + 1);
   }
 
   /* ---- squadron missions: a player commits some of a fleet's fighters/bombers
@@ -923,6 +968,13 @@ export default function GalaxySectorMap() {
     if (!m) return;
     if (m.status === "pending") setFleets((fs) => returnDetachments(fs, m.fleetId, m.detachments || []));
     setMissions((ms) => ms.filter((x) => x.id !== id));
+  }
+  // GM: permanently delete an entry from a closed-out turn's archive (contrast
+  // removeMission, which acts on the live queue). Always resolved by the time it
+  // gets here, so there are no craft left to return.
+  function removeArchivedMission(id) {
+    if (!isGM) return;
+    setArchivedMissions((arch) => arch.filter((x) => x.id !== id));
   }
   // GM: adjudicate a pending mission against the odds table (see missionOdds.js)
   // and return the survivors in the same step. The panel's resolution tool spreads
@@ -1454,6 +1506,10 @@ export default function GalaxySectorMap() {
   // live one, or a resolution can silently vanish off the list unacknowledged.
   const displayArchivedActions = useMemo(() => visibleActions(archivedActions, viewer), [archivedActions, viewer]);
   const displayMissions = useMemo(() => visibleMissions(missions, viewer), [missions, viewer]);
+  // Same own-faction filter as displayMissions — a resolved mission can be swept
+  // into archivedMissions by nextTurn before its faction ever sees the ruling,
+  // same "resolution can vanish off the live pile" wrinkle as displayArchivedActions.
+  const displayArchivedMissions = useMemo(() => visibleMissions(archivedMissions, viewer), [archivedMissions, viewer]);
   // This faction's resolved action requests it hasn't acknowledged yet — same
   // "receipt older than the thing it's for" comparison as unseenArticles, but
   // against resolvedAt rather than updatedAt, and pulled from both the live and
@@ -1475,19 +1531,22 @@ export default function GalaxySectorMap() {
       })
       .sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0));
   }, [displayActions, displayArchivedActions, actionReads, agents, factions, viewer.roleFactionId]);
-  // Same idea for resolved squadron missions — missions have no archive
-  // collection, so this only ever reads displayMissions.
+  // Same idea for resolved squadron missions, pulled from both the live and
+  // archived piles (see displayArchivedMissions above) — same reasoning as
+  // unseenResolvedActions.
   const unseenResolvedMissions = useMemo(() => {
     const factionId = viewer.roleFactionId;
     if (!factionId) return [];
-    return displayMissions.filter((m) => m.status === "resolved").filter((m) => {
-      const seen = missionReads.find((r) => r.factionId === factionId && r.missionId === m.id);
-      return !seen || seen.seenAt < (m.resolvedAt || 0);
-    }).map((m) => {
-      const fleet = fleets.find((f) => f.id === m.fleetId);
-      return { ...m, fleetName: fleet ? fleet.name : "Fleet" };
-    }).sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0));
-  }, [displayMissions, missionReads, fleets, viewer.roleFactionId]);
+    return [...displayMissions, ...displayArchivedMissions]
+      .filter((m) => m.status === "resolved")
+      .filter((m) => {
+        const seen = missionReads.find((r) => r.factionId === factionId && r.missionId === m.id);
+        return !seen || seen.seenAt < (m.resolvedAt || 0);
+      }).map((m) => {
+        const fleet = fleets.find((f) => f.id === m.fleetId);
+        return { ...m, fleetName: fleet ? fleet.name : "Fleet" };
+      }).sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0));
+  }, [displayMissions, displayArchivedMissions, missionReads, fleets, viewer.roleFactionId]);
   // The Agents page's faction subtabs: every faction for the GM, only their own
   // for a player, none for an anonymous viewer.
   const displayAgentFactions = useMemo(() => {
@@ -1724,7 +1783,8 @@ export default function GalaxySectorMap() {
             addShip={addShip} patchShip={patchShip} removeShip={removeShip} renameFleet={renameFleet}
             addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
             art={art} addArt={addArt} patchArt={patchArt} removeArt={removeArt}
-            missions={displayMissions} canOrderFor={canOrderFor} submitMission={submitMission}
+            missions={displayMissions} archivedMissions={displayArchivedMissions}
+            canOrderFor={canOrderFor} submitMission={submitMission}
             onOpenFleetTransfer={openFleetTransfer}
           />
         )}
@@ -1778,7 +1838,7 @@ export default function GalaxySectorMap() {
             activeFactionId={agentFactionId} setActiveFactionId={setAgentFactionId}
             addAgent={addAgent} patchAgent={patchAgent} removeAgent={removeAgent}
             patchFaction={patchFaction}
-            actions={displayActions} modifiers={modifiers}
+            actions={displayActions} archivedActions={displayArchivedActions} modifiers={modifiers}
             submitAction={submitAction} removeAction={removeAction}
             initialAgentId={initialAgentId}
           />
@@ -1798,9 +1858,11 @@ export default function GalaxySectorMap() {
             resolveAction={resolveAction} reopenAction={reopenAction} removeAction={removeAction}
             removeArchivedAction={removeArchivedAction}
             editActionResolution={editActionResolution} editArchivedActionResolution={editArchivedActionResolution}
-            fleets={fleets} missions={missions}
+            setActionImportant={setActionImportant} setArchivedActionImportant={setArchivedActionImportant}
+            fleets={fleets} missions={missions} archivedMissions={archivedMissions}
             resolveMission={resolveMission} removeMission={removeMission}
-            orders={orders} nextTurn={nextTurn}
+            removeArchivedMission={removeArchivedMission}
+            orders={orders} nextTurn={nextTurn} turnNumber={turnNumber}
           />
         )}
       </Suspense>

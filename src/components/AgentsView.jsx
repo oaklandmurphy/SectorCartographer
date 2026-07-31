@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { VenetianMask, Plus, Trash2, User, MapPin, ShieldAlert, ClipboardList, Send, Flag, Check, Clock } from "lucide-react";
+import { useMemo, useState } from "react";
+import { VenetianMask, Plus, Trash2, User, MapPin, ShieldAlert, ClipboardList, Send, Flag, Check, Clock, History, ChevronUp, ChevronDown } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl } from "../theme.js";
 import { AGENT_ICONS, AGENT_ICON_KEYS } from "../constants.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
@@ -22,7 +22,7 @@ import MobileTabRail from "./ui/MobileTabRail.jsx";
 export default function AgentsView({
   factions, agents, systems, canEdit, isMobile, viewer,
   activeFactionId, setActiveFactionId, addAgent, patchAgent, removeAgent, patchFaction,
-  actions, modifiers, submitAction, removeAction,
+  actions, archivedActions, modifiers, submitAction, removeAction,
   initialAgentId, // deep-link: open straight to this agent (e.g. "Request Action" from the map/politics view)
 }) {
   const confirm = useConfirm();
@@ -296,6 +296,7 @@ export default function AgentsView({
             key={a.id}
             agent={a} color={activeFaction.color} isMobile={isMobile}
             actions={(actions || []).filter((x) => x.agentId === a.id)}
+            archivedActions={(archivedActions || []).filter((x) => x.agentId === a.id)}
             facModifiers={facModifiers} cap={Number(a.actionCap) || 0}
             canManage={canManage} canEdit={canEdit}
             submitAction={submitAction} removeAction={removeAction} patchAgent={patchAgent}
@@ -354,7 +355,7 @@ export default function AgentsView({
 // raised — unresolved ones first, then those the GM has ruled on — and, while the
 // agent has slots left and the viewer may manage it, a composer to write the next
 // one and flag which of the faction's modifiers should bear on it.
-function AgentActions({ agent, color, isMobile, actions, facModifiers, cap, canManage, canEdit, submitAction, removeAction, patchAgent, startOpen }) {
+function AgentActions({ agent, color, isMobile, actions, archivedActions, facModifiers, cap, canManage, canEdit, submitAction, removeAction, patchAgent, startOpen }) {
   const confirm = useConfirm();
   const [text, setText] = useState("");
   const [picked, setPicked] = useState([]); // flagged modifier ids
@@ -366,6 +367,26 @@ function AgentActions({ agent, color, isMobile, actions, facModifiers, cap, canM
 
   const pending = actions.filter((rq) => rq.status !== "resolved");
   const resolved = actions.filter((rq) => rq.status === "resolved");
+
+  // Once a turn is closed out, this agent's resolved requests move out of
+  // `actions` and into `archivedActions`, stamped with the turn they closed
+  // in (see App.jsx's nextTurn) — so the log above only ever shows the
+  // current turn. Group the archive by turn, newest first, so a player can
+  // page back through what this agent actually did.
+  const turnGroups = useMemo(() => {
+    const byTurn = new Map();
+    for (const rq of archivedActions || []) {
+      const t = rq.turn || 0;
+      if (!byTurn.has(t)) byTurn.set(t, []);
+      byTurn.get(t).push(rq);
+    }
+    return [...byTurn.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .map(([turn, items]) => ({ turn, items: items.sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0)) }));
+  }, [archivedActions]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyTurn, setHistoryTurn] = useState(null);
+  const activeTurnGroup = turnGroups.find((g) => g.turn === historyTurn) || turnGroups[0] || null;
 
   const togglePick = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const send = () => {
@@ -385,6 +406,16 @@ function AgentActions({ agent, color, isMobile, actions, facModifiers, cap, canM
             color: isResolved ? T.accent : T.amber }}>
             {isResolved ? <Check size={10} /> : <Clock size={10} />}{isResolved ? "Resolved" : "Pending"}
           </span>
+          {/* Still pending after a turn advance — the GM never ruled on it, so it
+              held over into the new turn rather than being archived. Still counts
+              against the agent's actionCap and is withdrawable like any other. */}
+          {rq.carriedOver && !isResolved && (
+            <span title="Held over from a previous turn — not yet resolved" style={{ display: "inline-flex",
+              alignItems: "center", gap: 3, fontSize: 9, fontWeight: 700, letterSpacing: ".06em",
+              textTransform: "uppercase", color: T.faint }}>
+              <History size={10} /> Carried over
+            </span>
+          )}
           {/* A pending request can be withdrawn by its faction (freeing the slot);
               the GM resolves rather than deletes here — that lives in GM Tools. */}
           {canManage && !isResolved && (
@@ -529,6 +560,40 @@ function AgentActions({ agent, color, isMobile, actions, facModifiers, cap, canM
       {canManage && remaining === 0 && cap > 0 && (
         <div style={{ fontSize: 10.5, color: T.faint }}>
           This agent has used all its action requests.
+        </div>
+      )}
+
+      {turnGroups.length > 0 && (
+        <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 10, display: "flex", flexDirection: "column", gap: 7 }}>
+          <Btn onClick={() => setHistoryOpen((v) => !v)} active={historyOpen}
+            title={historyOpen ? "Hide this agent's past turns" : "See what this agent did on past turns"}
+            style={{ justifyContent: "center", padding: "10px 14px", fontSize: 12.5 }}>
+            <History size={15} /> Past Turns ({turnGroups.length})
+            {historyOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          </Btn>
+
+          {historyOpen && (
+            <>
+              <div className="scroll" style={{ display: "flex", gap: 4, overflowX: "auto", flexWrap: isMobile ? "wrap" : "nowrap" }}>
+                {turnGroups.map((g) => {
+                  const on = g.turn === activeTurnGroup?.turn;
+                  return (
+                    <button key={g.turn} onClick={() => setHistoryTurn(g.turn)}
+                      style={{ cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+                        border: `1px solid ${on ? color : T.line}`, borderRadius: 2, padding: "4px 8px",
+                        background: on ? `${color}26` : T.panel3, color: on ? color : T.mut,
+                        fontFamily: F.body, fontSize: 10.5, fontWeight: 600,
+                        letterSpacing: ".03em", textTransform: "uppercase" }}>
+                      Turn {g.turn}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {activeTurnGroup && activeTurnGroup.items.map(requestCard)}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

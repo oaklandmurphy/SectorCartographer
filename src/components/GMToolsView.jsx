@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Gavel, Copy, Trash2, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6,
   ClipboardList, VenetianMask, Flag, Check, Clock, RotateCcw, Wand2, Users, Rocket, SkipForward,
-  Pencil, X, MapPin } from "lucide-react";
+  Pencil, X, MapPin, History, Star, Sparkles } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
@@ -23,6 +23,31 @@ const OUTCOMES = [
 const OUTCOME_LABEL = {
   success: "Success", failure: "Failure", autoSuccess: "Auto Success", autoFailure: "Auto Failure",
 };
+
+// A Claude prompt asking for exposition-style narration of exactly the events
+// handed to it — nothing invented beyond what the GM marked important. `items`
+// is [{ action, factionName, agentLabel, systemLabel }], oldest first.
+function buildNarrativePrompt(turn, items) {
+  const lines = [
+    "You are a science fiction author providing narrative exposition for a tabletop strategy campaign.",
+    `Write a vivid, atmospheric recap of Turn ${turn}, in the voice of a science fiction author delivering `
+      + "exposition to their reader — evocative and dramatic, but grounded in exactly the events listed below. "
+      + "Do not invent factions, characters, or outcomes beyond what's given. Weave the events into a cohesive "
+      + "narrative passage rather than a bullet list.",
+    "",
+    `EVENTS FROM TURN ${turn}:`,
+  ];
+  items.forEach(({ action, factionName, agentLabel, systemLabel }, i) => {
+    const resolution = action.resolution;
+    const outcome = resolution && typeof resolution === "object" ? OUTCOME_LABEL[resolution.outcome] || resolution.outcome : "";
+    const ruling = resolution && typeof resolution === "object" ? resolution.text : (typeof resolution === "string" ? resolution : "");
+    lines.push("");
+    lines.push(`${i + 1}. [${factionName}] ${agentLabel}${systemLabel ? ` at ${systemLabel}` : ""} — "${action.text}"`);
+    if (outcome) lines.push(`   Outcome: ${outcome}`);
+    if (ruling) lines.push(`   Result: ${ruling}`);
+  });
+  return lines.join("\n");
+}
 
 // GM-only workbench (App.jsx gates the tab and the render — see there for why
 // nothing here re-checks isGM). A section switch up top picks between two
@@ -46,10 +71,11 @@ const OUTCOME_LABEL = {
 // week and +2 the next), so it's typed in at the moment of use, not stored.
 export default function GMToolsView({ roles, factions, modifiers, notes, isMobile, addNote, removeNote,
   actions, archivedActions, agents, systems, resolveAction, reopenAction, removeAction, removeArchivedAction,
-  editActionResolution, editArchivedActionResolution,
-  fleets, missions, resolveMission, removeMission, orders, nextTurn }) {
+  editActionResolution, editArchivedActionResolution, setActionImportant, setArchivedActionImportant,
+  fleets, missions, archivedMissions, resolveMission, removeMission, removeArchivedMission,
+  orders, nextTurn, turnNumber }) {
   const confirm = useConfirm();
-  const [section, setSection] = useState("actions"); // "actions" | "missions"
+  const [section, setSection] = useState("actions"); // "actions" | "missions" | "narrative"
   const pendingMissionTotal = (missions || []).filter((m) => m.status !== "resolved").length;
   // What "Next Turn" is about to do: land every committed move order and close
   // out every agent's action requests. Shown beside the button so the GM isn't
@@ -57,13 +83,22 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   const readyOrders = (orders || []).filter((o) => o.committed && o.path.length > 0);
   const readyFleetMoves = readyOrders.filter((o) => o.pieceType === "fleet").length;
   const readyAgentMoves = readyOrders.filter((o) => o.pieceType === "agent").length;
-  const openActionsTotal = (actions || []).length;
-  const turnHasWork = readyOrders.length > 0 || openActionsTotal > 0;
+  const resolvedActionsTotal = (actions || []).filter((a) => a.status === "resolved").length;
+  const pendingActionsTotal = (actions || []).filter((a) => a.status !== "resolved").length;
+  // Squadron missions archive on the same turn-advance (see App.jsx's nextTurn),
+  // so a turn with nothing but resolved missions still has work to close out —
+  // without this, Next Turn would stay disabled and those missions would never
+  // move into the archive.
+  const resolvedMissionsTotal = (missions || []).filter((m) => m.status === "resolved").length;
+  const turnHasWork = readyOrders.length > 0 || resolvedActionsTotal > 0 || pendingActionsTotal > 0
+    || resolvedMissionsTotal > 0;
   function turnSummary() {
     const parts = [];
     if (readyFleetMoves > 0) parts.push(`${readyFleetMoves} fleet move${readyFleetMoves === 1 ? "" : "s"}`);
     if (readyAgentMoves > 0) parts.push(`${readyAgentMoves} agent move${readyAgentMoves === 1 ? "" : "s"}`);
-    if (openActionsTotal > 0) parts.push(`${openActionsTotal} action request${openActionsTotal === 1 ? "" : "s"} closed out`);
+    if (resolvedActionsTotal > 0) parts.push(`${resolvedActionsTotal} action request${resolvedActionsTotal === 1 ? "" : "s"} closed out`);
+    if (pendingActionsTotal > 0) parts.push(`${pendingActionsTotal} still pending, carried over`);
+    if (resolvedMissionsTotal > 0) parts.push(`${resolvedMissionsTotal} squadron mission${resolvedMissionsTotal === 1 ? "" : "s"} closed out`);
     return parts.length > 0 ? parts.join(" · ") : "Nothing queued — no committed moves or open action requests.";
   }
 
@@ -246,6 +281,29 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   };
   const modName = (id) => (modifiers.find((m) => m.id === id) || {}).name || "";
 
+  /* ------------------------------------------------ narrative prompt tool */
+  // `nextTurn` archives a closed-out turn's resolved actions stamped with the
+  // turn number that just ended, then bumps turnNumber — so "last turn" is
+  // always turnNumber - 1 among archivedActions, no separate bookkeeping needed.
+  const lastTurnNumber = (Number(turnNumber) || 1) - 1;
+  const importantLastTurn = useMemo(
+    () => (archivedActions || [])
+      .filter((a) => a.important && a.turn === lastTurnNumber)
+      .sort((a, b) => (a.resolvedAt || 0) - (b.resolvedAt || 0)),
+    [archivedActions, lastTurnNumber],
+  );
+  const [narrativeOutput, setNarrativeOutput] = useState("");
+  function generateNarrativePrompt() {
+    const items = importantLastTurn.map((action) => {
+      const { faction, label, systemLabel } = describeAgent(action);
+      return { action, factionName: faction ? faction.name : "Unknown faction", agentLabel: label, systemLabel };
+    });
+    setNarrativeOutput(buildNarrativePrompt(lastTurnNumber, items));
+  }
+  async function copyNarrativeOutput() {
+    try { await navigator.clipboard.writeText(narrativeOutput); } catch (e) { /* clipboard unavailable */ }
+  }
+
   /* ------------------------------------------------ render helpers, one per zone
      so the same markup serves the desktop workspace (rail | requests | tool) and
      the stacked mobile layout without duplicating it. */
@@ -295,7 +353,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
         modName={modName} isTarget={action.id === targetId}
         onResolveWithTool={() => startResolving(action)}
         reopenAction={reopenAction} removeAction={removeAction}
-        editActionResolution={editActionResolution} />
+        editActionResolution={editActionResolution} setActionImportant={setActionImportant} />
     );
   };
   const renderArchivedCard = (action) => {
@@ -303,7 +361,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     return (
       <ArchivedActionCard key={action.id} action={action} faction={fac} agentLabel={label} systemLabel={systemLabel}
         modName={modName} removeArchivedAction={removeArchivedAction}
-        editArchivedActionResolution={editArchivedActionResolution} />
+        editArchivedActionResolution={editArchivedActionResolution} setArchivedActionImportant={setArchivedActionImportant} />
     );
   };
 
@@ -501,8 +559,72 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     </div>
   );
 
-  // The section switch: agent actions vs. squadron missions. Each owns its own
-  // queue + resolution tool; Notes stays shared underneath either one.
+  // The narrative prompt pane: the read-only list of what "Generate Prompt"
+  // is about to feed in (every archived action from the last closed turn that
+  // the GM starred important), the button itself, and the generated text with
+  // a copy affordance — same shape as the roll tool's Discord output above.
+  const narrativePane = () => (
+    <div>
+      <div className="stencil" style={{ fontSize: 16, letterSpacing: ".06em", color: T.text,
+        display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
+        <Sparkles size={15} color={T.accent} /> NARRATIVE PROMPT
+      </div>
+
+      <div style={{ background: T.panel, border: `1px solid ${T.line}`, ...cut(10),
+        padding: isMobile ? 12 : 16, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ fontSize: 11.5, color: T.mut, lineHeight: 1.5 }}>
+          {lastTurnNumber > 0 ? `Turn ${lastTurnNumber}` : "No turn has closed yet"} — {importantLastTurn.length} event{importantLastTurn.length === 1 ? "" : "s"} marked important
+        </div>
+
+        {importantLastTurn.length === 0 ? (
+          <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+            border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
+            {lastTurnNumber > 0
+              ? "Nothing from last turn is starred important yet — flag a resolved action's star (Previous Actions) to include it here."
+              : "Advance a turn and star a resolved action important to build a recap prompt for it."}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {importantLastTurn.map((action) => {
+              const { faction, label, systemLabel } = describeAgent(action);
+              const color = faction ? faction.color : T.accent;
+              return (
+                <div key={action.id} style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel2,
+                  padding: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 10.5, color: T.mut }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                    {faction ? faction.name : "Unknown faction"} · {label}{systemLabel ? ` · ${systemLabel}` : ""}
+                  </div>
+                  <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5 }}>{action.text}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <Btn kind="primary" disabled={importantLastTurn.length === 0} onClick={generateNarrativePrompt}
+          style={{ alignSelf: "flex-start" }}>
+          <Sparkles size={14} /> Generate Prompt
+        </Btn>
+
+        {narrativeOutput && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={lbl}>Prompt for Claude</span>
+            <pre className="mono" style={{ margin: 0, background: T.panel2, border: `1px solid ${T.line}`,
+              borderRadius: 2, padding: 10, fontSize: 12.5, color: T.text, whiteSpace: "pre-wrap" }}>
+              {narrativeOutput}
+            </pre>
+            <Btn onClick={copyNarrativeOutput} style={{ alignSelf: "flex-start" }}>
+              <Copy size={13} /> Copy
+            </Btn>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // The section switch: agent actions vs. squadron missions vs. narrative
+  // prompt. Each owns its own content; Notes stays shared underneath either one.
   const sectionBar = () => (
     <div style={{ display: "flex", gap: 3, background: T.panel3, padding: 3, border: `1px solid ${T.line}`,
       margin: isMobile ? "0 0 14px" : "12px 12px 0", alignSelf: isMobile ? "stretch" : "flex-start" }}>
@@ -514,16 +636,26 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
         style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
         <Rocket size={13} /> Squadron Missions {countBadge(pendingMissionTotal)}
       </Btn>
+      <Btn active={section === "narrative"} onClick={() => setSection("narrative")} title="Generate a narration prompt from last turn's important events"
+        style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
+        <Sparkles size={13} /> Narrative {countBadge(importantLastTurn.length)}
+      </Btn>
     </div>
   );
 
   // Bulk "resolve the round" control: lands every committed fleet/agent move
-  // order, then archives and clears every agent's action requests so the next
-  // turn's quota starts at zero. Always visible (not tied to either section)
-  // since it spans both movement and agent actions.
+  // order, then archives every *resolved* action request (still-pending ones
+  // carry over instead — see App.jsx's nextTurn) and bumps the turn counter,
+  // which is what Previous Actions stamps onto an entry to record which turn
+  // it was resolved on. Always visible (not tied to either section) since it
+  // spans both movement and agent actions.
   const turnBar = () => (
     <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap",
       margin: isMobile ? "0 0 14px" : "12px 12px 0" }}>
+      <span className="mono" title="The current turn — stamped onto action requests as they're resolved"
+        style={{ fontSize: 10.5, color: T.faint, border: `1px solid ${T.line}`, borderRadius: 2, padding: "3px 7px" }}>
+        Turn {turnNumber || 1}
+      </span>
       <Btn kind="primary" disabled={!turnHasWork}
         onClick={async () => { if (await confirm(`Advance the turn — ${turnSummary()}?`)) nextTurn(); }}
         title={turnHasWork ? `Advance the turn — ${turnSummary()}` : "Nothing queued to resolve yet"}>
@@ -546,7 +678,11 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
         {turnBar()}
         {section === "missions" ? (
           <SquadronMissionsPanel roles={roles} factions={factions} fleets={fleets} missions={missions}
-            isMobile={isMobile} resolveMission={resolveMission} removeMission={removeMission} />
+            archivedMissions={archivedMissions}
+            isMobile={isMobile} resolveMission={resolveMission} removeMission={removeMission}
+            removeArchivedMission={removeArchivedMission} />
+        ) : section === "narrative" ? (
+          narrativePane()
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
             <div>
@@ -579,8 +715,23 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
         {sectionBar()}
         {turnBar()}
         <SquadronMissionsPanel roles={roles} factions={factions} fleets={fleets} missions={missions}
+          archivedMissions={archivedMissions}
           isMobile={isMobile} resolveMission={resolveMission} removeMission={removeMission}
+          removeArchivedMission={removeArchivedMission}
           notesPane={notes_} />
+      </div>
+    );
+  }
+  if (section === "narrative") {
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.void }}>
+        {sectionBar()}
+        {turnBar()}
+        <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 18,
+          display: "flex", gap: 22, maxWidth: 900 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>{narrativePane()}</div>
+          <div style={{ width: 320, flexShrink: 0 }}>{notes_}</div>
+        </div>
       </div>
     );
   }
@@ -666,7 +817,7 @@ function ResolutionWithEdit({ action, editResolution }) {
 }
 
 function ActionCard({ action, faction, agentLabel, systemLabel, modName, isTarget, onResolveWithTool, reopenAction, removeAction,
-  editActionResolution }) {
+  editActionResolution, setActionImportant }) {
   const confirm = useConfirm();
   const resolved = action.status === "resolved";
   const color = faction ? faction.color : T.accent;
@@ -686,12 +837,32 @@ function ActionCard({ action, faction, agentLabel, systemLabel, modName, isTarge
             <MapPin size={12} /> {systemLabel}
           </span>
         )}
-        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
+        {/* GM-private flag for future turn-summary tooling — only meaningful once
+            there's a ruling to summarize, so it only shows up on a resolved
+            request. Never rendered anywhere a player can see (AgentsView has no
+            equivalent control, and doesn't read the field). */}
+        {resolved && (
+          <button onClick={() => setActionImportant(action.id, !action.important)}
+            title={action.important ? "Marked narratively important — click to unmark" : "Mark as narratively important"}
+            style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", padding: 0,
+              display: "flex", color: action.important ? T.amber : T.faint }}>
+            <Star size={14} fill={action.important ? T.amber : "none"} />
+          </button>
+        )}
+        <span style={{ marginLeft: resolved ? 0 : "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
           fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
           color: resolved ? T.accent : T.amber }}>
           {resolved ? <Check size={11} /> : <Clock size={11} />}{resolved ? "Resolved" : "Pending"}
         </span>
       </div>
+
+      {action.carriedOver && !resolved && (
+        <span title="This request went unresolved when the turn advanced and held over into the current one"
+          style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
+          fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.faint, alignSelf: "flex-start" }}>
+          <History size={11} /> Carried over from a previous turn
+        </span>
+      )}
 
       <div style={{ fontSize: 9.5, color: T.faint }}>
         {action.createdAt ? new Date(action.createdAt).toLocaleString() : ""}
@@ -749,7 +920,8 @@ function ActionCard({ action, faction, agentLabel, systemLabel, modName, isTarge
 // live queue (Resolve/Reopen touch a turn that's already closed; a request
 // that never got resolved before the turn ended just says so). The only
 // action left is Delete, to prune the archive itself if it grows too large.
-function ArchivedActionCard({ action, faction, agentLabel, systemLabel, modName, removeArchivedAction, editArchivedActionResolution }) {
+function ArchivedActionCard({ action, faction, agentLabel, systemLabel, modName, removeArchivedAction,
+  editArchivedActionResolution, setArchivedActionImportant }) {
   const confirm = useConfirm();
   const resolved = action.status === "resolved";
   const color = faction ? faction.color : T.accent;
@@ -768,11 +940,30 @@ function ArchivedActionCard({ action, faction, agentLabel, systemLabel, modName,
             <MapPin size={12} /> {systemLabel}
           </span>
         )}
-        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
-          fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
-          color: resolved ? T.accent : T.faint }}>
-          {resolved ? <Check size={11} /> : <Clock size={11} />}{resolved ? "Resolved" : "Never resolved"}
-        </span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          {/* Same GM-private importance flag as the live queue's ActionCard —
+              still settable once a request has moved to Previous Actions,
+              since that's exactly where a future turn-summary tool would look. */}
+          {resolved && (
+            <button onClick={() => setArchivedActionImportant(action.id, !action.important)}
+              title={action.important ? "Marked narratively important — click to unmark" : "Mark as narratively important"}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0,
+                display: "flex", color: action.important ? T.amber : T.faint }}>
+              <Star size={14} fill={action.important ? T.amber : "none"} />
+            </button>
+          )}
+          {action.turn && (
+            <span className="mono" title="The turn this request was resolved on" style={{
+              fontSize: 9.5, color: T.faint, border: `1px solid ${T.line}`, borderRadius: 2, padding: "1px 5px" }}>
+              Turn {action.turn}
+            </span>
+          )}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
+            fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
+            color: resolved ? T.accent : T.faint }}>
+            {resolved ? <Check size={11} /> : <Clock size={11} />}{resolved ? "Resolved" : "Never resolved"}
+          </span>
+        </div>
       </div>
 
       <div style={{ fontSize: 9.5, color: T.faint }}>

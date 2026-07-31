@@ -32,7 +32,7 @@ export default function MissionResolution({ resolution }) {
           padding: "2px 8px", fontFamily: F.body, fontSize: 11, fontWeight: 700,
           letterSpacing: ".05em", textTransform: "uppercase",
           border: `1px solid ${gColor}`, color: gColor, background: `${gColor}22` }}>
-          Grade {grade}/5
+          Mission Success Rating {grade}/5
         </span>
         <Chip color={cas > 0 ? T.danger : T.mut}>Casualties {cas}%</Chip>
         {resolution.ratioLabel && (

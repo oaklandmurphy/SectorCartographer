@@ -31,7 +31,8 @@ const totalCraft = (m) => (m.detachments || []).reduce((n, d) => n + (Number(d.c
 // resolveMission), so there is no separate "reopen" here: once craft are home,
 // redoing the roll would double-count them.
 export default function SquadronMissionsPanel({
-  roles, factions, fleets, missions, isMobile, resolveMission, removeMission, notesPane,
+  roles, factions, fleets, missions, archivedMissions, isMobile, resolveMission, removeMission,
+  removeArchivedMission, notesPane,
 }) {
   const confirm = useConfirm();
   const [targetId, setTargetId] = useState("");
@@ -130,10 +131,19 @@ export default function SquadronMissionsPanel({
     setTargetId(""); clearTool();
   }
 
-  /* ------------------------------------------------ queue, split per player */
+  /* ------------------------------------------------ queue, split per player.
+     Archived missions (resolved on a turn that's since closed out, see App.jsx's
+     nextTurn) are folded in here so this history reads the same as it did before
+     archiving existed — only their delete button routes to removeArchivedMission
+     instead, since removeMission only knows the live `missions` pile. */
+  const allMissions = useMemo(() => [
+    ...(missions || []),
+    ...(archivedMissions || []).map((m) => ({ ...m, archived: true })),
+  ], [missions, archivedMissions]);
+
   const playerGroups = useMemo(() => {
     const map = new Map();
-    for (const m of missions || []) {
+    for (const m of allMissions) {
       const key = (m.createdBy && m.createdBy.roleId) || "";
       if (!map.has(key)) {
         const name = (roles.find((r) => r.id === key) || {}).name
@@ -143,7 +153,7 @@ export default function SquadronMissionsPanel({
       map.get(key).items.push(m);
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [missions, roles]);
+  }, [allMissions, roles]);
 
   const [playerTab, setPlayerTab] = useState(null);
   const activeKey = playerGroups.some((g) => g.key === playerTab)
@@ -210,7 +220,10 @@ export default function SquadronMissionsPanel({
           <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.mut }}>
             <Ship size={12} /> {fleet ? fleet.name : "Fleet (removed)"}
           </span>
-          <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
+          {m.archived && (
+            <span className="mono" style={{ marginLeft: "auto", fontSize: 9, color: T.faint }}>Turn {m.turn}</span>
+          )}
+          <span style={{ marginLeft: m.archived ? undefined : "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
             fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
             color: resolvedM ? T.accent : T.amber }}>
             {resolvedM ? <Check size={11} /> : <Clock size={11} />}{resolvedM ? "Resolved" : "On mission"}
@@ -232,7 +245,11 @@ export default function SquadronMissionsPanel({
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <Btn kind="danger" style={{ marginLeft: "auto" }}
-                onClick={async () => { if (await confirm("Delete this mission?")) removeMission(m.id); }}>
+                onClick={async () => {
+                  if (await confirm("Delete this mission?")) {
+                    if (m.archived) removeArchivedMission(m.id); else removeMission(m.id);
+                  }
+                }}>
                 <Trash2 size={13} /> Delete
               </Btn>
             </div>
@@ -381,7 +398,7 @@ export default function SquadronMissionsPanel({
             <div style={{ display: "flex", flexWrap: "wrap", gap: isMobile ? 14 : 24, alignItems: "flex-start",
               background: T.panel2, border: `1px solid ${T.line}`, borderRadius: 2, padding: 10 }}>
               <div>
-                <div style={lbl}>Success</div>
+                <div style={lbl}>Mission Success Rating</div>
                 <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: T.accent }}>{grade}/5</div>
               </div>
               <div>
