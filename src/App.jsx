@@ -51,6 +51,7 @@ export default function GalaxySectorMap() {
   const [modifiers, setModifiers] = useState([]); // per-faction event snippets (Assets tab: Modifiers/Trackers subtabs)
   const [resources, setResources] = useState([]); // per-faction integer counters (Assets tab: Resources subtab)
   const [resourceTransactions, setResourceTransactions] = useState([]); // log of resource sends between factions (and to the GM) — GM Tools: Transactions tab
+  const [projects, setProjects] = useState([]); // per-faction turn-timer counters (Assets tab: Projects subtab) — see nextTurn
   const [notes, setNotes] = useState([]); // GM Tools: freeform notes + tracked roll resolutions
   const [agents, setAgents] = useState([]); // covert operatives, one optional character each, own-faction only
   const [orders, setOrders] = useState([]); // fleet/agent move-order proposals the GM resolves by hand
@@ -137,8 +138,8 @@ export default function GalaxySectorMap() {
   // `notes` is deliberately not part of this — it lives at its own path and is
   // saved on its own schedule below, so it's never part of the root diff/save.
   const sector = useMemo(
-    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, resources, resourceTransactions, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, lockCode, fleetsPublic, turnNumber }),
-    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, resources, resourceTransactions, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, lockCode, fleetsPublic, turnNumber],
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, resources, resourceTransactions, projects, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, lockCode, fleetsPublic, turnNumber }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, resources, resourceTransactions, projects, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, lockCode, fleetsPublic, turnNumber],
   );
   // The sector as the database currently has it. Null until the load below fills
   // it in, which is also what stops an autosave from firing against an empty
@@ -169,6 +170,7 @@ export default function GalaxySectorMap() {
       setSystems(data.systems); setLinks(data.links); setFleets(data.fleets);
       setStrokes(data.strokes); setWiki(data.wiki); setWikiReads(data.wikiReads); setRoles(data.roles); setArt(data.art);
       setModifiers(data.modifiers); setResources(data.resources); setResourceTransactions(data.resourceTransactions);
+      setProjects(data.projects);
       setAgents(data.agents); setOrders(data.orders); setActions(data.actions);
       setArchivedActions(data.archivedActions); setActionReads(data.actionReads);
       setMissions(data.missions); setArchivedMissions(data.archivedMissions); setMissionReads(data.missionReads);
@@ -532,6 +534,7 @@ export default function GalaxySectorMap() {
     setRoles((rs) => rs.map((r) => (r.factionId === id ? { ...r, factionId: undefined } : r)));
     setModifiers((ms) => ms.filter((m) => m.factionId !== id));
     setResources((rs) => rs.filter((r) => r.factionId !== id));
+    setProjects((ps) => ps.filter((p) => p.factionId !== id));
     // A faction's agents, move orders, and action requests go with it.
     setAgents((as) => as.filter((a) => a.factionId !== id));
     setOrders((os) => os.filter((o) => o.factionId !== id));
@@ -657,6 +660,27 @@ export default function GalaxySectorMap() {
   function removeResourceTransaction(id) {
     if (!isGM) return;
     setResourceTransactions((ts) => ts.filter((t) => t.id !== id));
+  }
+
+  /* ---- projects: per-faction turn-timer counters (Assets tab, Projects
+     subtab) — GM-only, same gate as modifiers/resources. `turnsRemaining`
+     ticks down by one on every nextTurn() call, but only while `autoDecrement`
+     is on; the GM can flip that off per-project to pause one (e.g. blocked on
+     something) without losing its progress. `turnsTotal` is kept alongside
+     `turnsRemaining` purely so the UI can draw a progress bar — it's never
+     touched by the countdown itself. */
+  function addProject(factionId) {
+    if (!isGM) return;
+    const entry = { id: uid("proj"), factionId, name: "", text: "", turnsTotal: 3, turnsRemaining: 3, autoDecrement: true, createdAt: Date.now() };
+    setProjects((ps) => [...ps, entry]);
+  }
+  function patchProject(id, p) {
+    if (!isGM) return;
+    setProjects((ps) => ps.map((x) => (x.id === id ? { ...x, ...p } : x)));
+  }
+  function removeProject(id) {
+    if (!isGM) return;
+    setProjects((ps) => ps.filter((x) => x.id !== id));
   }
 
   /* ---- GM Tools notes: freeform log entries, plus roll resolutions the GM
@@ -968,6 +992,21 @@ export default function GalaxySectorMap() {
         const fleet = fleets.find((f) => f.id === m.fleetId);
         lines.push(`  ${fleet ? fleet.name : "Fleet"}: "${m.text}"`);
       });
+    }
+    // Project timers: only those the GM hasn't paused (autoDecrement) and that
+    // still have turns left actually tick — a project already at 0 stays there
+    // until the GM removes or resets it, rather than going negative.
+    const tickingProjects = projects.filter((p) => p.autoDecrement !== false && (p.turnsRemaining || 0) > 0);
+    if (tickingProjects.length > 0) {
+      if (lines.length > 0) lines.push("");
+      lines.push("PROJECTS ADVANCED");
+      tickingProjects.forEach((p) => {
+        const fac = factions.find((f) => f.id === p.factionId);
+        const remaining = Math.max(0, (p.turnsRemaining || 0) - 1);
+        lines.push(`  ${fac ? fac.name : "?"}: "${p.name || "Untitled project"}" — ${remaining > 0 ? `${remaining} turn(s) left` : "complete"}`);
+      });
+      const tickingIds = new Set(tickingProjects.map((p) => p.id));
+      setProjects((ps) => ps.map((p) => (tickingIds.has(p.id) ? { ...p, turnsRemaining: Math.max(0, (p.turnsRemaining || 0) - 1) } : p)));
     }
     if (lines.length > 0) addNote(`Turn advanced — ${new Date().toLocaleString()}\n${lines.join("\n")}`, "turn");
     if (actions.length > 0) {
@@ -1686,6 +1725,11 @@ export default function GalaxySectorMap() {
     if (!modifierFactionIds) return resources; // GM: no filter
     return resources.filter((r) => modifierFactionIds.has(r.factionId));
   }, [resources, modifierFactionIds]);
+  // Projects: same visibility rule as resources — no private flag of their own.
+  const displayProjects = useMemo(() => {
+    if (!modifierFactionIds) return projects; // GM: no filter
+    return projects.filter((p) => modifierFactionIds.has(p.factionId));
+  }, [projects, modifierFactionIds]);
   // The always-visible resource strip at the top of the page: a signed-in
   // player's own faction's counters, so they're visible from any tab instead
   // of only inside Assets > Resources. Nothing to show for the GM (no single
@@ -1724,7 +1768,7 @@ export default function GalaxySectorMap() {
       badge: canEdit ? pendingWikiCount : 0 },
     { id: "updates", label: "Updates", icon: Bell, title: "Articles, action resolutions & mission resolutions your faction has not seen", show: true,
       badge: unseenArticles.length + unseenResolvedActions.length + unseenResolvedMissions.length },
-    { id: "assets", label: "Assets", icon: Package, title: "Faction assets: modifiers, trackers & resources", show: true },
+    { id: "assets", label: "Assets", icon: Package, title: "Faction assets: modifiers, trackers, resources & projects", show: true },
     { id: "odds", label: "Odds", icon: Dices, title: "Mission odds table", show: true },
     { id: "gmtools", label: "GM Tools", icon: Gavel, title: "GM tools: action & mission requests, roll resolution & notes",
       show: isGM, badge: isGM ? pendingActionCount + pendingMissionCount : 0 },
@@ -2011,7 +2055,7 @@ export default function GalaxySectorMap() {
 
         {activeTab === "assets" && (
           <AssetsView
-            factions={displayModifierFactions} allFactions={factions} modifiers={displayModifiers} resources={displayResources} canEdit={isGM} isMobile={isMobile}
+            factions={displayModifierFactions} allFactions={factions} modifiers={displayModifiers} resources={displayResources} projects={displayProjects} canEdit={isGM} isMobile={isMobile}
             viewerFactionId={viewer.roleFactionId}
             activeFactionId={assetFactionId} setActiveFactionId={setAssetFactionId}
             subtab={assetSubtab}
@@ -2019,6 +2063,7 @@ export default function GalaxySectorMap() {
             reorderModifiers={reorderModifiers}
             addResource={addResource} patchResource={patchResource} removeResource={removeResource}
             sendResource={sendResource}
+            addProject={addProject} patchProject={patchProject} removeProject={removeProject}
           />
         )}
 

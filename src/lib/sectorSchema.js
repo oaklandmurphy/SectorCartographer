@@ -36,7 +36,7 @@ export const V1_ACCESS_KEY = "galaxy-sector-access:v1";
 export const COLLECTIONS = [
   "factions", "relations", "layers", "systems",
   "links", "fleets", "ships", "strokes", "wiki", "wikiReads", "roles", "art", "modifiers", "resources", "resourceTransactions",
-  "agents", "orders", "actions", "archivedActions", "missions", "archivedMissions", "actionReads", "missionReads",
+  "projects", "agents", "orders", "actions", "archivedActions", "missions", "archivedMissions", "actionReads", "missionReads",
 ];
 
 // GM Tools notes live at their own top-level path (sectorNotes/{sectorId}, see
@@ -67,6 +67,10 @@ const defaults = {
   // Missions from a closed-out turn — same idea as archivedActions above: moved
   // here when the GM advances the turn instead of being deleted.
   archivedMissions: { detachments: [], text: "", status: "pending", resolution: null },
+  // A project's countdown ticks on Next Turn only while autoDecrement is set —
+  // the GM can flip it off (e.g. a stalled or manually-paced project) without
+  // losing the turnsTotal/turnsRemaining split the progress bar needs.
+  projects: { text: "", turnsTotal: 0, turnsRemaining: 0, autoDecrement: true },
   relations: {}, layers: {}, links: {}, wikiReads: {}, roles: {}, art: {}, modifiers: {}, resources: {}, resourceTransactions: {}, notes: { text: "" }, ships: {},
   actionReads: {}, missionReads: {},
 };

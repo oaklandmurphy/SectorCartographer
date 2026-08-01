@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, GripVertical, Lock, Minus, Package, Plus, Send, Trash2, Users } from "lucide-react";
+import { ChevronDown, GripVertical, Lock, Minus, Package, Plus, Send, Timer, TimerOff, Trash2, Users } from "lucide-react";
 import { T, F, inputStyle } from "../theme.js";
 import { GM_RECIPIENT } from "../constants.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
@@ -13,24 +13,28 @@ const LEVELS = [
   { id: "critical", label: "Critical", color: T.danger },
 ];
 
-// Three collapsible sections per faction, stacked top to bottom: "Resources"
-// (integer counters), "Trackers" (a 4-position severity gauge — the old
-// slider-kind modifier, split out from the freeform notes), and "Modifiers"
-// (freeform text notes). Which factions show up here is decided by the
-// caller (App.jsx) from the viewer's identity — see displayModifierFactions
-// there. `subtab` is a deep-link target (e.g. from a dashboard notification
-// via goToAssets) that expands and scrolls to one section on arrival; it's
-// not an exclusive "active tab" anymore since all three can be open at once.
+// Four collapsible sections per faction, stacked top to bottom: "Resources"
+// (integer counters), "Projects" (turn-timer counters that count down when
+// the GM advances the turn), "Trackers" (a 4-position severity gauge — the
+// old slider-kind modifier, split out from the freeform notes), and
+// "Modifiers" (freeform text notes). Which factions show up here is decided
+// by the caller (App.jsx) from the viewer's identity — see
+// displayModifierFactions there. `subtab` is a deep-link target (e.g. from a
+// dashboard notification via goToAssets) that expands and scrolls to one
+// section on arrival; it's not an exclusive "active tab" anymore since all
+// four can be open at once.
 const SECTIONS = [
   { id: "resources", label: "Resources" },
+  { id: "projects", label: "Projects" },
   { id: "trackers", label: "Trackers" },
   { id: "modifiers", label: "Modifiers" },
 ];
 
-export default function AssetsView({ factions, allFactions, modifiers, resources, canEdit, isMobile, viewerFactionId,
+export default function AssetsView({ factions, allFactions, modifiers, resources, projects, canEdit, isMobile, viewerFactionId,
   activeFactionId, setActiveFactionId, subtab,
   addModifier, patchModifier, removeModifier, reorderModifiers,
-  addResource, patchResource, removeResource, sendResource }) {
+  addResource, patchResource, removeResource, sendResource,
+  addProject, patchProject, removeProject }) {
   const confirm = useConfirm();
   const activeId = factions.some((f) => f.id === activeFactionId)
     ? activeFactionId : (factions[0] && factions[0].id) || null;
@@ -40,6 +44,7 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
   const modifierEntries = entries.filter((m) => (m.kind || "text") !== "slider");
   const trackerEntries = entries.filter((m) => (m.kind || "text") === "slider");
   const resourceEntries = activeId ? resources.filter((r) => r.factionId === activeId) : [];
+  const projectEntries = activeId ? projects.filter((p) => p.factionId === activeId) : [];
   // Who a resource can be sent to: any other faction/player in the sector —
   // not just allies/vassals visible on this tab — plus the GM as a standing
   // option (for a tribute/cost with no faction recipient). `allFactions` is
@@ -53,10 +58,22 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
 
   const selectFaction = (id) => setActiveFactionId(id);
 
-  // All three sections start open; collapsing one is a per-view UI
-  // convenience, not something worth persisting.
-  const [collapsed, setCollapsed] = useState({});
+  // A section defaults open, but starts closed if it has nothing in it yet —
+  // no point showing an empty "Trackers" panel by default. Switching
+  // factions re-applies that default (a faction with no modifiers shouldn't
+  // inherit the previous one's expanded state); toggling one by hand
+  // overrides it until the next faction switch.
+  const emptySectionDefaults = () => ({
+    resources: resourceEntries.length === 0,
+    projects: projectEntries.length === 0,
+    trackers: trackerEntries.length === 0,
+    modifiers: modifierEntries.length === 0,
+  });
+  const [collapsed, setCollapsed] = useState(emptySectionDefaults);
   const toggleSection = (id) => setCollapsed((c) => ({ ...c, [id]: !c[id] }));
+  useEffect(() => {
+    setCollapsed(emptySectionDefaults());
+  }, [activeId]);
 
   // Deep-linking (e.g. a dashboard notification's "New resource" or "New
   // tracker" link, via App.jsx's goToAssets) lands here with `subtab` set —
@@ -119,7 +136,8 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
       {factions.map((f) => {
         const on = f.id === activeId;
         const count = modifiers.filter((m) => m.factionId === f.id).length
-          + resources.filter((r) => r.factionId === f.id).length;
+          + resources.filter((r) => r.factionId === f.id).length
+          + projects.filter((p) => p.factionId === f.id).length;
         return (
           <button key={f.id} onClick={() => selectFaction(f.id)} title={f.name}
             style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
@@ -322,6 +340,106 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
     );
   };
 
+  const renderProjectRow = (p) => {
+    const total = p.turnsTotal || 0;
+    const remaining = p.turnsRemaining || 0;
+    const complete = remaining <= 0;
+    const auto = p.autoDecrement !== false;
+    const done = total > 0 ? Math.min(1, Math.max(0, (total - remaining) / total)) : (complete ? 1 : 0);
+    const counterBtnStyle = {
+      display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+      width: 26, height: 26, border: `1px solid ${T.line}`, borderRadius: 2,
+      background: T.panel3, color: T.text, flexShrink: 0,
+    };
+    return (
+      <div key={p.id} style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel2,
+        padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "-10px -10px 0", padding: "6px 10px",
+          background: `${activeFaction.color}1f`, borderBottom: `2px solid ${activeFaction.color}` }}>
+          {canEdit ? (
+            <input value={p.name} onChange={(e) => patchProject(p.id, { name: e.target.value })}
+              placeholder="PROJECT NAME…"
+              style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", outline: "none",
+                fontSize: 14, fontWeight: 800, fontFamily: F.body, letterSpacing: ".05em",
+                textTransform: "uppercase", color: activeFaction.color }} />
+          ) : (
+            <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 800, fontFamily: F.body,
+              letterSpacing: ".05em", textTransform: "uppercase", color: activeFaction.color }}>
+              {p.name || "Untitled project"}
+            </div>
+          )}
+          {canEdit && (
+            <Btn kind="danger"
+              onClick={async () => { if (await confirm("Remove this project?")) removeProject(p.id); }}>
+              <Trash2 size={13} />
+            </Btn>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ flex: 1, height: 8, borderRadius: 2, background: T.panel3, border: `1px solid ${T.line}`, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${done * 100}%`,
+              background: complete ? T.accent : activeFaction.color, transition: "width .2s" }} />
+          </div>
+          <span className="mono" style={{ fontSize: 11, color: complete ? T.accent : T.faint,
+            minWidth: 90, textAlign: "right", fontWeight: complete ? 700 : 400 }}>
+            {complete ? "COMPLETE" : `${remaining} / ${total || "?"} turns`}
+          </span>
+        </div>
+        {canEdit && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 10, color: T.faint, textTransform: "uppercase", letterSpacing: ".05em" }}>Remaining</span>
+            <button onClick={() => patchProject(p.id, { turnsRemaining: Math.max(0, remaining - 1) })} title="Decrease" style={counterBtnStyle}>
+              <Minus size={13} />
+            </button>
+            <input type="number" min={0} value={remaining}
+              onChange={(e) => patchProject(p.id, { turnsRemaining: Math.max(0, Math.trunc(Number(e.target.value)) || 0) })}
+              style={{ ...inputStyle, width: 56, textAlign: "center", padding: "5px 4px", fontWeight: 800 }} />
+            <button onClick={() => patchProject(p.id, { turnsRemaining: remaining + 1 })} title="Increase" style={counterBtnStyle}>
+              <Plus size={13} />
+            </button>
+            <span style={{ fontSize: 10, color: T.faint, textTransform: "uppercase", letterSpacing: ".05em", marginLeft: 10 }}>Total</span>
+            <input type="number" min={0} value={total}
+              onChange={(e) => patchProject(p.id, { turnsTotal: Math.max(0, Math.trunc(Number(e.target.value)) || 0) })}
+              style={{ ...inputStyle, width: 56, textAlign: "center", padding: "5px 4px", fontWeight: 800 }} />
+          </div>
+        )}
+        {/* Auto-decrement toggle: whether Next Turn ticks this project's
+            countdown down by one. The GM can pause a stalled or manually-paced
+            project without losing its progress so far. */}
+        {canEdit ? (
+          <button onClick={() => patchProject(p.id, { autoDecrement: !auto })}
+            title={auto
+              ? "Ticks down by 1 turn when the GM advances the turn. Click to pause."
+              : "Paused — Next Turn will not advance this project. Click to resume."}
+            style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+              border: `1px solid ${auto ? T.accent : T.line}`, borderRadius: 2, padding: "5px 9px",
+              background: auto ? `${T.accent}22` : T.panel3, color: auto ? T.accent : T.faint,
+              fontFamily: F.body, fontSize: 10.5, fontWeight: 700,
+              letterSpacing: ".05em", textTransform: "uppercase" }}>
+            {auto ? <Timer size={12} /> : <TimerOff size={12} />}
+            {auto ? "Auto-decrement on" : "Paused"}
+          </button>
+        ) : !auto ? (
+          <div style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6,
+            border: `1px solid ${T.line}`, borderRadius: 2, padding: "4px 8px",
+            background: T.panel3, color: T.faint, fontFamily: F.body,
+            fontSize: 10, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>
+            <TimerOff size={11} /> Paused
+          </div>
+        ) : null}
+        {canEdit ? (
+          <textarea value={p.text || ""} onChange={(e) => patchProject(p.id, { text: e.target.value })}
+            placeholder="What this project does when it completes…"
+            style={{ ...inputStyle, minHeight: 44, resize: "vertical", lineHeight: 1.5, fontSize: 12, padding: 8 }} />
+        ) : p.text ? (
+          <div style={{ fontSize: 12, lineHeight: 1.5, color: T.mut, whiteSpace: "pre-wrap" }}>
+            {p.text}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   // A collapsible section shell shared by all three views: a clickable
   // header bar (label + count + chevron) and, while expanded, whatever body
   // the caller renders.
@@ -358,6 +476,23 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
       {canEdit && (
         <Btn kind="primary" onClick={() => addResource(activeFaction.id)} style={{ justifyContent: "center" }}>
           <Plus size={14} /> New resource
+        </Btn>
+      )}
+    </>
+  ));
+
+  const projectsSection = () => section("projects", "Projects", projectEntries.length, (
+    <>
+      {projectEntries.length === 0 && (
+        <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+          border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
+          No projects tracked for this faction yet.{canEdit ? " Add one below." : ""}
+        </div>
+      )}
+      {projectEntries.map(renderProjectRow)}
+      {canEdit && (
+        <Btn kind="primary" onClick={() => addProject(activeFaction.id)} style={{ justifyContent: "center" }}>
+          <Plus size={14} /> New project
         </Btn>
       )}
     </>
@@ -420,6 +555,7 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
     return (
       <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}>
         {resourcesSection()}
+        {projectsSection()}
         {trackersSection()}
         {modifiersSection()}
       </div>
