@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, GripVertical, Lock, Minus, Package, Plus, Send, Timer, TimerOff, Trash2, Users } from "lucide-react";
+import { ChevronDown, Globe, GripVertical, Lock, Minus, Package, Plus, Send, Timer, TimerOff, Trash2, Users } from "lucide-react";
 import { T, F, inputStyle } from "../theme.js";
 import { GM_RECIPIENT } from "../constants.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
@@ -11,6 +11,18 @@ const LEVELS = [
   { id: "moderate", label: "Moderate", color: T.amber },
   { id: "high", label: "High", color: "#c2551f" },
   { id: "critical", label: "Critical", color: T.danger },
+];
+
+// Three mutually exclusive visibility states for a modifier/tracker card,
+// stored as the `private`/`public` booleans App.jsx's displayModifiers reads
+// (only one is ever true at a time — see the patch each option sends).
+const VISIBILITY = [
+  { id: "private", label: "Private", icon: Lock, color: T.amber,
+    title: "Only this faction (and the GM) can see it." },
+  { id: "default", label: "Allies", icon: Users, color: T.text,
+    title: "Visible to this faction and its allies/vassals." },
+  { id: "public", label: "Public", icon: Globe, color: T.accent,
+    title: "Visible to every player — allies and enemies alike." },
 ];
 
 // Four collapsible sections per faction, stacked top to bottom: "Resources"
@@ -156,6 +168,7 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
 
   const renderCard = (m, list, { tracker, packed } = {}) => {
     const level = LEVELS.find((l) => l.id === m.level) || LEVELS[0];
+    const vis = m.public ? "public" : m.private ? "private" : "default";
     const dragging = dragId === m.id;
     return (
       <div key={m.id} {...dropTargetProps(list, m.id)}
@@ -204,28 +217,36 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
             })}
           </div>
         )}
-        {/* Private toggle: a private entry drops the ally/vassal grant,
-            so only this faction (and the GM) can see it. The GM toggles it;
-            the owning faction just sees the badge. */}
+        {/* Visibility: Private drops the ally/vassal grant (only this faction
+            and the GM see it); Public grants it to every player, ally or
+            enemy alike; Allies is the default — this faction plus its
+            allies/vassals. The GM picks one; a player just sees the badge,
+            and only when it's not the default. */}
         {canEdit ? (
-          <button onClick={() => patchModifier(m.id, { private: !m.private })}
-            title={m.private
-              ? "Private — only this faction can see it. Click to also share with its allies/vassals."
-              : "Visible to this faction and its allies/vassals. Click to make it private."}
-            style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
-              border: `1px solid ${m.private ? T.amber : T.line}`, borderRadius: 2, padding: "5px 9px",
-              background: m.private ? `${T.amber}22` : T.panel3, color: m.private ? T.amber : T.faint,
-              fontFamily: F.body, fontSize: 10.5, fontWeight: 700,
-              letterSpacing: ".05em", textTransform: "uppercase" }}>
-            {m.private ? <Lock size={12} /> : <Users size={12} />}
-            {m.private ? "Private" : "Allies can see"}
-          </button>
-        ) : m.private ? (
+          <div style={{ display: "flex", gap: 4 }}>
+            {VISIBILITY.map((v) => {
+              const on = v.id === vis;
+              const Icon = v.icon;
+              return (
+                <button key={v.id} title={v.title}
+                  onClick={() => patchModifier(m.id, { private: v.id === "private", public: v.id === "public" })}
+                  style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
+                    border: `1px solid ${on ? v.color : T.line}`, borderRadius: 2, padding: "5px 9px",
+                    background: on ? `${v.color}22` : T.panel3, color: on ? v.color : T.faint,
+                    fontFamily: F.body, fontSize: 10.5, fontWeight: 700,
+                    letterSpacing: ".05em", textTransform: "uppercase" }}>
+                  <Icon size={12} /> {v.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : vis !== "default" ? (
           <div style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6,
-            border: `1px solid ${T.amber}`, borderRadius: 2, padding: "4px 8px",
-            background: `${T.amber}22`, color: T.amber, fontFamily: F.body,
-            fontSize: 10, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>
-            <Lock size={11} /> Private
+            border: `1px solid ${vis === "public" ? T.accent : T.amber}`, borderRadius: 2, padding: "4px 8px",
+            background: `${vis === "public" ? T.accent : T.amber}22`, color: vis === "public" ? T.accent : T.amber,
+            fontFamily: F.body, fontSize: 10, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>
+            {vis === "public" ? <Globe size={11} /> : <Lock size={11} />}
+            {vis === "public" ? "Public" : "Private"}
           </div>
         ) : null}
         {canEdit ? (

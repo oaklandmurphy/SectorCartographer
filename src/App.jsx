@@ -1707,18 +1707,29 @@ export default function GalaxySectorMap() {
     if (viewer.seesAll) return null; // null = no filter, every faction
     return viewer.roleFactionId ? friendlyFactionIds(viewer.roleFactionId, relations) : new Set();
   }, [viewer, relations]);
-  const displayModifierFactions = useMemo(
-    () => (modifierFactionIds ? factions.filter((f) => modifierFactionIds.has(f.id)) : factions),
-    [factions, modifierFactionIds]
+  // A `public` modifier is visible to every player, not just allies/vassals —
+  // so a faction with no friendly tie to the viewer can still show up in the
+  // rail, as long as it has at least one public entry to justify the tab.
+  const publicModifierFactionIds = useMemo(
+    () => new Set(modifiers.filter((m) => m.public).map((m) => m.factionId)),
+    [modifiers]
   );
-  // A `private` modifier drops the ally/vassal grant: only the faction it's
-  // attached to (and the GM, handled by the null filter above) may see it. So
-  // an ally still gets that faction's subtab, just without its private entries.
+  const displayModifierFactions = useMemo(
+    () => (modifierFactionIds
+      ? factions.filter((f) => modifierFactionIds.has(f.id) || publicModifierFactionIds.has(f.id))
+      : factions),
+    [factions, modifierFactionIds, publicModifierFactionIds]
+  );
+  // Three visibility states, checked in order: `public` overrides everything
+  // (any player, ally or enemy); otherwise a `private` one drops the
+  // ally/vassal grant, visible only to the faction it's attached to (and the
+  // GM, handled by the null filter above); otherwise the default — this
+  // faction and its allies/vassals.
   const displayModifiers = useMemo(() => {
     if (!modifierFactionIds) return modifiers; // GM: no filter
     return modifiers.filter((m) =>
-      modifierFactionIds.has(m.factionId) &&
-      (!m.private || m.factionId === viewer.roleFactionId));
+      m.public ||
+      (modifierFactionIds.has(m.factionId) && (!m.private || m.factionId === viewer.roleFactionId)));
   }, [modifiers, modifierFactionIds, viewer.roleFactionId]);
   // Resources have no private flag — just the same per-faction visibility as modifiers.
   const displayResources = useMemo(() => {
