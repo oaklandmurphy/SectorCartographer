@@ -54,6 +54,7 @@ export default function AgentsView({
 
   const systemName = (id) => (systems.find((s) => s.id === id) || {}).name || "";
   const agentLabel = (a) => {
+    if (a.name && a.name.trim()) return a.name.trim();
     const member = activeFaction && activeFaction.members.find((m) => m.id === a.memberId);
     if (member) return member.name;
     const idx = facAgents.indexOf(a);
@@ -230,6 +231,17 @@ export default function AgentsView({
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: isMobile ? 14 : 18 }}>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 220px" }}>
+              <div style={{ ...lbl, marginBottom: 4 }}>Name</div>
+              {canManage ? (
+                <input style={inputStyle} value={a.name || ""}
+                  placeholder={member ? member.name : `Agent ${facAgents.indexOf(a) + 1}`}
+                  onChange={(e) => patchAgent(a.id, { name: e.target.value })} />
+              ) : (
+                <div style={{ fontSize: 13, color: T.text }}>{agentLabel(a)}</div>
+              )}
+            </div>
+
             <div style={{ flex: "1 1 220px" }}>
               <div style={{ ...lbl, display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
                 <User size={12} /> Character

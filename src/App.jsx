@@ -724,7 +724,7 @@ export default function GalaxySectorMap() {
     const cap = Number(fac && fac.agentCap) || 0;
     const count = agents.filter((a) => a.factionId === factionId).length;
     if (count >= cap) return; // at or over the GM's cap — no new slot
-    setAgents((as) => [...as, { id: uid("agt"), factionId, memberId: null, notes: "", systemId: null }]);
+    setAgents((as) => [...as, { id: uid("agt"), factionId, name: "", memberId: null, notes: "", systemId: null }]);
   }
   function patchAgent(id, p) {
     const a = agents.find((x) => x.id === id);

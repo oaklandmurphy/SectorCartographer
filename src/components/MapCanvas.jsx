@@ -304,7 +304,7 @@ export default function MapCanvas({
         const isRouting = routing && routing.type === "agent" && routing.id === a.id;
         const fac2 = factions.find((f) => f.id === a.factionId);
         const member = fac2 ? (fac2.members || []).find((m) => m.id === a.memberId) : null;
-        const label = member ? member.name : "Agent";
+        const label = a.name && a.name.trim() ? a.name.trim() : (member ? member.name : "Agent");
         const tip = a.notes ? `${label} · ${a.notes}` : label;
         // Dragging is a GM-always, player-if-the-GM's-flipped-their-toggle
         // permission (see canPlaceAgents/AccessControl's per-role switch) — a
@@ -425,7 +425,7 @@ export default function MapCanvas({
           const a = (agents || []).find((x) => x.id === routing.id);
           const fac2 = a ? factions.find((f) => f.id === a.factionId) : null;
           const member = a && fac2 ? (fac2.members || []).find((m) => m.id === a.memberId) : null;
-          pieceLabel = member ? member.name : "Agent";
+          pieceLabel = a && a.name && a.name.trim() ? a.name.trim() : (member ? member.name : "Agent");
           originName = a && a.systemId ? (systemById(a.systemId) || {}).name : "unplaced";
         }
         const stops = (routingOrder ? routingOrder.path : []).map((id) => ({ id, name: (systemById(id) || {}).name || "—" }));

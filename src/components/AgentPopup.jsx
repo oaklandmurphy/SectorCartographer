@@ -27,6 +27,17 @@ export default function AgentPopup({
     <MapPopup anchor={anchor} containerSize={containerSize} isMobile={isMobile} width={288} gap={10}
       color={faction ? faction.color : T.accent} icon={<Icon size={13} />} title="AGENT" onClose={onClose}>
       <div>
+        <div style={{ ...lbl, marginBottom: 4 }}>Name</div>
+        {canManage ? (
+          <input style={inputStyle} value={agent.name || ""}
+            placeholder={member ? member.name : "Unnamed agent"}
+            onChange={(e) => patchAgent(agent.id, { name: e.target.value })} />
+        ) : (
+          <div style={{ fontSize: 12.5, color: T.text }}>{agent.name || (member ? member.name : "Unnamed agent")}</div>
+        )}
+      </div>
+
+      <div>
         <div style={{ ...lbl, display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
           <User size={12} /> Character
         </div>

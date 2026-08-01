@@ -277,7 +277,8 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     const fac = factions.find((f) => f.id === action.factionId) || null;
     const agent = (agents || []).find((a) => a.id === action.agentId) || null;
     const member = agent && fac ? (fac.members || []).find((m) => m.id === agent.memberId) : null;
-    const label = member ? member.name : (agent ? "Agent" : "Agent (removed)");
+    const label = agent && agent.name && agent.name.trim()
+      ? agent.name.trim() : (member ? member.name : (agent ? "Agent" : "Agent (removed)"));
     const system = agent && agent.systemId ? (systems || []).find((s) => s.id === agent.systemId) : null;
     const systemLabel = agent ? (system ? system.name : "Unplaced") : "";
     return { faction: fac, label, systemLabel };
