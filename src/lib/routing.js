@@ -35,7 +35,7 @@ export const DEFAULT_ROUTE = {
   fleetId: null,   // null = whichever fleet FleetView falls back to
   compareId: null,
   assetFactionId: null, // null = whichever faction AssetsView falls back to
-  assetSubtab: null, // null = AssetsView's default subtab ("modifiers")
+  assetSubtab: null, // null = no section deep-link; otherwise "resources"/"trackers"/"modifiers" to scroll to on arrival
   agentFactionId: null, // null = whichever faction AgentsView falls back to
   agentId: null, // null = whichever agent AgentsView falls back to; set when deep-linking to one (e.g. "Request Action" from the map or politics view)
 };

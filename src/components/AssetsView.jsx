@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { GripVertical, Lock, Minus, Package, Plus, Send, Trash2, Users } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, GripVertical, Lock, Minus, Package, Plus, Send, Trash2, Users } from "lucide-react";
 import { T, F, inputStyle } from "../theme.js";
 import { GM_RECIPIENT } from "../constants.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
@@ -13,19 +13,22 @@ const LEVELS = [
   { id: "critical", label: "Critical", color: T.danger },
 ];
 
-// Three subtabs per faction: freeform "Modifiers" notes, "Trackers" (a
-// 4-position severity gauge — the old slider-kind modifier, split out now
-// that it's no longer sharing a page with the text notes), and "Resources"
-// (integer counters). Which factions show up here is decided by the caller
-// (App.jsx) from the viewer's identity — see displayModifierFactions there.
-const SUBTABS = [
-  { id: "modifiers", label: "Modifiers" },
-  { id: "trackers", label: "Trackers" },
+// Three collapsible sections per faction, stacked top to bottom: "Resources"
+// (integer counters), "Trackers" (a 4-position severity gauge — the old
+// slider-kind modifier, split out from the freeform notes), and "Modifiers"
+// (freeform text notes). Which factions show up here is decided by the
+// caller (App.jsx) from the viewer's identity — see displayModifierFactions
+// there. `subtab` is a deep-link target (e.g. from a dashboard notification
+// via goToAssets) that expands and scrolls to one section on arrival; it's
+// not an exclusive "active tab" anymore since all three can be open at once.
+const SECTIONS = [
   { id: "resources", label: "Resources" },
+  { id: "trackers", label: "Trackers" },
+  { id: "modifiers", label: "Modifiers" },
 ];
 
 export default function AssetsView({ factions, allFactions, modifiers, resources, canEdit, isMobile, viewerFactionId,
-  activeFactionId, setActiveFactionId, subtab, setSubtab,
+  activeFactionId, setActiveFactionId, subtab,
   addModifier, patchModifier, removeModifier, reorderModifiers,
   addResource, patchResource, removeResource, sendResource }) {
   const confirm = useConfirm();
@@ -37,7 +40,6 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
   const modifierEntries = entries.filter((m) => (m.kind || "text") !== "slider");
   const trackerEntries = entries.filter((m) => (m.kind || "text") === "slider");
   const resourceEntries = activeId ? resources.filter((r) => r.factionId === activeId) : [];
-  const activeList = subtab === "trackers" ? trackerEntries : modifierEntries;
   // Who a resource can be sent to: any other faction/player in the sector —
   // not just allies/vassals visible on this tab — plus the GM as a standing
   // option (for a tribute/cost with no faction recipient). `allFactions` is
@@ -50,6 +52,22 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
   const canSend = canEdit || (!!viewerFactionId && viewerFactionId === activeId);
 
   const selectFaction = (id) => setActiveFactionId(id);
+
+  // All three sections start open; collapsing one is a per-view UI
+  // convenience, not something worth persisting.
+  const [collapsed, setCollapsed] = useState({});
+  const toggleSection = (id) => setCollapsed((c) => ({ ...c, [id]: !c[id] }));
+
+  // Deep-linking (e.g. a dashboard notification's "New resource" or "New
+  // tracker" link, via App.jsx's goToAssets) lands here with `subtab` set —
+  // make sure that section is open and scroll it into view.
+  const sectionRefs = useRef({});
+  useEffect(() => {
+    if (!subtab) return;
+    setCollapsed((c) => (c[subtab] ? { ...c, [subtab]: false } : c));
+    const el = sectionRefs.current[subtab];
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [subtab, activeId]);
 
   // The "Send To" panel: only one resource's panel is open at a time, so a
   // single form (recipient + amount + purpose) covers whichever one that is.
@@ -66,9 +84,9 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
     setSendOpenId(null);
   };
 
-  // Drag-to-reorder within the active subtab's list. Dropping a card onto
-  // another one moves it to that position, then hands the whole list's new
-  // order up to the caller to splice back into the master array.
+  // Drag-to-reorder within a section's list. Dropping a card onto another
+  // one moves it to that position, then hands the whole list's new order up
+  // to the caller to splice back into the master array.
   const [dragId, setDragId] = useState(null);
   const dropOn = (list, targetId) => {
     if (!dragId || dragId === targetId) return;
@@ -115,17 +133,6 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
           </button>
         );
       })}
-    </div>
-  );
-
-  const subtabSwitch = () => (
-    <div style={{ display: "flex", gap: 3, background: T.panel3, padding: 3, borderBottom: `1px solid ${T.line}`, flexShrink: 0 }}>
-      {SUBTABS.map((s) => (
-        <Btn key={s.id} active={subtab === s.id} onClick={() => setSubtab(s.id)}
-          style={{ border: "none", borderRadius: 0, flex: 1, justifyContent: "center" }}>
-          {s.label}
-        </Btn>
-      ))}
     </div>
   );
 
@@ -315,6 +322,85 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
     );
   };
 
+  // A collapsible section shell shared by all three views: a clickable
+  // header bar (label + count + chevron) and, while expanded, whatever body
+  // the caller renders.
+  const section = (id, label, count, body) => (
+    <div key={id} ref={(el) => { sectionRefs.current[id] = el; }}
+      style={{ borderBottom: `2px solid ${T.line}`, flexShrink: 0 }}>
+      <button onClick={() => toggleSection(id)}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
+          border: "none", background: T.panel3, padding: isMobile ? "10px 14px" : "10px 22px",
+          fontFamily: F.body, fontSize: 13, fontWeight: 700, letterSpacing: ".06em",
+          textTransform: "uppercase", color: T.text }}>
+        <ChevronDown size={15} style={{ transition: "transform .15s",
+          transform: collapsed[id] ? "rotate(-90deg)" : "none", color: T.faint, flexShrink: 0 }} />
+        <span style={{ flex: 1, textAlign: "left" }}>{label}</span>
+        <span className="mono" style={{ fontSize: 11, color: T.faint }}>{count}</span>
+      </button>
+      {!collapsed[id] && (
+        <div style={{ padding: isMobile ? 14 : 22, display: "flex", flexDirection: "column", gap: 10 }}>
+          {body}
+        </div>
+      )}
+    </div>
+  );
+
+  const resourcesSection = () => section("resources", "Resources", resourceEntries.length, (
+    <>
+      {resourceEntries.length === 0 && (
+        <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+          border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
+          No resources tracked for this faction yet.{canEdit ? " Add one below." : ""}
+        </div>
+      )}
+      {resourceEntries.map(renderResourceRow)}
+      {canEdit && (
+        <Btn kind="primary" onClick={() => addResource(activeFaction.id)} style={{ justifyContent: "center" }}>
+          <Plus size={14} /> New resource
+        </Btn>
+      )}
+    </>
+  ));
+
+  const trackersSection = () => section("trackers", "Trackers", trackerEntries.length, (
+    <>
+      {trackerEntries.length === 0 && (
+        <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+          border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
+          No trackers recorded for this faction yet.{canEdit ? " Add one below." : ""}
+        </div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {trackerEntries.map((m) => renderCard(m, trackerEntries, { tracker: true }))}
+      </div>
+      {canEdit && (
+        <Btn kind="primary" onClick={() => addModifier(activeFaction.id, "slider")} style={{ justifyContent: "center" }}>
+          <Plus size={14} /> New tracker
+        </Btn>
+      )}
+    </>
+  ));
+
+  const modifiersSection = () => section("modifiers", "Modifiers", modifierEntries.length, (
+    <>
+      {modifierEntries.length === 0 && (
+        <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+          border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
+          No modifiers recorded for this faction yet.{canEdit ? " Add one below." : ""}
+        </div>
+      )}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {modifierEntries.map((m) => renderCard(m, modifierEntries, { packed: true }))}
+      </div>
+      {canEdit && (
+        <Btn kind="primary" onClick={() => addModifier(activeFaction.id, "text")} style={{ justifyContent: "center" }}>
+          <Plus size={14} /> New modifier
+        </Btn>
+      )}
+    </>
+  ));
+
   const content = () => {
     if (!activeFaction) {
       return (
@@ -331,45 +417,11 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
       );
     }
 
-    if (subtab === "resources") {
-      return (
-        <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: isMobile ? 14 : 22,
-          display: "flex", flexDirection: "column", gap: 10 }}>
-          {resourceEntries.length === 0 && (
-            <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
-              border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
-              No resources tracked for this faction yet.{canEdit ? " Add one below." : ""}
-            </div>
-          )}
-          {resourceEntries.map(renderResourceRow)}
-          {canEdit && (
-            <Btn kind="primary" onClick={() => addResource(activeFaction.id)} style={{ justifyContent: "center" }}>
-              <Plus size={14} /> New resource
-            </Btn>
-          )}
-        </div>
-      );
-    }
-
-    const tracker = subtab === "trackers";
-    const emptyLabel = tracker ? "No trackers recorded for this faction yet." : "No modifiers recorded for this faction yet.";
     return (
-      <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: isMobile ? 14 : 22,
-        display: "flex", flexDirection: "column", gap: 10 }}>
-        {activeList.length === 0 && (
-          <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
-            border: `1px dashed ${T.line}`, lineHeight: 1.6 }}>
-            {emptyLabel}{canEdit ? " Add one below." : ""}
-          </div>
-        )}
-        <div style={{ display: "flex", flexWrap: tracker ? "nowrap" : "wrap", flexDirection: tracker ? "column" : "row", gap: 8 }}>
-          {activeList.map((m) => renderCard(m, activeList, { tracker, packed: !tracker }))}
-        </div>
-        {canEdit && (
-          <Btn kind="primary" onClick={() => addModifier(activeFaction.id, tracker ? "slider" : "text")} style={{ justifyContent: "center" }}>
-            <Plus size={14} /> {tracker ? "New tracker" : "New modifier"}
-          </Btn>
-        )}
+      <div className="scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        {resourcesSection()}
+        {trackersSection()}
+        {modifiersSection()}
       </div>
     );
   };
@@ -380,7 +432,6 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
         <MobileTabRail label={activeFaction ? activeFaction.name : "Select faction"} accentColor={activeFaction && activeFaction.color}>
           {factionRail(true)}
         </MobileTabRail>
-        {subtabSwitch()}
         {content()}
       </div>
     );
@@ -394,7 +445,6 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
           {factionRail(true)}
         </div>
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-          {subtabSwitch()}
           {content()}
         </div>
       </div>

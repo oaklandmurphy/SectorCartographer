@@ -126,7 +126,6 @@ export default function GalaxySectorMap() {
   });
   const setFleetCompareId = (v) => navigate((r) => ({ compareId: fromSetter(v, r.compareId) }));
   const setAssetFactionId = (v) => navigate((r) => ({ assetFactionId: fromSetter(v, r.assetFactionId) }));
-  const setAssetSubtab = (v) => navigate((r) => ({ assetSubtab: fromSetter(v, r.assetSubtab) }));
   const setAgentFactionId = (v) => navigate((r) => ({ agentFactionId: fromSetter(v, r.agentFactionId) }));
 
   useEffect(() => { if (isMobile) setPanelOpen(false); }, [isMobile]); // avoid opening full-screen on first mobile load
@@ -2015,7 +2014,7 @@ export default function GalaxySectorMap() {
             factions={displayModifierFactions} allFactions={factions} modifiers={displayModifiers} resources={displayResources} canEdit={isGM} isMobile={isMobile}
             viewerFactionId={viewer.roleFactionId}
             activeFactionId={assetFactionId} setActiveFactionId={setAssetFactionId}
-            subtab={assetSubtab || "modifiers"} setSubtab={setAssetSubtab}
+            subtab={assetSubtab}
             addModifier={addModifier} patchModifier={patchModifier} removeModifier={removeModifier}
             reorderModifiers={reorderModifiers}
             addResource={addResource} patchResource={patchResource} removeResource={removeResource}
