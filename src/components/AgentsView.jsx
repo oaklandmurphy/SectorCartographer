@@ -263,8 +263,8 @@ export default function AgentsView({
               </div>
               {canPlaceAgent ? (
                 <select style={selStyle} value={a.systemId || ""}
-                  onChange={(e) => patchAgent(a.id, { systemId: e.target.value || null })}>
-                  <option value="">Unplaced (off-map)</option>
+                  onChange={(e) => { if (e.target.value) patchAgent(a.id, { systemId: e.target.value }); }}>
+                  {!a.systemId && <option value="" disabled hidden>Unplaced — select a system</option>}
                   {systems.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               ) : (

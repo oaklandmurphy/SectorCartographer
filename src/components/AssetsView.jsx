@@ -366,6 +366,7 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
     const remaining = p.turnsRemaining || 0;
     const complete = remaining <= 0;
     const auto = p.autoDecrement !== false;
+    const vis = p.public ? "public" : p.private ? "private" : "default";
     const done = total > 0 ? Math.min(1, Math.max(0, (total - remaining) / total)) : (complete ? 1 : 0);
     const counterBtnStyle = {
       display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
@@ -424,6 +425,36 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
               style={{ ...inputStyle, width: 56, textAlign: "center", padding: "5px 4px", fontWeight: 800 }} />
           </div>
         )}
+        {/* Visibility: same three states as a modifier/tracker card — Private
+            (only this faction and the GM), Allies (the default), or Public
+            (every player, ally or enemy). */}
+        {canEdit ? (
+          <div style={{ display: "flex", gap: 4 }}>
+            {VISIBILITY.map((v) => {
+              const on = v.id === vis;
+              const Icon = v.icon;
+              return (
+                <button key={v.id} title={v.title}
+                  onClick={() => patchProject(p.id, { private: v.id === "private", public: v.id === "public" })}
+                  style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
+                    border: `1px solid ${on ? v.color : T.line}`, borderRadius: 2, padding: "5px 9px",
+                    background: on ? `${v.color}22` : T.panel3, color: on ? v.color : T.faint,
+                    fontFamily: F.body, fontSize: 10.5, fontWeight: 700,
+                    letterSpacing: ".05em", textTransform: "uppercase" }}>
+                  <Icon size={12} /> {v.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : vis !== "default" ? (
+          <div style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6,
+            border: `1px solid ${vis === "public" ? T.accent : T.amber}`, borderRadius: 2, padding: "4px 8px",
+            background: `${vis === "public" ? T.accent : T.amber}22`, color: vis === "public" ? T.accent : T.amber,
+            fontFamily: F.body, fontSize: 10, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase" }}>
+            {vis === "public" ? <Globe size={11} /> : <Lock size={11} />}
+            {vis === "public" ? "Public" : "Private"}
+          </div>
+        ) : null}
         {/* Auto-decrement toggle: whether Next Turn ticks this project's
             countdown down by one. The GM can pause a stalled or manually-paced
             project without losing its progress so far. */}

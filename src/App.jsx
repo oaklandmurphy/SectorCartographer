@@ -752,6 +752,12 @@ export default function GalaxySectorMap() {
   function patchAgent(id, p) {
     const a = agents.find((x) => x.id === id);
     if (!a || !canManageAgents(a.factionId)) return;
+    // Location is a stricter permission than the rest of the card (see
+    // canPlaceAgents) — a player who can manage their faction's agents but
+    // hasn't been granted canMoveAgents can still edit name/notes/icon, just
+    // not systemId. Belt-and-braces alongside the dropdowns only rendering
+    // for players who already have this, same reasoning as onAgentSnap.
+    if ("systemId" in p && !canPlaceAgents(a.factionId)) return;
     setAgents((as) => as.map((x) => (x.id === id ? { ...x, ...p } : x)));
   }
   function removeAgent(id) {
@@ -874,10 +880,18 @@ export default function GalaxySectorMap() {
   // structured object the resolution tool builds — the roll, the modifiers it
   // applied, the success/failure outcome, and the GM's free-text ruling — so the
   // request itself preserves the full result, not just a sentence.
-  function resolveAction(id, resolution) {
+  //
+  // `delayed`: the GM has ruled, but doesn't want the player to see it yet
+  // (e.g. a covert action whose outcome shouldn't leak before the round ends).
+  // Status goes to "delayed" instead of "resolved" — every player-facing check
+  // keys off status === "resolved", so a delayed request still reads as pending
+  // to its owner. It clears out of the GM's own unresolved queue immediately
+  // (see the unresolved/resolved split in GMToolsView), and nextTurn() is what
+  // finally flips it to "resolved" and reveals it, same moment it archives.
+  function resolveAction(id, resolution, delayed) {
     if (!isGM) return;
     setActions((acts) => acts.map((a) => (a.id === id
-      ? { ...a, status: "resolved", resolution: resolution || null, resolvedAt: Date.now() } : a)));
+      ? { ...a, status: delayed ? "delayed" : "resolved", resolution: resolution || null, resolvedAt: Date.now() } : a)));
   }
   // GM: send a resolved request back to the pending queue to re-adjudicate.
   function reopenAction(id) {
@@ -946,12 +960,21 @@ export default function GalaxySectorMap() {
     const agentMoves = agents
       .map((a) => ({ a, dest: destFor("agent", a.id) }))
       .filter((x) => x.dest);
+    // Missions the GM resolved with "delay resolution" checked (see
+    // resolveMission): the ruling exists but their survivors are still off the
+    // fleet's books. Next Turn is what actually hands them back, in the same
+    // fleets update as movement so neither clobbers the other.
+    const delayedMissions = missions.filter((m) => m.status === "delayed");
 
-    if (fleetMoves.length > 0) {
-      setFleets((fs) => fs.map((f) => {
-        const m = fleetMoves.find((x) => x.f.id === f.id);
-        return m ? { ...f, systemId: m.dest } : f;
-      }));
+    if (fleetMoves.length > 0 || delayedMissions.length > 0) {
+      setFleets((fs) => {
+        let next = fleetMoves.length > 0 ? fs.map((f) => {
+          const m = fleetMoves.find((x) => x.f.id === f.id);
+          return m ? { ...f, systemId: m.dest } : f;
+        }) : fs;
+        delayedMissions.forEach((m) => { next = returnDetachments(next, m.fleetId, survivingDetachments(m)); });
+        return next;
+      });
     }
     if (agentMoves.length > 0) {
       setAgents((as) => as.map((a) => {
@@ -981,10 +1004,14 @@ export default function GalaxySectorMap() {
         const fac = factions.find((f) => f.id === a.factionId);
         const member = fac && (fac.members || []).find((m) => m.id === a.memberId);
         const label = member ? member.name : "Agent";
-        own.forEach((x) => lines.push(`  ${label}: "${x.text}" — ${x.status === "resolved" ? "resolved" : "carried over, still pending"}`));
+        own.forEach((x) => lines.push(`  ${label}: "${x.text}" — ${x.status === "resolved" || x.status === "delayed" ? "resolved" : "carried over, still pending"}`));
       });
     }
-    const resolvedMissionsNow = missions.filter((m) => m.status === "resolved");
+    // Delayed actions/missions (see resolveAction/resolveMission's `delayed`
+    // flag) are ruled on but hidden from the player until this exact moment —
+    // folding their status into "resolved" here is what reveals them, one turn
+    // after the GM actually made the call.
+    const resolvedMissionsNow = missions.filter((m) => m.status === "resolved" || m.status === "delayed");
     if (resolvedMissionsNow.length > 0) {
       if (lines.length > 0) lines.push("");
       lines.push("SQUADRON MISSIONS RESOLVED");
@@ -1010,8 +1037,11 @@ export default function GalaxySectorMap() {
     }
     if (lines.length > 0) addNote(`Turn advanced — ${new Date().toLocaleString()}\n${lines.join("\n")}`, "turn");
     if (actions.length > 0) {
-      const resolvedActions = actions.filter((a) => a.status === "resolved");
-      const pendingActions = actions.filter((a) => a.status !== "resolved");
+      // A delayed action is folded into "resolved" here too — revealed to its
+      // player and archived in the same step, same as a delayed mission below.
+      const resolvedActions = actions.filter((a) => a.status === "resolved" || a.status === "delayed")
+        .map((a) => (a.status === "delayed" ? { ...a, status: "resolved" } : a));
+      const pendingActions = actions.filter((a) => a.status !== "resolved" && a.status !== "delayed");
       if (resolvedActions.length > 0) {
         const turnEndedAt = Date.now();
         // `turn` is the turn number that's closing out right now — the one the
@@ -1026,8 +1056,9 @@ export default function GalaxySectorMap() {
     // `missions` untouched (nothing to archive until the GM rules on it).
     if (resolvedMissionsNow.length > 0) {
       const turnEndedAt = Date.now();
-      setArchivedMissions((arch) => [...resolvedMissionsNow.map((m) => ({ ...m, turnEndedAt, turn: turnNumber })), ...arch]);
-      setMissions((ms) => ms.filter((m) => m.status !== "resolved"));
+      const revealed = resolvedMissionsNow.map((m) => (m.status === "delayed" ? { ...m, status: "resolved" } : m));
+      setArchivedMissions((arch) => [...revealed.map((m) => ({ ...m, turnEndedAt, turn: turnNumber })), ...arch]);
+      setMissions((ms) => ms.filter((m) => m.status !== "resolved" && m.status !== "delayed"));
     }
     setTurnNumber((n) => (Number(n) || 0) + 1);
   }
@@ -1073,6 +1104,11 @@ export default function GalaxySectorMap() {
     const m = missions.find((x) => x.id === id);
     if (!m) return;
     if (m.status === "pending") setFleets((fs) => returnDetachments(fs, m.fleetId, m.detachments || []));
+    // A delayed mission already has a ruling (see resolveMission), but its
+    // survivors haven't been handed back yet — deleting it before Next Turn
+    // reveals it is the only way to return them early, so do that here rather
+    // than stranding those craft off the fleet's books forever.
+    else if (m.status === "delayed") setFleets((fs) => returnDetachments(fs, m.fleetId, survivingDetachments(m)));
     setMissions((ms) => ms.filter((x) => x.id !== id));
   }
   // GM: permanently delete an entry from a closed-out turn's archive (contrast
@@ -1082,27 +1118,50 @@ export default function GalaxySectorMap() {
     if (!isGM) return;
     setArchivedMissions((arch) => arch.filter((x) => x.id !== id));
   }
+  // Recomputes a resolved (or delayed) mission's surviving detachments from its
+  // stored resolution — the same per-squadron split resolveMission applies at
+  // resolve time, factored out so nextTurn (revealing a delayed mission) and
+  // removeMission (cancelling one early) can redo it without re-deriving it.
+  function survivingDetachments(m) {
+    const resolution = m.resolution;
+    const cas = Number(resolution && resolution.casualtyPct) || 0;
+    const lossMap = new Map((resolution && resolution.detachmentLosses || []).map((d) => [d.squadronId, d.loss]));
+    return (m.detachments || []).map((d) => {
+      const loss = lossMap.has(d.squadronId)
+        ? Math.max(0, Math.min(d.count, Math.floor(Number(lossMap.get(d.squadronId)) || 0)))
+        : Math.round(d.count * (cas / 100));
+      return { ...d, count: d.count - loss };
+    });
+  }
   // GM: adjudicate a pending mission against the odds table (see missionOdds.js)
   // and return the survivors in the same step. The panel's resolution tool spreads
   // `casualtyPct` evenly across detachments by default but lets the GM tweak exact
   // per-squadron losses (resolution.detachmentLosses) against a percentage tracker
   // before committing — that exact split, not a recomputed uniform one, is what's
   // applied here, so ships the GM marked destroyed never come back to their carrier.
-  function resolveMission(id, resolution) {
+  //
+  // `delayed`: same idea as resolveAction's — the GM has rolled it, but the craft
+  // stay off the fleet's books and the mission keeps reading as unresolved to its
+  // owner until nextTurn() reveals it and actually returns the survivors.
+  function resolveMission(id, resolution, delayed) {
     if (!isGM) return;
     const m = missions.find((x) => x.id === id);
     if (!m || m.status !== "pending") return;
-    const cas = Number(resolution && resolution.casualtyPct) || 0;
-    const lossMap = new Map((resolution && resolution.detachmentLosses || []).map((d) => [d.squadronId, d.loss]));
-    const survivors = (m.detachments || []).map((d) => {
-      const loss = lossMap.has(d.squadronId)
-        ? Math.max(0, Math.min(d.count, Math.floor(Number(lossMap.get(d.squadronId)) || 0)))
-        : Math.round(d.count * (cas / 100));
-      return { ...d, count: d.count - loss };
-    });
-    setFleets((fs) => returnDetachments(fs, m.fleetId, survivors));
-    setMissions((ms) => ms.map((x) => (x.id === id
-      ? { ...x, status: "resolved", resolution: resolution || null, resolvedAt: Date.now() } : x)));
+    const next = { ...m, status: delayed ? "delayed" : "resolved", resolution: resolution || null, resolvedAt: Date.now() };
+    if (!delayed) setFleets((fs) => returnDetachments(fs, m.fleetId, survivingDetachments(next)));
+    setMissions((ms) => ms.map((x) => (x.id === id ? next : x)));
+  }
+  // GM: fix up a resolved/delayed mission's outcome text after the fact (typo,
+  // added detail) without touching the roll, grade, or casualty split — those
+  // drive survivingDetachments, so leaving them alone means this never
+  // re-triggers a craft hand-back. `archived` picks which pile to patch, since
+  // a resolved mission may already have moved from `missions` into
+  // `archivedMissions` by nextTurn.
+  function editMissionResolutionText(id, archived, text) {
+    if (!isGM) return;
+    const patch = (m) => (m.id === id && m.resolution ? { ...m, resolution: { ...m.resolution, text: text || "" } } : m);
+    if (archived) setArchivedMissions((arch) => arch.map(patch));
+    else setMissions((ms) => ms.map(patch));
   }
 
   /* ---- faction relationship edges (upsert; "none" removes the edge) ---- */
@@ -1345,6 +1404,30 @@ export default function GalaxySectorMap() {
   function unpublishWikiEntry(id) {
     if (!canEdit) return;
     setWiki((w) => w.map((e) => (e.id === id ? { ...e, status: "draft" } : e)));
+  }
+  // GM: publish a draft (or settle edits just made to an already-live entry)
+  // without pinging players' Updates feed. Rather than fight the "new until
+  // seen" rule in unseenArticles, this seeds every faction's read receipt for
+  // the entry at "now" — so the seenAt-vs-updatedAt check finds nothing unread,
+  // exactly as if every faction had already opened the page themselves.
+  function publishWikiEntryQuietly(id) {
+    if (!canEdit) return;
+    const now = Date.now();
+    const e = wiki.find((x) => x.id === id);
+    if (!e) return;
+    if (e.status === "draft") {
+      setWiki((w) => w.map((x) => (x.id === id ? { ...x, status: undefined, publishedAt: x.publishedAt || now } : x)));
+      syncFactionNode({ ...e, status: undefined });
+    }
+    setWikiReads((reads) => {
+      let next = reads;
+      factions.forEach((f) => {
+        const rid = `read_${f.id}_${id}`;
+        const receipt = { id: rid, factionId: f.id, wikiId: id, seenAt: now };
+        next = next.some((r) => r.id === rid) ? next.map((r) => (r.id === rid ? receipt : r)) : [...next, receipt];
+      });
+      return next;
+    });
   }
 
   // A receipt belongs to a faction rather than a person: once one member reads
@@ -1627,10 +1710,15 @@ export default function GalaxySectorMap() {
   const pendingWikiCount = useMemo(() => wiki.filter((e) => e.status === "pending" && e.ready).length, [wiki]);
   // GM-only: how many agent action requests are waiting to be resolved, for the
   // GM Tools tab badge.
-  const pendingActionCount = useMemo(() => actions.filter((a) => a.status !== "resolved").length, [actions]);
+  // Delayed requests already have a GM ruling (see resolveAction) — they're not
+  // waiting on anything, just holding it back from the player, so they don't
+  // count toward "needs the GM's attention" here.
+  const pendingActionCount = useMemo(
+    () => actions.filter((a) => a.status !== "resolved" && a.status !== "delayed").length, [actions]);
   // GM-only: how many squadron mission requests are waiting to be resolved,
   // folded into the same GM Tools tab badge as agent action requests.
-  const pendingMissionCount = useMemo(() => missions.filter((m) => m.status !== "resolved").length, [missions]);
+  const pendingMissionCount = useMemo(
+    () => missions.filter((m) => m.status !== "resolved" && m.status !== "delayed").length, [missions]);
   // Fleet positions are gated both by faction (a player sees their own faction's
   // fleets plus allies'/vassals') and by the GM's public switch — see visibleFleets.
   const displayFleets = useMemo(
@@ -1707,40 +1795,45 @@ export default function GalaxySectorMap() {
     if (viewer.seesAll) return null; // null = no filter, every faction
     return viewer.roleFactionId ? friendlyFactionIds(viewer.roleFactionId, relations) : new Set();
   }, [viewer, relations]);
-  // A `public` modifier is visible to every player, not just allies/vassals —
-  // so a faction with no friendly tie to the viewer can still show up in the
-  // rail, as long as it has at least one public entry to justify the tab.
-  const publicModifierFactionIds = useMemo(
-    () => new Set(modifiers.filter((m) => m.public).map((m) => m.factionId)),
-    [modifiers]
+  // A `public` modifier or project is visible to every player, not just
+  // allies/vassals — so a faction with no friendly tie to the viewer can
+  // still show up in the rail, as long as it has at least one public entry
+  // (of either kind) to justify the tab.
+  const publicAssetFactionIds = useMemo(
+    () => new Set([...modifiers, ...projects].filter((x) => x.public).map((x) => x.factionId)),
+    [modifiers, projects]
   );
   const displayModifierFactions = useMemo(
     () => (modifierFactionIds
-      ? factions.filter((f) => modifierFactionIds.has(f.id) || publicModifierFactionIds.has(f.id))
+      ? factions.filter((f) => modifierFactionIds.has(f.id) || publicAssetFactionIds.has(f.id))
       : factions),
-    [factions, modifierFactionIds, publicModifierFactionIds]
+    [factions, modifierFactionIds, publicAssetFactionIds]
   );
   // Three visibility states, checked in order: `public` overrides everything
   // (any player, ally or enemy); otherwise a `private` one drops the
   // ally/vassal grant, visible only to the faction it's attached to (and the
   // GM, handled by the null filter above); otherwise the default — this
-  // faction and its allies/vassals.
+  // faction and its allies/vassals. Shared by modifiers and projects — the
+  // only two collections with a visibility toggle of their own.
   const displayModifiers = useMemo(() => {
     if (!modifierFactionIds) return modifiers; // GM: no filter
     return modifiers.filter((m) =>
       m.public ||
       (modifierFactionIds.has(m.factionId) && (!m.private || m.factionId === viewer.roleFactionId)));
   }, [modifiers, modifierFactionIds, viewer.roleFactionId]);
-  // Resources have no private flag — just the same per-faction visibility as modifiers.
+  // Resources have no private/public flag — just the same per-faction
+  // (allies/vassals-only) visibility as a default-visibility modifier.
   const displayResources = useMemo(() => {
     if (!modifierFactionIds) return resources; // GM: no filter
     return resources.filter((r) => modifierFactionIds.has(r.factionId));
   }, [resources, modifierFactionIds]);
-  // Projects: same visibility rule as resources — no private flag of their own.
+  // Projects: same three-state visibility as displayModifiers above.
   const displayProjects = useMemo(() => {
     if (!modifierFactionIds) return projects; // GM: no filter
-    return projects.filter((p) => modifierFactionIds.has(p.factionId));
-  }, [projects, modifierFactionIds]);
+    return projects.filter((p) =>
+      p.public ||
+      (modifierFactionIds.has(p.factionId) && (!p.private || p.factionId === viewer.roleFactionId)));
+  }, [projects, modifierFactionIds, viewer.roleFactionId]);
   // The always-visible resource strip at the top of the page: a signed-in
   // player's own faction's counters, so they're visible from any tab instead
   // of only inside Assets > Resources. Nothing to show for the GM (no single
@@ -2051,6 +2144,7 @@ export default function GalaxySectorMap() {
             submitEntry={submitWikiEntry} patchOwnEntry={patchOwnWikiEntry}
             withdrawEntry={withdrawWikiEntry} approveEntry={approveWikiEntry}
             publishEntry={publishWikiEntry} unpublishEntry={unpublishWikiEntry}
+            publishEntryQuietly={publishWikiEntryQuietly}
             proposeEdit={proposeWikiEdit}
           />
         )}
@@ -2109,7 +2203,7 @@ export default function GalaxySectorMap() {
             setActionImportant={setActionImportant} setArchivedActionImportant={setArchivedActionImportant}
             fleets={fleets} missions={missions} archivedMissions={archivedMissions}
             resolveMission={resolveMission} removeMission={removeMission}
-            removeArchivedMission={removeArchivedMission}
+            removeArchivedMission={removeArchivedMission} editMissionResolutionText={editMissionResolutionText}
             orders={orders} nextTurn={nextTurn} turnNumber={turnNumber}
           />
         )}

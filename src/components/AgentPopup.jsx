@@ -58,8 +58,8 @@ export default function AgentPopup({
         </div>
         {canPlace ? (
           <select style={selStyle} value={agent.systemId || ""}
-            onChange={(e) => patchAgent(agent.id, { systemId: e.target.value || null })}>
-            <option value="">Unplaced (off-map)</option>
+            onChange={(e) => { if (e.target.value) patchAgent(agent.id, { systemId: e.target.value }); }}>
+            {!agent.systemId && <option value="" disabled hidden>Unplaced — select a system</option>}
             {systems.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         ) : (

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Plus, Trash2, ChevronLeft, FileText, EyeOff, Users, Table, Eye, Pencil,
   Image as ImageIcon, ImagePlus, X, AlertTriangle, Inbox, CheckCircle2, Undo2, Send, Clock, Search, Globe,
-  ArrowUpDown, Filter } from "lucide-react";
+  ArrowUpDown, Filter, BellOff } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl } from "../theme.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
 import { WIKI_CATS } from "../constants.js";
@@ -20,7 +20,7 @@ const formatUpdatedAt = (value) => value ? new Intl.DateTimeFormat(undefined, {
 
 export default function WikiView({ wiki, roles = [], factions = [], canEdit, isMobile, viewer, activeCat, setActiveCat, selectedId, setSelectedId,
   addEntry, patchEntry, deleteEntry, submitEntry, patchOwnEntry, withdrawEntry, approveEntry,
-  publishEntry, unpublishEntry, proposeEdit }) {
+  publishEntry, unpublishEntry, publishEntryQuietly, proposeEdit }) {
   const confirm = useConfirm();
   const catMeta = WIKI_CATS.find((c) => c.id === activeCat) || WIKI_CATS[0];
   const catLabel = (id) => (WIKI_CATS.find((c) => c.id === id) || {}).label || id;
@@ -487,6 +487,12 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
         )}
         {canEdit ? (
           <>
+            {/* Always visible in edit mode, unlike the pending banner above
+                (which only covers submissions/proposals awaiting review) — a
+                page with no submittedBy was written by the GM directly. */}
+            <div style={{ fontSize: 10.5, color: T.faint, fontStyle: "italic" }}>
+              Author: {selected.submittedBy ? (selected.submittedBy.roleName || "a player") : "GM"}
+            </div>
             {editForm(patchEntry)}
             {/* Visibility lives on the live entry, not the proposal — approving a
                 change never rewrites it, so editing it here would be a no-op. */}
@@ -544,16 +550,28 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
                 </Btn>
               )}
               {draft && (
-                <Btn kind="primary" onClick={() => publishEntry(selected.id)}
-                  title="Make this entry visible to players and announce it in their Updates">
-                  <Globe size={14} /> Publish
-                </Btn>
+                <>
+                  <Btn kind="primary" onClick={() => publishEntry(selected.id)}
+                    title="Make this entry visible to players and announce it in their Updates">
+                    <Globe size={14} /> Publish
+                  </Btn>
+                  <Btn onClick={() => publishEntryQuietly(selected.id)}
+                    title="Make this entry visible to players, but skip the Updates notification">
+                    <BellOff size={14} /> Publish quietly
+                  </Btn>
+                </>
               )}
               {!pending && !draft && (
-                <Btn onClick={() => unpublishEntry(selected.id)}
-                  title="Hide this entry from players again while you rework it — publishing re-announces it">
-                  <EyeOff size={14} /> Unpublish
-                </Btn>
+                <>
+                  <Btn onClick={() => unpublishEntry(selected.id)}
+                    title="Hide this entry from players again while you rework it — publishing re-announces it">
+                    <EyeOff size={14} /> Unpublish
+                  </Btn>
+                  <Btn onClick={() => publishEntryQuietly(selected.id)}
+                    title="Settle any edits you've just made without pinging players' Updates feed">
+                    <BellOff size={14} /> Save quietly
+                  </Btn>
+                </>
               )}
               <Btn kind="danger"
                 onClick={async () => {

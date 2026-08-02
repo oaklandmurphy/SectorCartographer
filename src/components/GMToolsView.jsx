@@ -76,23 +76,27 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   actions, archivedActions, agents, systems, resolveAction, reopenAction, removeAction, removeArchivedAction,
   editActionResolution, editArchivedActionResolution, setActionImportant, setArchivedActionImportant,
   fleets, missions, archivedMissions, resolveMission, removeMission, removeArchivedMission,
+  editMissionResolutionText,
   orders, nextTurn, turnNumber, resourceTransactions, removeResourceTransaction }) {
   const confirm = useConfirm();
   const [section, setSection] = useState("actions"); // "actions" | "missions" | "narrative" | "transactions"
-  const pendingMissionTotal = (missions || []).filter((m) => m.status !== "resolved").length;
+  const pendingMissionTotal = (missions || []).filter((m) => m.status !== "resolved" && m.status !== "delayed").length;
   // What "Next Turn" is about to do: land every committed move order and close
   // out every agent's action requests. Shown beside the button so the GM isn't
   // clicking blind — see App.jsx's nextTurn for what actually runs.
   const readyOrders = (orders || []).filter((o) => o.committed && o.path.length > 0);
   const readyFleetMoves = readyOrders.filter((o) => o.pieceType === "fleet").length;
   const readyAgentMoves = readyOrders.filter((o) => o.pieceType === "agent").length;
-  const resolvedActionsTotal = (actions || []).filter((a) => a.status === "resolved").length;
-  const pendingActionsTotal = (actions || []).filter((a) => a.status !== "resolved").length;
+  // "Delayed" (see resolveAction/resolveMission's `delayed` flag) counts as
+  // resolved for turn-advance purposes — Next Turn is exactly what reveals it —
+  // even though it doesn't count as resolved for the player yet.
+  const resolvedActionsTotal = (actions || []).filter((a) => a.status === "resolved" || a.status === "delayed").length;
+  const pendingActionsTotal = (actions || []).filter((a) => a.status !== "resolved" && a.status !== "delayed").length;
   // Squadron missions archive on the same turn-advance (see App.jsx's nextTurn),
   // so a turn with nothing but resolved missions still has work to close out —
   // without this, Next Turn would stay disabled and those missions would never
   // move into the archive.
-  const resolvedMissionsTotal = (missions || []).filter((m) => m.status === "resolved").length;
+  const resolvedMissionsTotal = (missions || []).filter((m) => m.status === "resolved" || m.status === "delayed").length;
   const turnHasWork = readyOrders.length > 0 || resolvedActionsTotal > 0 || pendingActionsTotal > 0
     || resolvedMissionsTotal > 0;
   function turnSummary() {
@@ -139,6 +143,10 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
 
   const [outcomeText, setOutcomeText] = useState(""); // the GM's free ruling, appended to the outcome
   const [track, setTrack] = useState(false);
+  // When checked, resolving pulls the request out of the unresolved queue but
+  // holds the result back — the player still sees it as pending, and nothing
+  // reveals until the GM presses Next Turn (see App.jsx's resolveAction).
+  const [delayResolution, setDelayResolution] = useState(false);
   const [output, setOutput] = useState("");
 
   const targetAction = targetId ? (actions || []).find((a) => a.id === targetId) : null;
@@ -147,7 +155,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   // just produced stays copyable after the request is closed and the tool clears.
   function clearTool() {
     setSelectedIds([]); setModValues({}); setDice(null); setRollText("");
-    setTotalModText("0"); setOutcomeText("");
+    setTotalModText("0"); setOutcomeText(""); setDelayResolution(false);
   }
   // The player dropdown: switching player by hand drops the current picks (a
   // modifier chosen for one player means nothing for another), any request this
@@ -168,7 +176,8 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     setTargetId(action.id);
     setSelectedIds(preIds);
     setModValues(Object.fromEntries(preIds.map((id) => [id, "1"])));
-    setDice(null); setRollText(""); setTotalModText(String(preIds.length)); setOutcomeText(""); setOutput("");
+    setDice(null); setRollText(""); setTotalModText(String(preIds.length)); setOutcomeText("");
+    setDelayResolution(false); setOutput("");
     requestAnimationFrame(() => toolRef.current &&
       toolRef.current.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
@@ -211,7 +220,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     };
 
     if (targetAction) {
-      resolveAction(targetAction.id, resolution);
+      resolveAction(targetAction.id, resolution, delayResolution);
       if (track) addNote(text, "roll", { playerName: role ? role.name : null });
       setTargetId(""); clearTool();
     } else if (track) {
@@ -250,7 +259,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   const activeKey = playerGroups.some((g) => g.key === playerTab)
     ? playerTab : (playerGroups[0] ? playerGroups[0].key : null);
   const activeGroup = playerGroups.find((g) => g.key === activeKey) || null;
-  const pendingTotal = (actions || []).filter((a) => a.status !== "resolved").length;
+  const pendingTotal = (actions || []).filter((a) => a.status !== "resolved" && a.status !== "delayed").length;
 
   // "Current Turn" (the live unresolved/resolved stack) vs "Previous Actions"
   // (everything archived from turns already closed out) — a subtab per player
@@ -259,11 +268,16 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
 
   // The active player's requests split for the two-tier stack: unresolved on top
   // (oldest first, the order they arrived), resolved below (newest first, a log).
+  // A "delayed" request (see App.jsx's resolveAction) already has a ruling, just
+  // one the player hasn't seen yet — it groups with resolved, not unresolved,
+  // so resolving it actually clears it out of the GM's active queue.
   const { unresolved, resolved } = useMemo(() => {
     const items = activeGroup ? activeGroup.items : [];
     return {
-      unresolved: items.filter((a) => a.status !== "resolved").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)),
-      resolved: items.filter((a) => a.status === "resolved").sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0)),
+      unresolved: items.filter((a) => a.status !== "resolved" && a.status !== "delayed")
+        .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)),
+      resolved: items.filter((a) => a.status === "resolved" || a.status === "delayed")
+        .sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0)),
     };
   }, [activeGroup]);
 
@@ -327,7 +341,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   // A player tab — vertical fills the left rail, horizontal is the mobile strip.
   const renderTab = (g, vertical) => {
     const on = g.key === activeKey;
-    const pending = g.items.filter((a) => a.status !== "resolved").length;
+    const pending = g.items.filter((a) => a.status !== "resolved" && a.status !== "delayed").length;
     return (
       <button key={g.key || "_gm"} onClick={() => setPlayerTab(g.key)} title={g.name}
         style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
@@ -531,7 +545,8 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
           <span style={lbl}>Outcome text</span>
           <textarea value={outcomeText} onChange={(e) => setOutcomeText(e.target.value)}
             placeholder="What happens as a result… (appended after the success/failure line)"
-            style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9 }} />
+            style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9,
+              fontFamily: F.mono }} />
         </div>
 
         <label style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 11.5, color: T.mut }}>
@@ -539,10 +554,17 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
           Also log this resolution in the notes below
         </label>
 
+        <label title="Pulls this request out of the unresolved queue, but keeps the result hidden from the player — and doesn't return any craft it committed — until Next Turn"
+          style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 11.5,
+            color: delayResolution ? T.amber : T.mut }}>
+          <input type="checkbox" checked={delayResolution} onChange={(e) => setDelayResolution(e.target.checked)} />
+          Delay resolution — hide from player until Next Turn
+        </label>
+
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {OUTCOMES.map((o) => (
             <Btn key={o.id} kind={o.kind} onClick={() => resolve(o.id)} style={{ flex: "1 1 130px", justifyContent: "center" }}>
-              {targetAction ? "Resolve: " : ""}{o.label}
+              {targetAction ? (delayResolution ? "Delay: " : "Resolve: ") : ""}{o.label}
             </Btn>
           ))}
         </div>
@@ -750,7 +772,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
           <SquadronMissionsPanel roles={roles} factions={factions} fleets={fleets} missions={missions}
             archivedMissions={archivedMissions}
             isMobile={isMobile} resolveMission={resolveMission} removeMission={removeMission}
-            removeArchivedMission={removeArchivedMission} />
+            removeArchivedMission={removeArchivedMission} editMissionResolutionText={editMissionResolutionText} />
         ) : section === "narrative" ? (
           narrativePane()
         ) : section === "transactions" ? (
@@ -789,7 +811,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
         <SquadronMissionsPanel roles={roles} factions={factions} fleets={fleets} missions={missions}
           archivedMissions={archivedMissions}
           isMobile={isMobile} resolveMission={resolveMission} removeMission={removeMission}
-          removeArchivedMission={removeArchivedMission}
+          removeArchivedMission={removeArchivedMission} editMissionResolutionText={editMissionResolutionText}
           notesPane={notes_} />
       </div>
     );
@@ -874,7 +896,8 @@ function ResolutionWithEdit({ action, editResolution }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
           placeholder="What happens as a result…"
-          style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9 }} />
+          style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9,
+            fontFamily: F.mono }} />
         <div style={{ display: "flex", gap: 6 }}>
           <Btn kind="primary" onClick={() => { editResolution(action.id, draft.trim()); setEditing(false); }}>
             <Check size={13} /> Save
@@ -903,13 +926,18 @@ function ActionCard({ action, faction, agentLabel, systemLabel, modName, isTarge
   editActionResolution, setActionImportant }) {
   const confirm = useConfirm();
   const resolved = action.status === "resolved";
+  // Ruled on with "delay resolution" checked (see App.jsx's resolveAction) —
+  // has a resolution just like `resolved`, but the player still sees it as
+  // pending until Next Turn reveals it.
+  const delayed = action.status === "delayed";
+  const settled = resolved || delayed;
   const color = faction ? faction.color : T.accent;
   const flagged = (action.modifierIds || []).map((id) => ({ id, name: modName(id) })).filter((m) => m.name);
 
   return (
-    <div style={{ border: `1px solid ${isTarget ? T.accent : (resolved ? T.line : color)}`, borderRadius: 2,
+    <div style={{ border: `1px solid ${isTarget ? T.accent : (settled ? T.line : color)}`, borderRadius: 2,
       background: T.panel2, display: "flex", flexDirection: "column", gap: 8, padding: 10,
-      opacity: resolved ? 0.9 : 1, boxShadow: isTarget ? `0 0 0 1px ${T.accent}` : "none" }}>
+      opacity: settled ? 0.9 : 1, boxShadow: isTarget ? `0 0 0 1px ${T.accent}` : "none" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <span style={{ width: 9, height: 9, borderRadius: "50%", background: color, flexShrink: 0 }} />
         <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.mut }}>
@@ -921,10 +949,10 @@ function ActionCard({ action, faction, agentLabel, systemLabel, modName, isTarge
           </span>
         )}
         {/* GM-private flag for future turn-summary tooling — only meaningful once
-            there's a ruling to summarize, so it only shows up on a resolved
-            request. Never rendered anywhere a player can see (AgentsView has no
+            there's a ruling to summarize, so it only shows up once settled.
+            Never rendered anywhere a player can see (AgentsView has no
             equivalent control, and doesn't read the field). */}
-        {resolved && (
+        {settled && (
           <button onClick={() => setActionImportant(action.id, !action.important)}
             title={action.important ? "Marked narratively important — click to unmark" : "Mark as narratively important"}
             style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", padding: 0,
@@ -932,14 +960,15 @@ function ActionCard({ action, faction, agentLabel, systemLabel, modName, isTarge
             <Star size={14} fill={action.important ? T.amber : "none"} />
           </button>
         )}
-        <span style={{ marginLeft: resolved ? 0 : "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
+        <span style={{ marginLeft: settled ? 0 : "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
           fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
-          color: resolved ? T.accent : T.amber }}>
-          {resolved ? <Check size={11} /> : <Clock size={11} />}{resolved ? "Resolved" : "Pending"}
+          color: resolved ? T.accent : T.amber }}
+          title={delayed ? "Ruled on, but held back from the player until Next Turn" : undefined}>
+          {resolved ? <Check size={11} /> : <Clock size={11} />}{resolved ? "Resolved" : delayed ? "Delayed" : "Pending"}
         </span>
       </div>
 
-      {action.carriedOver && !resolved && (
+      {action.carriedOver && !settled && (
         <span title="This request went unresolved when the turn advanced and held over into the current one"
           style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
           fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.faint, alignSelf: "flex-start" }}>
@@ -966,7 +995,7 @@ function ActionCard({ action, faction, agentLabel, systemLabel, modName, isTarge
         </div>
       )}
 
-      {resolved ? (
+      {settled ? (
         <>
           <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 6 }}>
             {action.resolution

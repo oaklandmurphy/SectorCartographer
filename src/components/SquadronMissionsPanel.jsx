@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { Rocket, Trash2, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6,
-  Users, Check, Clock, Wand2, Ship } from "lucide-react";
+  Users, Check, Clock, Wand2, Ship, Pencil, X } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import {
   RATIO_COLS, EVEN_RATIO_INDEX, MIN_SHIFT, MAX_SHIFT,
@@ -22,6 +22,45 @@ const detachmentSummary = (m) => (m.detachments || [])
   .map((d) => `${d.count}×${d.model || "unnamed"}`).join(", ");
 const totalCraft = (m) => (m.detachments || []).reduce((n, d) => n + (Number(d.count) || 0), 0);
 
+// Lets the GM correct a settled mission's outcome text (typo, added detail)
+// without reopening the mission or touching the roll/casualty split — mirrors
+// GMToolsView's ResolutionWithEdit for agent actions.
+function MissionResolutionWithEdit({ mission, editResolution }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const editable = !!editResolution;
+
+  if (editing) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
+          placeholder="What happens as a result…"
+          style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9,
+            fontFamily: F.mono }} />
+        <div style={{ display: "flex", gap: 6 }}>
+          <Btn kind="primary" onClick={() => { editResolution(mission.id, !!mission.archived, draft.trim()); setEditing(false); }}>
+            <Check size={13} /> Save
+          </Btn>
+          <Btn onClick={() => setEditing(false)}>
+            <X size={13} /> Cancel
+          </Btn>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <MissionResolution resolution={mission.resolution} />
+      {editable && (
+        <Btn onClick={() => { setDraft(mission.resolution.text || ""); setEditing(true); }}
+          style={{ alignSelf: "flex-start" }} title="Edit the outcome text without reopening this mission">
+          <Pencil size={12} /> Edit text
+        </Btn>
+      )}
+    </div>
+  );
+}
+
 // GM's squadron-mission workbench: the queue of fighters/bombers players have
 // committed to a mission from the Fleet tab, split per player like the agent
 // action queue, plus a resolution tool that runs the mission odds table
@@ -29,10 +68,13 @@ const totalCraft = (m) => (m.detachments || []).reduce((n, d) => n + (Number(d.c
 // mission is one step — it computes the outcome grade and casualty percentage
 // and immediately hands the surviving craft back to their fleet (App.jsx
 // resolveMission), so there is no separate "reopen" here: once craft are home,
-// redoing the roll would double-count them.
+// redoing the roll would double-count them. "Delay resolution" defers that
+// hand-back — and hides the result from the player — until Next Turn; deleting
+// a delayed mission before then is the only way to get its craft back early
+// (see removeMission).
 export default function SquadronMissionsPanel({
   roles, factions, fleets, missions, archivedMissions, isMobile, resolveMission, removeMission,
-  removeArchivedMission, notesPane,
+  removeArchivedMission, editMissionResolutionText, notesPane,
 }) {
   const confirm = useConfirm();
   const [targetId, setTargetId] = useState("");
@@ -51,6 +93,10 @@ export default function SquadronMissionsPanel({
   const [rollText, setRollText] = useState("");
   const [dice, setDice] = useState(null);
   const [outcomeText, setOutcomeText] = useState("");
+  // When checked, resolving pulls the mission out of the unresolved queue but
+  // holds the result — and the surviving craft — back until the GM presses
+  // Next Turn (see App.jsx's resolveMission).
+  const [delayResolution, setDelayResolution] = useState(false);
   // Per-squadron loss overrides, keyed by squadronId, raw typed text. A
   // squadron with no entry here just follows the calculated split live as the
   // roll/shifts change; typing a value pins that one squadron until Reset.
@@ -103,7 +149,7 @@ export default function SquadronMissionsPanel({
   }
   function clearTool() {
     setTheirsText("10"); setRatioIdx(EVEN_RATIO_INDEX); setOutShiftText("0"); setCasShiftText("0");
-    setDice(null); setRollText(""); setOutcomeText(""); setLossTexts({});
+    setDice(null); setRollText(""); setOutcomeText(""); setLossTexts({}); setDelayResolution(false);
   }
   function startResolving(mission) {
     setTargetId(mission.id);
@@ -127,46 +173,61 @@ export default function SquadronMissionsPanel({
       actualCasualtyPct: actualPct, detachmentLosses,
       text: outcomeText.trim(),
     };
-    resolveMission(targetMission.id, resolution);
+    resolveMission(targetMission.id, resolution, delayResolution);
     setTargetId(""); clearTool();
   }
 
   /* ------------------------------------------------ queue, split per player.
-     Archived missions (resolved on a turn that's since closed out, see App.jsx's
-     nextTurn) are folded in here so this history reads the same as it did before
-     archiving existed — only their delete button routes to removeArchivedMission
-     instead, since removeMission only knows the live `missions` pile. */
-  const allMissions = useMemo(() => [
-    ...(missions || []),
-    ...(archivedMissions || []).map((m) => ({ ...m, archived: true })),
-  ], [missions, archivedMissions]);
-
+     Mirrors GMToolsView's action-request grouping: each player group carries
+     both its live queue (`items`) and whatever's piled up in `archivedMissions`
+     from turns already closed out (`archived`, see App.jsx's nextTurn) — kept
+     as a separate subtab (see requestView below) rather than folded into the
+     live resolved list, so a fresh turn's queue doesn't keep growing forever
+     with every turn's history mixed in. */
   const playerGroups = useMemo(() => {
     const map = new Map();
-    for (const m of allMissions) {
+    const groupOf = (m) => {
       const key = (m.createdBy && m.createdBy.roleId) || "";
       if (!map.has(key)) {
         const name = (roles.find((r) => r.id === key) || {}).name
           || (m.createdBy && m.createdBy.roleName) || (key ? "Unknown player" : "GM / open");
-        map.set(key, { key, name, items: [] });
+        map.set(key, { key, name, items: [], archived: [] });
       }
-      map.get(key).items.push(m);
-    }
+      return map.get(key);
+    };
+    for (const m of missions || []) groupOf(m).items.push(m);
+    for (const m of archivedMissions || []) groupOf(m).archived.push({ ...m, archived: true });
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [allMissions, roles]);
+  }, [missions, archivedMissions, roles]);
 
   const [playerTab, setPlayerTab] = useState(null);
   const activeKey = playerGroups.some((g) => g.key === playerTab)
     ? playerTab : (playerGroups[0] ? playerGroups[0].key : null);
   const activeGroup = playerGroups.find((g) => g.key === activeKey) || null;
-  const pendingTotal = (missions || []).filter((m) => m.status !== "resolved").length;
+  const pendingTotal = (missions || []).filter((m) => m.status !== "resolved" && m.status !== "delayed").length;
 
+  // "Current Turn" (the live unresolved/resolved stack) vs "Previous Missions"
+  // (everything archived from turns already closed out) — a subtab per player
+  // so a fresh turn's queue stays clean without anything actually being lost.
+  const [requestView, setRequestView] = useState("current"); // "current" | "previous"
+
+  // A "delayed" mission (see App.jsx's resolveMission) already has a ruling —
+  // it groups with resolved, not unresolved, so resolving it actually clears
+  // it out of the GM's active queue even though its craft haven't come home yet.
   const { unresolved, resolved } = useMemo(() => {
     const items = activeGroup ? activeGroup.items : [];
     return {
-      unresolved: items.filter((m) => m.status !== "resolved").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)),
-      resolved: items.filter((m) => m.status === "resolved").sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0)),
+      unresolved: items.filter((m) => m.status !== "resolved" && m.status !== "delayed")
+        .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)),
+      resolved: items.filter((m) => m.status === "resolved" || m.status === "delayed")
+        .sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0)),
     };
+  }, [activeGroup]);
+
+  // The active player's archive, newest turn first.
+  const archivedForActive = useMemo(() => {
+    const items = activeGroup ? activeGroup.archived : [];
+    return [...items].sort((a, b) => (b.turnEndedAt || 0) - (a.turnEndedAt || 0));
   }, [activeGroup]);
 
   const countBadge = (n, big) => (n > 0 ? (
@@ -183,7 +244,7 @@ export default function SquadronMissionsPanel({
 
   const renderTab = (g, vertical) => {
     const on = g.key === activeKey;
-    const pending = g.items.filter((m) => m.status !== "resolved").length;
+    const pending = g.items.filter((m) => m.status !== "resolved" && m.status !== "delayed").length;
     return (
       <button key={g.key || "_gm"} onClick={() => setPlayerTab(g.key)} title={g.name}
         style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", whiteSpace: "nowrap",
@@ -210,11 +271,16 @@ export default function SquadronMissionsPanel({
     const fac = factions.find((f) => f.id === m.factionId) || null;
     const fleet = (fleets || []).find((f) => f.id === m.fleetId) || null;
     const resolvedM = m.status === "resolved";
+    // Ruled on with "delay resolution" checked (see App.jsx's resolveMission) —
+    // has a resolution just like `resolvedM`, but the player still sees it as
+    // on-mission and the surviving craft haven't come home yet.
+    const delayedM = m.status === "delayed";
+    const settledM = resolvedM || delayedM;
     const color = fac ? fac.color : T.accent;
     return (
-      <div key={m.id} style={{ border: `1px solid ${m.id === targetId ? T.accent : (resolvedM ? T.line : color)}`,
+      <div key={m.id} style={{ border: `1px solid ${m.id === targetId ? T.accent : (settledM ? T.line : color)}`,
         borderRadius: 2, background: T.panel2, display: "flex", flexDirection: "column", gap: 8, padding: 10,
-        opacity: resolvedM ? 0.9 : 1, boxShadow: m.id === targetId ? `0 0 0 1px ${T.accent}` : "none" }}>
+        opacity: settledM ? 0.9 : 1, boxShadow: m.id === targetId ? `0 0 0 1px ${T.accent}` : "none" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ width: 9, height: 9, borderRadius: "50%", background: color, flexShrink: 0 }} />
           <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.mut }}>
@@ -225,8 +291,9 @@ export default function SquadronMissionsPanel({
           )}
           <span style={{ marginLeft: m.archived ? undefined : "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5,
             fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase",
-            color: resolvedM ? T.accent : T.amber }}>
-            {resolvedM ? <Check size={11} /> : <Clock size={11} />}{resolvedM ? "Resolved" : "On mission"}
+            color: resolvedM ? T.accent : T.amber }}
+            title={delayedM ? "Ruled on, but held back from the player until Next Turn" : undefined}>
+            {resolvedM ? <Check size={11} /> : <Clock size={11} />}{resolvedM ? "Resolved" : delayedM ? "Delayed" : "On mission"}
           </span>
         </div>
 
@@ -236,15 +303,16 @@ export default function SquadronMissionsPanel({
         </div>
         <div style={{ fontSize: 13, lineHeight: 1.6, color: T.text, whiteSpace: "pre-wrap" }}>{m.text}</div>
 
-        {resolvedM ? (
+        {settledM ? (
           <>
             <div style={{ borderTop: `1px solid ${T.line}`, paddingTop: 6 }}>
               {m.resolution
-                ? <MissionResolution resolution={m.resolution} />
+                ? <MissionResolutionWithEdit mission={m} editResolution={editMissionResolutionText} />
                 : <div style={{ fontSize: 12, color: T.mut }}>Resolved with no result recorded.</div>}
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <Btn kind="danger" style={{ marginLeft: "auto" }}
+                title={delayedM ? "Delete and return its surviving craft now" : undefined}
                 onClick={async () => {
                   if (await confirm("Delete this mission?")) {
                     if (m.archived) removeArchivedMission(m.id); else removeMission(m.id);
@@ -269,6 +337,21 @@ export default function SquadronMissionsPanel({
     );
   };
 
+  // The Current Turn / Previous Missions subtab switch, shared by both panes.
+  const requestViewSwitch = () => (
+    <div style={{ display: "flex", gap: 3, background: T.panel3, padding: 3, border: `1px solid ${T.line}` }}>
+      <Btn active={requestView === "current"} onClick={() => setRequestView("current")}
+        style={{ border: "none", borderRadius: 0, flex: 1, justifyContent: "center" }}>
+        Current Turn {countBadge(unresolved.length + resolved.length)}
+      </Btn>
+      <Btn active={requestView === "previous"} onClick={() => setRequestView("previous")}
+        title="Missions from turns already closed out — nothing here is lost, just archived"
+        style={{ border: "none", borderRadius: 0, flex: 1, justifyContent: "center" }}>
+        Previous Missions {countBadge(archivedForActive.length)}
+      </Btn>
+    </div>
+  );
+
   const requestsPane = () => {
     if (playerGroups.length === 0) {
       return (
@@ -286,20 +369,32 @@ export default function SquadronMissionsPanel({
           <div className="stencil" style={{ fontSize: 18, fontWeight: 800, letterSpacing: ".03em", color: T.text }}>
             {activeGroup.name}
           </div>
-          <span className="mono" style={{ marginLeft: "auto", fontSize: 11, color: T.mut }}>
-            {unresolved.length} new · {resolved.length} resolved
-          </span>
         </div>
-        {unresolved.length === 0 && resolved.length === 0 && (
-          <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
-            border: `1px dashed ${T.line}` }}>
-            No missions from this player.
-          </div>
+        {requestViewSwitch()}
+        {requestView === "current" ? (
+          <>
+            {unresolved.length === 0 && resolved.length === 0 && (
+              <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+                border: `1px dashed ${T.line}` }}>
+                No missions from this player this turn.
+              </div>
+            )}
+            {unresolved.length > 0 && sectionLabel("UNRESOLVED")}
+            {unresolved.map(renderCard)}
+            {resolved.length > 0 && sectionLabel("RESOLVED")}
+            {resolved.map(renderCard)}
+          </>
+        ) : (
+          <>
+            {archivedForActive.length === 0 && (
+              <div style={{ fontSize: 11.5, color: T.faint, padding: "16px 8px", textAlign: "center",
+                border: `1px dashed ${T.line}` }}>
+                No archived missions yet — these pile up here once "Next Turn" closes out a round.
+              </div>
+            )}
+            {archivedForActive.map(renderCard)}
+          </>
         )}
-        {unresolved.length > 0 && sectionLabel("UNRESOLVED")}
-        {unresolved.map(renderCard)}
-        {resolved.length > 0 && sectionLabel("RESOLVED")}
-        {resolved.map(renderCard)}
       </div>
     );
   };
@@ -457,11 +552,19 @@ export default function SquadronMissionsPanel({
               <span style={lbl}>Outcome text</span>
               <textarea value={outcomeText} onChange={(e) => setOutcomeText(e.target.value)}
                 placeholder="What happens as a result…"
-                style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9 }} />
+                style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9,
+                  fontFamily: F.mono }} />
             </div>
 
+            <label title="Pulls this mission out of the unresolved queue, but keeps the result hidden from the player — and doesn't return its surviving craft — until Next Turn"
+              style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 11.5,
+                color: delayResolution ? T.amber : T.mut }}>
+              <input type="checkbox" checked={delayResolution} onChange={(e) => setDelayResolution(e.target.checked)} />
+              Delay resolution — hide from player until Next Turn
+            </label>
+
             <Btn kind="primary" onClick={resolve} style={{ justifyContent: "center" }}>
-              <Check size={14} /> Resolve &amp; Return Craft
+              <Check size={14} /> {delayResolution ? "Delay Resolution" : "Resolve & Return Craft"}
             </Btn>
           </>
         )}
