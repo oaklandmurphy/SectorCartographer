@@ -52,7 +52,7 @@ export const NOTES_COLLECTION = "notes";
 // `s.markers.map(...)` without a guard at every site.
 const defaults = {
   factions: { members: [], wikiId: null },
-  systems: { markers: [], factionId: "fac_none" },
+  systems: { markers: [], factionId: "fac_none", hasJumpGate: false },
   fleets: { systemId: null },
   strokes: { pts: [] },
   wiki: { body: "", title: "", factionId: null },

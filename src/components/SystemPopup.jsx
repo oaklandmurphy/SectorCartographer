@@ -1,4 +1,4 @@
-import { Star, Plus, Trash2, X, Rocket } from "lucide-react";
+import { Star, Plus, Trash2, X, Rocket, Zap } from "lucide-react";
 import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { ICONS, ICON_KEYS } from "../constants.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
@@ -27,6 +27,15 @@ export default function SystemPopup({
             onChange={(e) => patchSystem(system.id, { factionId: e.target.value })}>
             {factions.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
+        </div>
+        <div>
+          <label style={{ display: "flex", alignItems: "center", gap: 7,
+            cursor: canEdit ? "pointer" : "default" }}>
+            <input type="checkbox" checked={!!system.hasJumpGate} disabled={!canEdit}
+              onChange={(e) => patchSystem(system.id, { hasJumpGate: e.target.checked })} />
+            <Zap size={13} color={system.hasJumpGate ? T.accent : T.faint} />
+            <span style={lbl}>Jump gate</span>
+          </label>
         </div>
         <CodexLink wiki={wiki} value={system.wikiId} canEdit={canEdit}
           onChange={(id) => patchSystem(system.id, { wikiId: id })}

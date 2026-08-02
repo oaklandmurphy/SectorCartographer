@@ -2196,7 +2196,7 @@ export default function GalaxySectorMap() {
             roles={roles} factions={factions} modifiers={modifiers} notes={notes} isMobile={isMobile}
             resourceTransactions={resourceTransactions} removeResourceTransaction={removeResourceTransaction}
             addNote={addNote} removeNote={removeNote}
-            actions={actions} archivedActions={archivedActions} agents={agents} systems={systems}
+            actions={actions} archivedActions={archivedActions} agents={agents} systems={systems} links={links}
             resolveAction={resolveAction} reopenAction={reopenAction} removeAction={removeAction}
             removeArchivedAction={removeArchivedAction}
             editActionResolution={editActionResolution} editArchivedActionResolution={editArchivedActionResolution}

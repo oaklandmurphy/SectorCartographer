@@ -4,11 +4,13 @@ import { Gavel, Copy, Trash2, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6,
   Pencil, X, MapPin, History, Star, Sparkles, ArrowLeftRight, ArrowRight } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
+import { collectMovementViolations } from "../lib/movement.js";
 import Btn from "./ui/Btn.jsx";
 import ActionResolution from "./ui/ActionResolution.jsx";
 import GMNotesPanel from "./ui/GMNotesPanel.jsx";
 import SquadronMissionsPanel from "./SquadronMissionsPanel.jsx";
 import MobileTabRail from "./ui/MobileTabRail.jsx";
+import TurnMovementWarningModal from "./TurnMovementWarningModal.jsx";
 
 const sign = (n) => (n >= 0 ? `+${n}` : `${n}`);
 const rollDie = () => 1 + Math.floor(Math.random() * 6);
@@ -73,12 +75,13 @@ function buildNarrativePrompt(turn, items) {
 // A modifier's point value is situational (the same modifier might swing +1 one
 // week and +2 the next), so it's typed in at the moment of use, not stored.
 export default function GMToolsView({ roles, factions, modifiers, notes, isMobile, addNote, removeNote,
-  actions, archivedActions, agents, systems, resolveAction, reopenAction, removeAction, removeArchivedAction,
+  actions, archivedActions, agents, systems, links, resolveAction, reopenAction, removeAction, removeArchivedAction,
   editActionResolution, editArchivedActionResolution, setActionImportant, setArchivedActionImportant,
   fleets, missions, archivedMissions, resolveMission, removeMission, removeArchivedMission,
   editMissionResolutionText,
   orders, nextTurn, turnNumber, resourceTransactions, removeResourceTransaction }) {
   const confirm = useConfirm();
+  const [showMovementWarning, setShowMovementWarning] = useState(false);
   const [section, setSection] = useState("actions"); // "actions" | "missions" | "narrative" | "transactions"
   const pendingMissionTotal = (missions || []).filter((m) => m.status !== "resolved" && m.status !== "delayed").length;
   // What "Next Turn" is about to do: land every committed move order and close
@@ -99,6 +102,14 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   const resolvedMissionsTotal = (missions || []).filter((m) => m.status === "resolved" || m.status === "delayed").length;
   const turnHasWork = readyOrders.length > 0 || resolvedActionsTotal > 0 || pendingActionsTotal > 0
     || resolvedMissionsTotal > 0;
+  // Committed orders that break the movement rules (lib/movement.js) — an
+  // agent moving further than 3 systems (4 from a jump gate), a fleet further
+  // than 1 (2 from a jump gate), or a route that skips a link. Recomputed
+  // every render so a route the GM just fixed clears itself without a reopen.
+  const movementViolations = useMemo(
+    () => collectMovementViolations({ orders, agents, fleets, systems, links }),
+    [orders, agents, fleets, systems, links],
+  );
   function turnSummary() {
     const parts = [];
     if (readyFleetMoves > 0) parts.push(`${readyFleetMoves} fleet move${readyFleetMoves === 1 ? "" : "s"}`);
@@ -749,13 +760,25 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
         Turn {turnNumber || 0}
       </span>
       <Btn kind="primary" disabled={!turnHasWork}
-        onClick={async () => { if (await confirm(`Advance the turn — ${turnSummary()}?`)) nextTurn(); }}
+        onClick={async () => {
+          // Movement violations gate the turn behind their own dialog instead
+          // of the plain yes/no confirm — the GM needs to see which agents or
+          // fleets broke the rules before deciding whether to advance anyway.
+          if (movementViolations.length > 0) { setShowMovementWarning(true); return; }
+          if (await confirm(`Advance the turn — ${turnSummary()}?`)) nextTurn();
+        }}
         title={turnHasWork ? `Advance the turn — ${turnSummary()}` : "Nothing queued to resolve yet"}>
         <SkipForward size={13} /> Next Turn
       </Btn>
       <span style={{ fontSize: 10.5, color: turnHasWork ? T.mut : T.faint, lineHeight: 1.4 }}>
         {turnSummary()}
       </span>
+      {showMovementWarning && (
+        <TurnMovementWarningModal violations={movementViolations} factions={factions} systems={systems}
+          turnSummary={turnSummary()}
+          onCancel={() => setShowMovementWarning(false)}
+          onConfirm={() => { setShowMovementWarning(false); nextTurn(); }} />
+      )}
     </div>
   );
   const notes_ = <GMNotesPanel notes={notes} addNote={addNote} removeNote={removeNote} />;
