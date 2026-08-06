@@ -5,11 +5,13 @@ import { WIKI_CATS } from "../constants.js";
 import Btn from "./ui/Btn.jsx";
 import CodexBody from "./CodexBody.jsx";
 
-// The article date the timeline sorts and buckets on: when the page was written
-// (createdAt), falling back to its last edit for legacy entries that predate it.
-// A news article about a turn's events is created around that turn, so createdAt
-// is the closest thing to "when it happened" the codex records.
-const articleDate = (e) => e.createdAt || e.updatedAt || 0;
+// The article date the timeline sorts and buckets on: when the page was
+// published (publishedAt) — the moment it became a real article — falling back
+// to when it was first drafted, then its last edit, for legacy entries that
+// predate the publishedAt stamp. A news article about a turn's events is
+// published around that turn, so its publish time is the closest thing to
+// "when it happened" the codex records.
+const articleDate = (e) => e.publishedAt || e.createdAt || e.updatedAt || 0;
 const catMeta = (id) => WIKI_CATS.find((c) => c.id === id) || { label: id, icon: FileText };
 
 const fmtFull = (ms) => (ms ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(ms)) : null);

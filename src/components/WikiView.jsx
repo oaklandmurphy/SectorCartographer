@@ -54,7 +54,7 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
   const [filterFaction, setFilterFaction] = useState(""); // "" = all factions
   function sortCmp(a, b) {
     if (sortMode === "alpha") return (a.title || "").localeCompare(b.title || "");
-    if (sortMode === "created") return (b.createdAt || 0) - (a.createdAt || 0);
+    if (sortMode === "created") return (b.publishedAt || b.createdAt || 0) - (a.publishedAt || a.createdAt || 0);
     return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0); // "updated"
   }
   // Normal category browsing hides everyone else's pending submissions — they
