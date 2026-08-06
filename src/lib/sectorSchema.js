@@ -37,6 +37,7 @@ export const COLLECTIONS = [
   "factions", "relations", "layers", "systems",
   "links", "fleets", "ships", "strokes", "wiki", "wikiReads", "roles", "art", "modifiers", "resources", "resourceTransactions",
   "projects", "agents", "orders", "actions", "archivedActions", "missions", "archivedMissions", "actionReads", "missionReads",
+  "replenishments", "replenishmentReads", "turns", "endTurnChecks",
 ];
 
 // GM Tools notes live at their own top-level path (sectorNotes/{sectorId}, see
@@ -52,7 +53,7 @@ export const NOTES_COLLECTION = "notes";
 // `s.markers.map(...)` without a guard at every site.
 const defaults = {
   factions: { members: [], wikiId: null },
-  systems: { markers: [], factionId: "fac_none", hasJumpGate: false },
+  systems: { markers: [], factionId: "fac_none", hasJumpGate: false, hasOssite: false },
   fleets: { systemId: null },
   strokes: { pts: [] },
   wiki: { body: "", title: "", factionId: null },
@@ -71,8 +72,25 @@ const defaults = {
   // the GM can flip it off (e.g. a stalled or manually-paced project) without
   // losing the turnsTotal/turnsRemaining split the progress bar needs.
   projects: { text: "", turnsTotal: 0, turnsRemaining: 0, autoDecrement: true },
+  // A staged replenishment: the strike craft the GM has queued onto a fleet's
+  // carriers this turn (`lines`, applied on Next Turn), stamped with the system
+  // it was staged in (per-turn budget) and the faction to notify. `revealedAt`
+  // is null until Next Turn reveals it — the "resolvedAt" analog Updates keys on.
+  replenishments: { lines: [], systemId: null, factionId: null, revealedAt: null },
   relations: {}, layers: {}, links: {}, wikiReads: {}, roles: {}, art: {}, modifiers: {}, resources: {}, resourceTransactions: {}, notes: { text: "" }, ships: {},
-  actionReads: {}, missionReads: {},
+  actionReads: {}, missionReads: {}, replenishmentReads: {},
+  // A turn boundary record: the moment turn `turn` began (stamped by nextTurn(),
+  // or set/adjusted by the GM on the Timeline tab). The Timeline uses these
+  // boundaries to sort each wiki article into the turn its date falls within.
+  turns: { turn: 0, startedAt: 0 },
+  // An end-of-turn check the GM manages from GM Tools → End of Turn Checks.
+  // Today the only `type` is "ossite" — the Ossite Surplus check, one per
+  // system with the ossite trait, rolled 2d6 and passing on 8+ to hand its
+  // controlling faction +1 Ossite Surplus on Next Turn. `dice` holds the auto
+  // roll behind that; `override` ("success"/"failure") is the GM's manual call
+  // when they want to force the result; `appliedAt` is null until the turn
+  // advance that awards it, the same "resolvedAt" analog replenishments use.
+  endTurnChecks: { type: "ossite", turn: 0, systemId: null, dice: null, override: null, appliedAt: null },
 };
 
 /* ------------------------------------------------ visibility
@@ -158,6 +176,13 @@ const missionCodec = {
   decode: (m) => ({ ...m, detachments: asArray(m.detachments) }),
 };
 
+// A replenishment record's `lines` (the staged { shipId, model, count } top-ups)
+// gets the same empty-array/sparse-object treatment as a mission's detachments.
+const replenishmentCodec = {
+  encode: (r) => ({ ...r, lines: r.lines || [] }),
+  decode: (r) => ({ ...r, lines: asArray(r.lines) }),
+};
+
 const codecs = {
   // A carrier: visibility (GM-only/role-restricted, same as a wiki entry) plus
   // its squadrons list, same empty-array/sparse-object treatment as everywhere
@@ -196,6 +221,7 @@ const codecs = {
   // actions/archivedActions above.
   missions: missionCodec,
   archivedMissions: missionCodec,
+  replenishments: replenishmentCodec,
 };
 
 // One entity -> the object stored at sectors/{id}/{collection}/{entityId}.

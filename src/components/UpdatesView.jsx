@@ -1,4 +1,4 @@
-import { Bell, Check, CheckCheck, Clock, FileText, VenetianMask, Ship } from "lucide-react";
+import { Bell, Check, CheckCheck, Clock, FileText, VenetianMask, Ship, PackagePlus } from "lucide-react";
 import { T } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
 
@@ -51,9 +51,11 @@ export default function UpdatesView({
   articles, factionName, isMobile, openArticle, acknowledgeArticle, acknowledgeAll,
   resolvedActions, openAction, acknowledgeAction, acknowledgeAllActions,
   resolvedMissions, openMission, acknowledgeMission, acknowledgeAllMissions,
+  replenishments, openReplenishment, acknowledgeReplenishment, acknowledgeAllReplenishments,
 }) {
   const actions = resolvedActions || [];
   const missions = resolvedMissions || [];
+  const replen = replenishments || [];
   return (
     <div className="scroll" style={{ flex: 1, overflowY: "auto", padding: isMobile ? 14 : 24 }}>
       <div style={{ maxWidth: 820, margin: "0 auto", display: "flex", flexDirection: "column", gap: 28 }}>
@@ -102,6 +104,25 @@ export default function UpdatesView({
                   when={`Resolved ${dateTime(m.resolvedAt)}`}
                   onAcknowledge={() => acknowledgeMission(m)}
                   onOpen={() => openMission(m.fleetId)}
+                  openLabel="View" />
+              ))}
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <SectionHeader icon={<PackagePlus size={18} color={T.accent} />} label="Strike craft replenished"
+                count={replen.length} isMobile={isMobile} onAcknowledgeAll={acknowledgeAllReplenishments} />
+              {replen.length === 0 ? (
+                <div style={{ border: `1px dashed ${T.line}`, color: T.faint, padding: "16px", textAlign: "center", fontSize: 12 }}>
+                  No new resupply.
+                </div>
+              ) : replen.map((r) => (
+                <UpdateCard key={r.id} isMobile={isMobile}
+                  icon={<PackagePlus size={18} color={T.accent} style={{ flexShrink: 0 }} />}
+                  title={r.fleetName || "Fleet"}
+                  subtitle={r.systemName ? `${r.summary} · ${r.systemName}` : r.summary}
+                  when={`Replenished ${dateTime(r.revealedAt)}`}
+                  onAcknowledge={() => acknowledgeReplenishment(r)}
+                  onOpen={() => openReplenishment(r.fleetId)}
                   openLabel="View" />
               ))}
             </div>

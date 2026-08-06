@@ -131,10 +131,15 @@ export function visibleFleets(fleets, viewer, { relations, fleetsPublic }) {
 
 /* ------------------------------------------------ agents & move orders
 
-   Both are strictly own-faction, unlike fleets: an agent is a covert operative,
+   Agents are strictly own-faction, unlike fleets: an agent is a covert operative,
    so even an ally never sees it — only the owning faction's players and the GM.
-   Move orders are the same, and are player *proposals* the GM resolves by hand;
-   a player only ever sees their own faction's, committed or still being drafted. */
+
+   Move orders are player *proposals* the GM resolves by hand. A faction sees its
+   own fleets'/agents' orders. On top of that a player may file a *suggested* move
+   for an ally's or vassal's fleet (order.suggestion, order.suggesterFactionId set,
+   order.factionId still the owning faction): that suggestion is visible to both
+   the faction that made it and the faction that owns the fleet, so the owner can
+   see what their ally recommends. The GM, who resolves movement, sees them all. */
 
 // The agents a non-GM viewer renders on the map and the Agents page: only their
 // own faction's. Anonymous viewers (no faction) see none.
@@ -144,12 +149,17 @@ export function visibleAgents(agents, viewer) {
   return (agents || []).filter((a) => a.factionId === viewer.roleFactionId);
 }
 
-// The move orders a non-GM viewer renders: only their own faction's. The GM sees
-// every faction's, which is how they resolve committed movement.
+// The move orders a non-GM viewer renders: their own faction's, plus any move
+// *suggested* by their faction for an ally/vassal's fleet. Since a suggestion's
+// `factionId` is the owning faction, that first clause is also what lets an owner
+// see suggestions filed for its own fleets. The GM sees every faction's, which is
+// how they resolve committed movement and pick which suggestion (if any) to apply.
 export function visibleOrders(orders, viewer) {
   if (viewer.seesAll) return orders || [];
   if (!viewer.roleFactionId) return [];
-  return (orders || []).filter((o) => o.factionId === viewer.roleFactionId);
+  return (orders || []).filter((o) =>
+    o.factionId === viewer.roleFactionId
+    || (o.suggestion && o.suggesterFactionId === viewer.roleFactionId));
 }
 
 // Agent action requests a non-GM viewer renders on the Agents page: only their

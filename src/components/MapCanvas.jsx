@@ -151,7 +151,11 @@ export default function MapCanvas({
             const segKeys = orderPathGroups.segKeysByOrder.get(o.id) || [];
             const draft = !o.committed;
             const isAgent = o.pieceType === "agent";
-            const color = brightenColor(factionById(o.factionId).color);
+            const suggest = !!o.suggestion;
+            // A suggestion is drawn in the *suggesting* faction's color (so its
+            // author can pick out their own proposals), a plain order in the piece
+            // owner's. The "suggested" tag below names who proposed it.
+            const color = brightenColor(factionById(suggest ? o.suggesterFactionId : o.factionId).color);
             return (
               <g key={o.id}>
                 {scr.slice(1).map((b, i) => {
@@ -177,15 +181,21 @@ export default function MapCanvas({
                   return (
                     <g key={i}>
                       <line x1={ax} y1={ay} x2={bx} y2={by}
-                        stroke={color} strokeOpacity={isAgent ? (draft ? 0.6 : 0.8) : (draft ? 0.75 : 1)}
-                        strokeWidth={isAgent ? (draft ? 0.75 : 1) : (draft ? 1.2 : 1.8)}
-                        strokeDasharray={isAgent ? (draft ? "3 5" : "2 4") : (draft ? "7 6" : undefined)}
+                        stroke={color}
+                        strokeOpacity={suggest ? (draft ? 0.6 : 0.9) : isAgent ? (draft ? 0.6 : 0.8) : (draft ? 0.75 : 1)}
+                        strokeWidth={suggest ? 1.4 : isAgent ? (draft ? 0.75 : 1) : (draft ? 1.2 : 1.8)}
+                        strokeDasharray={suggest ? "2 4" : isAgent ? (draft ? "3 5" : "2 4") : (draft ? "7 6" : undefined)}
                         strokeLinecap="round" />
                       {isAgent ? (
                         // agent — open chevron, small and faint next to a fleet's solid triangle
                         <polyline points="-3,-3.5 3.5,0 -3,3.5" fill="none" stroke={color}
                           strokeOpacity={draft ? 0.7 : 0.9} strokeWidth={1.4}
                           strokeLinecap="round" strokeLinejoin="round" transform={xf} />
+                      ) : suggest ? (
+                        // suggested fleet move — a hollow triangle, so it reads as a
+                        // proposal rather than the owner's own (filled) order
+                        <polygon points="-5,-5 7,0 -5,5" fill="none" stroke={color}
+                          strokeOpacity={draft ? 0.7 : 0.95} strokeWidth={1.3} strokeLinejoin="round" transform={xf} />
                       ) : (
                         // fleet — solid triangle
                         <polygon points="-5,-5 7,0 -5,5" fill={color} fillOpacity={draft ? 0.85 : 1}
@@ -198,6 +208,38 @@ export default function MapCanvas({
             );
           })}
         </svg>
+      )}
+
+      {/* "suggested" tags — a small chip at the midpoint of each suggested move's
+          route, so it reads clearly as an ally/vassal's proposal (and names who
+          made it on hover). A faction's own orders are unlabelled. Same show/hide +
+          orders-mode rule as the route lines above. */}
+      {(showOrders || mode === "orders") && (orders || []).some((o) => o.suggestion) && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 16, pointerEvents: "none" }}>
+          {(orders || []).filter((o) => o.suggestion).map((o) => {
+            const pts = orderPoints(o);
+            if (!pts) return null;
+            const scr = pts.map((p) => w2s(p.x, p.y));
+            // Anchor the chip on the middle segment of the route so it doesn't sit
+            // on top of the moving fleet's marker or its destination system.
+            const i = Math.max(0, Math.floor((scr.length - 1) / 2));
+            const a = scr[i], b = scr[i + 1] || scr[i];
+            const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+            const sug = factionById(o.suggesterFactionId);
+            const col = brightenColor(sug.color);
+            return (
+              <div key={`sug_${o.id}`} title={`Suggested by ${sug.name}${o.committed ? "" : " · still drafting"}`}
+                style={{ position: "absolute", left: mid.x, top: mid.y, transform: "translate(-50%,-50%)",
+                  display: "flex", alignItems: "center", gap: 4, padding: "1px 5px", ...cut(2),
+                  background: T.ink, border: `1px solid ${col}`, opacity: o.committed ? 1 : 0.72,
+                  boxShadow: "0 1px 3px rgba(0,0,0,.7)" }}>
+                <span style={{ width: 6, height: 6, background: sug.color, ...cut(1), flexShrink: 0 }} />
+                <span className="mono" style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: ".09em",
+                  color: col, textTransform: "uppercase", whiteSpace: "nowrap" }}>Suggested</span>
+              </div>
+            );
+          })}
+        </div>
       )}
 
       {/* systems */}
@@ -365,7 +407,7 @@ export default function MapCanvas({
         {mode === "select" && !canEdit && <span><b style={{ color: T.amber }}>View only</b> · click a system or fleet to see its details · drag empty space to pan · scroll to zoom · unlock editing from the toolbar{overview && <> · <b style={{ color: T.amber }}>zoomed out</b>, names & status icons hidden</>}</span>}
         {mode === "link" && <span><b style={{ color: T.amber }}>Link</b> · click one system, then another to connect or disconnect their hyperlane</span>}
         {mode === "draw" && <span><b style={{ color: T.accent }}>Draw</b> · sketch freely · pieces are locked · use Undo / Clear above</span>}
-        {mode === "orders" && <span><b style={{ color: T.amber }}>Orders</b> · click a fleet or agent you own, then click systems to plot its route · <b style={{ color: T.text }}>Submit</b> to signal the GM you're ready (still editable after)</span>}
+        {mode === "orders" && <span><b style={{ color: T.amber }}>Orders</b> · click a fleet or agent you own, then click systems to plot its route · click an <b style={{ color: T.text }}>ally or vassal</b>'s fleet to <b style={{ color: T.text }}>suggest</b> a move for it · <b style={{ color: T.text }}>Submit</b> to signal the GM you're ready</span>}
       </div>
 
       {/* ---------------- system editor popup ---------------- */}
@@ -406,6 +448,7 @@ export default function MapCanvas({
           containerSize={containerSize} isMobile={isMobile}
           canManage={canManageAgents ? canManageAgents(selAgentObj.factionId) : false}
           canPlace={canPlaceAgents ? canPlaceAgents(selAgentObj.factionId) : canEdit}
+          canRemove={canEdit}
           systems={systems} patchAgent={patchAgent} removeAgent={removeAgent}
           onRequestAction={goToAgentAction ? () => goToAgentAction(selAgentObj.id, selAgentObj.factionId) : undefined}
           onClose={() => setSelAgent(null)}
@@ -432,6 +475,7 @@ export default function MapCanvas({
         return (
           <OrdersPanel
             pieceLabel={pieceLabel} factionColor={fac && fac.color} originName={originName}
+            suggestion={!!routing.suggestion} ownerLabel={fac && fac.name}
             stops={stops} committed={!!(routingOrder && routingOrder.committed)}
             notes={(routingOrder && routingOrder.notes) || ""} onNotesChange={setRoutingNotes}
             onUndo={undoOrderStop} onClear={clearRoutingOrder} onCommit={commitRoutingOrder}

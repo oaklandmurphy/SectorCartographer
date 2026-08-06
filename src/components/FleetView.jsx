@@ -23,7 +23,7 @@ export default function FleetView({
   addShip, patchShip, removeShip, renameFleet,
   addSquadron, patchSquadron, removeSquadron,
   art = [], addArt, patchArt, removeArt,
-  missions = [], archivedMissions = [], canOrderFor, submitMission, onOpenFleetTransfer, onOrderFleetMove,
+  missions = [], archivedMissions = [], canOrderFor, canSuggestFor, submitMission, onOpenFleetTransfer, onOrderFleetMove,
 }) {
   // Which fleet's squadron-order composer is open, if any (by fleet id).
   const [orderFleetId, setOrderFleetId] = useState(null);
@@ -201,6 +201,8 @@ export default function FleetView({
     const home = fleet.systemId ? systems.find((s) => s.id === fleet.systemId) : null;
     const n = fleet.ships.length;
     const canGiveOrder = !!canOrderFor && canOrderFor(fleet.factionId);
+    // Not your fleet, but a friendly (ally/vassal) one you may suggest a move for.
+    const canSuggest = !canGiveOrder && !!canSuggestFor && canSuggestFor(fleet.factionId);
     return (
       <div style={{ padding: "10px 12px", borderBottom: `1px solid ${T.line}`, background: T.panel,
         flexShrink: 0, display: "flex", flexDirection: "column", gap: 5 }}>
@@ -233,6 +235,13 @@ export default function FleetView({
             <Btn onClick={() => onOrderFleetMove(fleet.id)}
               title="Jump to the map, zoomed in on this fleet, ready to plot its move order" style={{ flexShrink: 0 }}>
               <Route size={12} /> {!isMobile && "Move"}
+            </Btn>
+          )}
+          {canSuggest && (
+            <Btn onClick={() => onOrderFleetMove(fleet.id)}
+              title="Suggest a move for this ally/vassal fleet — the GM decides at turn resolution whether to apply it"
+              style={{ marginLeft: "auto", flexShrink: 0 }}>
+              <Route size={12} /> {!isMobile && "Suggest move"}
             </Btn>
           )}
         </div>

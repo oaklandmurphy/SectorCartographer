@@ -9,6 +9,7 @@ import Btn from "./ui/Btn.jsx";
 // it as a draft, and the player re-submits when done.
 export default function OrdersPanel({
   pieceLabel, factionColor, originName, stops, committed,
+  suggestion, ownerLabel,
   notes, onNotesChange, onUndo, onClear, onCommit,
 }) {
   const color = factionColor || T.accent;
@@ -17,13 +18,13 @@ export default function OrdersPanel({
       padding: "11px 13px", ...floatingPanel }}>
       <div className="stencil" style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13,
         letterSpacing: ".08em", color: T.text, marginBottom: 9 }}>
-        <Route size={14} style={{ color: T.accent }} /> MOVE ORDER
+        <Route size={14} style={{ color: T.accent }} /> {suggestion ? "SUGGEST MOVE" : "MOVE ORDER"}
       </div>
 
       {!pieceLabel ? (
         <div style={{ fontSize: 11.5, color: T.mut, lineHeight: 1.6, display: "flex", gap: 7 }}>
           <MousePointerClick size={15} style={{ color: T.accent, flexShrink: 0, marginTop: 1 }} />
-          <span>Click a <b style={{ color: T.text }}>fleet</b> or <b style={{ color: T.text }}>agent</b> you own, then click a path through systems to plot its route.</span>
+          <span>Click a <b style={{ color: T.text }}>fleet</b> or <b style={{ color: T.text }}>agent</b> you own to plot its route — or an <b style={{ color: T.text }}>ally/vassal</b>'s fleet to suggest a move — then click a path through systems.</span>
         </div>
       ) : (
         <>
@@ -34,10 +35,17 @@ export default function OrdersPanel({
             {committed && (
               <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9.5, fontWeight: 700,
                 letterSpacing: ".05em", textTransform: "uppercase", color: T.accent }}>
-                <Check size={11} /> Submitted
+                <Check size={11} /> {suggestion ? "Suggested" : "Submitted"}
               </span>
             )}
           </div>
+
+          {suggestion && (
+            <div style={{ fontSize: 10.5, color: T.mut, lineHeight: 1.5, marginBottom: 9,
+              padding: "6px 8px", background: `${color}12`, border: `1px solid ${color}44`, borderRadius: 2 }}>
+              A suggestion for <b style={{ color: T.text }}>{ownerLabel || "an allied"}</b>'s fleet. The GM decides at turn resolution whether to apply it over their own order.
+            </div>
+          )}
 
           <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 10,
             maxHeight: 190, overflowY: "auto" }} className="scroll">
@@ -67,9 +75,14 @@ export default function OrdersPanel({
               </Btn>
             </div>
             <Btn kind="primary" onClick={onCommit} disabled={stops.length === 0 || committed}
-              title={committed ? "The GM has been signalled you're ready" : stops.length === 0 ? "Add at least one stop first" : "Signal the GM this order is ready"}
+              title={committed
+                ? (suggestion ? "The GM has been sent your suggestion" : "The GM has been signalled you're ready")
+                : stops.length === 0 ? "Add at least one stop first"
+                : (suggestion ? "Send this suggestion to the GM" : "Signal the GM this order is ready")}
               style={{ width: "100%", justifyContent: "center" }}>
-              <Check size={14} /> {committed ? "Submitted — ready" : "Submit order"}
+              <Check size={14} /> {committed
+                ? (suggestion ? "Suggested — sent" : "Submitted — ready")
+                : (suggestion ? "Suggest move" : "Submit order")}
             </Btn>
           </div>
         </>

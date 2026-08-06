@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react";
-import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Package, Bell, Gavel, VenetianMask, Menu, ChevronDown, ChevronUp, Eye, EyeOff } from "lucide-react";
+import { Map as MapIcon, Library, Satellite, Network, Ship, Dices, Package, Bell, Gavel, VenetianMask, Menu, ChevronDown, ChevronUp, Eye, EyeOff, History, Archive } from "lucide-react";
 import { T, F, panelStyle, cut } from "./theme.js";
 import { KNOWN_CODE_KEY, ROLE_COLORS, DEFAULT_SQUADRON_SIZE, GM_RECIPIENT, MAX_ZOOM } from "./constants.js";
 import { storage } from "./lib/storage.js";
@@ -8,6 +8,9 @@ import { buildSectorUpdates, buildCollectionUpdates } from "./lib/sectorSchema.j
 import { resolveViewer, canSee, canSeeSubmission, visibleFleets, friendlyFactionIds, visibleAgents, visibleOrders, visibleActions, visibleMissions } from "./lib/visibility.js";
 import { craftInCarrier, withSquadrons, squadronsOf, commitDetachments, returnDetachments } from "./lib/carriers.js";
 import { moveShips, moveSquadron, moveVessel, disbandEmptyFleets, spawnFleet } from "./lib/fleets.js";
+import { effectiveMoveOrders } from "./lib/movement.js";
+import { eligibleSystemFor, systemCap, systemStagedTotal, adjustLine, applyReplenishments, replenishmentSummary } from "./lib/replenish.js";
+import { roll2d6, ossiteCheckPassed, OSSITE_RESOURCE_NAME } from "./lib/endTurnChecks.js";
 import { uid } from "./utils/id.js";
 import { useResponsive } from "./hooks/useResponsive.js";
 import { useMapInteractions } from "./hooks/useMapInteractions.js";
@@ -28,6 +31,8 @@ const OddsView = lazy(() => import("./components/OddsView.jsx"));
 const UpdatesView = lazy(() => import("./components/UpdatesView.jsx"));
 const AgentsView = lazy(() => import("./components/AgentsView.jsx"));
 const GMToolsView = lazy(() => import("./components/GMToolsView.jsx"));
+const TimelineView = lazy(() => import("./components/TimelineView.jsx"));
+const ActionArchiveView = lazy(() => import("./components/ActionArchiveView.jsx"));
 
 // Severity colors/labels for the tracker badges in the top bar — kept in sync
 // with the LEVELS list AssetsView uses for the actual tracker cards.
@@ -61,6 +66,9 @@ export default function GalaxySectorMap() {
   const [missions, setMissions] = useState([]); // squadron mission requests players raise from a fleet's hangar for the GM to resolve
   const [archivedMissions, setArchivedMissions] = useState([]); // missions from turns already closed out — see nextTurn
   const [missionReads, setMissionReads] = useState([]); // shared per-faction "seen this resolved mission" receipts, same idea as wikiReads
+  const [replenishments, setReplenishments] = useState([]); // strike-craft top-ups the GM stages per fleet each turn — applied on nextTurn (GM Tools: Replenish tab)
+  const [replenishmentReads, setReplenishmentReads] = useState([]); // shared per-faction "seen this replenishment" receipts, same idea as missionReads
+  const [endTurnChecks, setEndTurnChecks] = useState([]); // per-turn end-of-turn checks the GM manages (GM Tools: End of Turn Checks tab) — the ossite surplus check today; applied on nextTurn
 
   const [mode, setMode] = useState("select"); // select | link | draw | orders
   const [showOrders, setShowOrders] = useState(true); // personal: show/hide the move-order overlay on the map
@@ -74,7 +82,7 @@ export default function GalaxySectorMap() {
   const [selFleet, setSelFleet] = useState(null);
   const [selAgent, setSelAgent] = useState(null); // agent whose popup is open on the map
   const [transferFleetId, setTransferFleetId] = useState(null); // fleet the fleet transfer modal is open for
-  const [routing, setRouting] = useState(null);   // { type, id, factionId } — the piece being plotted in orders mode
+  const [routing, setRouting] = useState(null);   // { type, id, factionId, suggestion, suggesterFactionId } — the piece being plotted in orders mode (suggestion: plotting a move for a friendly faction's fleet)
   const [focusMapFleetId, setFocusMapFleetId] = useState(null); // fleet to center the map on once the map tab is up (see orderFleetMove)
   const [linkSource, setLinkSource] = useState(null);
   const [panelOpen, setPanelOpen] = useState(true);
@@ -84,6 +92,7 @@ export default function GalaxySectorMap() {
   const [lockCode, setLockCode] = useState("");   // shared: "" means editing is open to everyone; else the GM code
   const [fleetsPublic, setFleetsPublic] = useState(true); // shared: false hides fleet positions from anyone without a matching login
   const [turnNumber, setTurnNumber] = useState(0); // shared: bumped by nextTurn(), stamped onto actions as they're archived — the campaign starts at turn 0
+  const [turns, setTurns] = useState([]); // shared: turn-boundary records { turn, startedAt } — when each turn began, stamped by nextTurn() and editable by the GM on the Timeline tab
   const [knownCode, setKnownCode] = useState(""); // personal: the GM/player code this browser has entered
   const [accessOpen, setAccessOpen] = useState(false);
   const [codeInput, setCodeInput] = useState("");
@@ -103,6 +112,12 @@ export default function GalaxySectorMap() {
   const editingEnabled = canEdit && !editLocked;
 
   const isMobile = useResponsive();
+  // The resource/tracker strip shares the top row with the tab bar. Between the
+  // mobile breakpoint and full desktop there isn't room for both, so the strip
+  // pushes the tabs off the row (they scroll out of reach). Below this width it
+  // auto-hides — independent of the personal showAssetsBar toggle, which only
+  // decides whether to show it once the row is wide enough to fit it.
+  const isNarrow = useResponsive("(max-width: 1100px)");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [navMenuOpen, setNavMenuOpen] = useState(false); // mobile: the global tab-bar dropdown
 
@@ -138,8 +153,8 @@ export default function GalaxySectorMap() {
   // `notes` is deliberately not part of this — it lives at its own path and is
   // saved on its own schedule below, so it's never part of the root diff/save.
   const sector = useMemo(
-    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, resources, resourceTransactions, projects, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, lockCode, fleetsPublic, turnNumber }),
-    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, resources, resourceTransactions, projects, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, lockCode, fleetsPublic, turnNumber],
+    () => ({ factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, resources, resourceTransactions, projects, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, replenishments, replenishmentReads, turns, endTurnChecks, lockCode, fleetsPublic, turnNumber }),
+    [factions, relations, layers, systems, links, fleets, strokes, wiki, wikiReads, roles, art, modifiers, resources, resourceTransactions, projects, agents, orders, actions, archivedActions, actionReads, missions, archivedMissions, missionReads, replenishments, replenishmentReads, turns, endTurnChecks, lockCode, fleetsPublic, turnNumber],
   );
   // The sector as the database currently has it. Null until the load below fills
   // it in, which is also what stops an autosave from firing against an empty
@@ -174,6 +189,8 @@ export default function GalaxySectorMap() {
       setAgents(data.agents); setOrders(data.orders); setActions(data.actions);
       setArchivedActions(data.archivedActions); setActionReads(data.actionReads);
       setMissions(data.missions); setArchivedMissions(data.archivedMissions); setMissionReads(data.missionReads);
+      setReplenishments(data.replenishments); setReplenishmentReads(data.replenishmentReads);
+      setTurns(data.turns); setEndTurnChecks(data.endTurnChecks);
       setLockCode(data.lockCode); setFleetsPublic(data.fleetsPublic !== false);
       setTurnNumber(data.turnNumber || 0);
     };
@@ -492,6 +509,26 @@ export default function GalaxySectorMap() {
     updateSquadrons(fleetId, shipId, (qs) => qs.filter((q) => q.id !== sqId));
   }
 
+  /* ---- strike-craft replenishment (GM Tools: Replenish tab) ----
+     The GM stages top-ups onto a fleet's carriers while it sits in friendly space;
+     nextTurn() applies them to the hangars and notifies the fleet's faction. Each
+     call bumps one carrier+model line up or down by `delta`, enforcing the shared
+     per-system budget (12, or 25 with a shipyard) so staging can never overdraw a
+     system's pool. Only eligible fleets (own/ally/vassal-owned system) can stage. */
+  function stageReplenishment(fleetId, shipId, model, delta) {
+    if (!isGM) return;
+    const fleet = fleets.find((f) => f.id === fleetId);
+    if (!fleet) return;
+    const system = eligibleSystemFor(fleet, systems, relations);
+    if (!system) return;
+    const cap = systemCap(system);
+    setReplenishments((rs) => adjustLine(rs, {
+      turn: turnNumber, fleetId, systemId: system.id, factionId: fleet.factionId,
+      shipId, model: model || "", delta,
+      cap, systemTotal: systemStagedTotal(rs, turnNumber, system.id),
+    }));
+  }
+
   /* ---- ship art (SVG drawings matched to carriers/squadrons by model name) ---- */
   function addArt(name, svg) {
     if (!canEdit) return;
@@ -662,6 +699,48 @@ export default function GalaxySectorMap() {
     setResourceTransactions((ts) => ts.filter((t) => t.id !== id));
   }
 
+  /* ---- end-of-turn checks (GM Tools: End of Turn Checks) — GM-only, same gate
+     as resources. The only kind today is the Ossite Surplus check: one per
+     system carrying the ossite trait, pre-rolled 2d6 (pass on 8+) so the GM can
+     review or override it before Next Turn hands each successful check's
+     controlling faction +1 Ossite Surplus (see nextTurn). Only the current
+     turn's checks are live; past turns' are stamped `appliedAt` and kept as a
+     record. `ensureOssiteChecks` is idempotent — it rolls a check for any
+     ossite system that doesn't have one for this turn yet and no-ops otherwise,
+     so the panel can call it on mount to have the rolls "predone". */
+  function ensureOssiteChecks() {
+    if (!isGM) return;
+    setEndTurnChecks((cs) => {
+      const have = new Set(cs.filter((c) => c.type === "ossite" && c.turn === turnNumber).map((c) => c.systemId));
+      const missing = systems.filter((s) => s.hasOssite && !have.has(s.id));
+      if (missing.length === 0) return cs;
+      const added = missing.map((s) => ({
+        id: uid("etc"), type: "ossite", turn: turnNumber, systemId: s.id,
+        dice: roll2d6(), override: null, appliedAt: null, createdAt: Date.now(),
+      }));
+      return [...cs, ...added];
+    });
+  }
+  // Re-roll one check's 2d6, dropping any manual override so it reads the fresh roll.
+  function rerollOssiteCheck(id) {
+    if (!isGM) return;
+    setEndTurnChecks((cs) => cs.map((c) => (c.id === id && !c.appliedAt
+      ? { ...c, dice: roll2d6(), override: null } : c)));
+  }
+  // Force a check's outcome by hand: "success" | "failure" to override, or null
+  // to fall back to the roll. Toggling the active override off returns to auto.
+  function setOssiteCheckOverride(id, override) {
+    if (!isGM) return;
+    setEndTurnChecks((cs) => cs.map((c) => (c.id === id && !c.appliedAt ? { ...c, override } : c)));
+  }
+  // Re-roll every live (unapplied) check for the current turn at once, clearing
+  // overrides — the "shuffle the whole board" affordance.
+  function rerollAllOssiteChecks() {
+    if (!isGM) return;
+    setEndTurnChecks((cs) => cs.map((c) => (c.type === "ossite" && c.turn === turnNumber && !c.appliedAt
+      ? { ...c, dice: roll2d6(), override: null } : c)));
+  }
+
   /* ---- projects: per-faction turn-timer counters (Assets tab, Projects
      subtab) — GM-only, same gate as modifiers/resources. `turnsRemaining`
      ticks down by one on every nextTurn() call, but only while `autoDecrement`
@@ -729,9 +808,12 @@ export default function GalaxySectorMap() {
   }
 
   /* ---- agents: covert operatives, capped per faction by the GM (faction.agentCap).
-     Managed by the GM (any faction) or a player of the owning faction — like
-     patchMemberTitle, this is one of the few write paths a signed-in player has,
-     and it's gated to their own faction so a player can't touch anyone else's. */
+     Adding and removing an agent is GM-only (open mode too) — the GM owns each
+     faction's roster. A player of the owning faction may still manage an existing
+     agent's details (name/character/icon/notes) and raise its action requests;
+     canManageAgents gates that — like patchMemberTitle, one of the few write
+     paths a signed-in player has, gated to their own faction so a player can't
+     touch anyone else's. Add/remove (addAgent/removeAgent) gate on canEdit instead. */
   function canManageAgents(factionId) {
     return canEdit || (viewer.kind === "player" && viewer.roleFactionId === factionId);
   }
@@ -741,8 +823,10 @@ export default function GalaxySectorMap() {
   function canPlaceAgents(factionId) {
     return canEdit || (viewer.kind === "player" && viewer.roleFactionId === factionId && !!viewer.canMoveAgents);
   }
+  // Creating a roster slot is GM-only — players fill in and use the agents the
+  // GM adds, but can't grow (or shrink) the roster themselves.
   function addAgent(factionId) {
-    if (!canManageAgents(factionId)) return;
+    if (!canEdit) return;
     const fac = factions.find((f) => f.id === factionId);
     const cap = Number(fac && fac.agentCap) || 0;
     const count = agents.filter((a) => a.factionId === factionId).length;
@@ -762,7 +846,8 @@ export default function GalaxySectorMap() {
   }
   function removeAgent(id) {
     const a = agents.find((x) => x.id === id);
-    if (!a || !canManageAgents(a.factionId)) return;
+    if (!a || !canEdit) return; // GM-only, same as addAgent — players can't drop a roster slot
+
     setAgents((as) => as.filter((x) => x.id !== id));
     setOrders((os) => os.filter((o) => !(o.pieceType === "agent" && o.pieceId === id)));
     // An agent's outstanding action requests go with it — a resolved or pending
@@ -773,19 +858,56 @@ export default function GalaxySectorMap() {
   /* ---- move orders: a player plots a fleet's or agent's route through systems
      and commits it. Committing is a *proposal* — the piece doesn't move; it locks
      the path and the GM (who sees every faction's orders) resolves movement by
-     hand. One order per piece; editing replaces the piece's uncommitted order. */
+     hand. A piece has one order from its owning faction, plus — for a fleet — any
+     number of *suggestions* filed by allied/vassal factions (one per suggester);
+     the GM picks at resolution whether a suggestion overrides the owner's order.
+     Editing replaces the author's own uncommitted order/suggestion for the piece. */
   function canOrderFor(factionId) {
     return viewer.seesAll || (viewer.kind === "player" && viewer.roleFactionId === factionId);
   }
-  const orderForPiece = (type, id) => orders.find((o) => o.pieceType === type && o.pieceId === id) || null;
-  // Ensure an uncommitted order exists for a piece and return through `mutate`.
-  // A committed order is left untouched (it's locked until uncommitted).
-  function upsertOrder(type, id, factionId, mutate) {
-    if (!canOrderFor(factionId)) return;
+  // A player may *suggest* a move for a fleet they don't own, as long as it belongs
+  // to a friendly faction (an ally or a vassal — the same set friendlyFactionIds
+  // grants fleet-position visibility to). Never for their own faction (that's a
+  // plain order, canOrderFor above) and never the GM (who orders directly). The
+  // GM decides at turn resolution whether a suggestion overrides the owner's move.
+  function canSuggestFor(factionId) {
+    if (viewer.seesAll) return false;
+    if (viewer.kind !== "player" || !viewer.roleFactionId) return false;
+    if (factionId === viewer.roleFactionId) return false;
+    return friendlyFactionIds(viewer.roleFactionId, relations).has(factionId);
+  }
+  // The order the current routing selection is authoring: a faction's own order
+  // for the piece, or — when suggesting — this viewer's own suggestion for it.
+  // Distinct from another faction's order/suggestion for the same piece, which is
+  // why the finder keys on suggestion + suggesterFactionId, not just the piece.
+  function orderForRouting() {
+    if (!routing) return null;
+    const { type, id, suggestion, suggesterFactionId } = routing;
+    return orders.find((o) => o.pieceType === type && o.pieceId === id
+      && (suggestion ? (o.suggestion && o.suggesterFactionId === suggesterFactionId) : !o.suggestion)) || null;
+  }
+  // Whether this viewer is allowed to author the current routing selection —
+  // canOrderFor for an own-faction order, canSuggestFor for a suggestion.
+  function canAuthorRouting() {
+    if (!routing) return false;
+    return routing.suggestion ? canSuggestFor(routing.factionId) : canOrderFor(routing.factionId);
+  }
+  // Reopen an order as a draft: any edit un-marks it as ready (the GM's "ready"
+  // signal should reflect the route as it stands now) and, for a suggestion,
+  // clears the GM's acceptance so a changed proposal isn't silently still applied.
+  const reopenDraft = (o) => ({ ...o, committed: false, committedAt: null, updatedAt: Date.now(),
+    ...(o.suggestion ? { accepted: false } : {}) });
+  // Ensure an uncommitted order exists for the routing selection and return it
+  // through `mutate`. Creates it lazily (own order or suggestion, per routing).
+  function upsertRoutingOrder(mutate) {
+    if (!routing || !canAuthorRouting()) return;
+    const { type, id, factionId, suggestion, suggesterFactionId } = routing;
     setOrders((os) => {
-      const idx = os.findIndex((o) => o.pieceType === type && o.pieceId === id);
+      const idx = os.findIndex((o) => o.pieceType === type && o.pieceId === id
+        && (suggestion ? (o.suggestion && o.suggesterFactionId === suggesterFactionId) : !o.suggestion));
       if (idx === -1) {
         const base = { id: uid("ord"), factionId, pieceType: type, pieceId: id, path: [], committed: false, notes: "",
+          ...(suggestion ? { suggestion: true, suggesterFactionId, accepted: false } : {}),
           createdBy: viewer.roleId ? { roleId: viewer.roleId, roleName: viewer.roleName } : null,
           updatedAt: Date.now(), committedAt: null };
         return [...os, mutate(base)];
@@ -793,53 +915,74 @@ export default function GalaxySectorMap() {
       return os.map((o, i) => (i === idx ? mutate(o) : o));
     });
   }
-  // Select a piece for plotting. The order itself is created lazily on the first
-  // stop (addOrderStop), so merely selecting a piece and changing your mind never
-  // leaves an empty order behind.
+  // Select a piece for plotting. Owning it (or being the GM) plots a plain order;
+  // otherwise, for a friendly fleet, plots a suggestion. The order itself is
+  // created lazily on the first stop (addOrderStop), so merely selecting a piece
+  // and changing your mind never leaves an empty order behind.
   function beginOrder(type, id, factionId) {
-    if (!canOrderFor(factionId)) return;
-    setRouting({ type, id, factionId });
+    if (canOrderFor(factionId)) {
+      setRouting({ type, id, factionId, suggestion: false, suggesterFactionId: null });
+    } else if (type === "fleet" && canSuggestFor(factionId)) {
+      // Suggestions are for fleets only — agents are covert and never visible to
+      // an ally, so there is nothing to suggest a route for.
+      setRouting({ type, id, factionId, suggestion: true, suggesterFactionId: viewer.roleFactionId });
+    }
   }
   // Append the next system stop to the routing piece's order, creating that order
-  // on the first stop. Editing an already-submitted order un-marks it as ready —
-  // the GM's "ready" signal should reflect the route as it stands now — so the
-  // player re-submits when done. No-op on an immediate repeat of the same stop.
+  // on the first stop. No-op on an immediate repeat of the same stop.
   function addOrderStop(systemId) {
     if (!routing) return;
-    upsertOrder(routing.type, routing.id, routing.factionId, (o) => {
+    upsertRoutingOrder((o) => {
       if (o.path[o.path.length - 1] === systemId) return o;
-      return { ...o, path: [...o.path, systemId], committed: false, committedAt: null, updatedAt: Date.now() };
+      return { ...reopenDraft(o), path: [...o.path, systemId] };
     });
   }
   // Free-text notes accompanying the routing piece's order (e.g. what it should
   // do once it arrives). Same "editing reopens it as a draft" rule as a stop.
   function setRoutingNotes(text) {
     if (!routing) return;
-    upsertOrder(routing.type, routing.id, routing.factionId, (o) =>
-      ({ ...o, notes: text, committed: false, committedAt: null, updatedAt: Date.now() }));
+    upsertRoutingOrder((o) => ({ ...reopenDraft(o), notes: text }));
   }
   function undoOrderStop() {
-    if (!routing) return;
-    const o = orderForPiece(routing.type, routing.id);
-    if (!o || o.path.length === 0 || !canOrderFor(o.factionId)) return;
-    setOrders((os) => os.map((x) => (x.id === o.id
-      ? { ...x, path: x.path.slice(0, -1), committed: false, committedAt: null, updatedAt: Date.now() } : x)));
+    if (!routing || !canAuthorRouting()) return;
+    const o = orderForRouting();
+    if (!o || o.path.length === 0) return;
+    setOrders((os) => os.map((x) => (x.id === o.id ? { ...reopenDraft(x), path: x.path.slice(0, -1) } : x)));
   }
   // Discard the routing piece's draft order entirely and drop the selection.
   function clearRoutingOrder() {
     if (!routing) return;
-    const gone = orderForPiece(routing.type, routing.id);
-    if (gone && canOrderFor(gone.factionId)) setOrders((os) => os.filter((o) => o.id !== gone.id));
+    const gone = orderForRouting();
+    if (gone && canAuthorRouting()) setOrders((os) => os.filter((o) => o.id !== gone.id));
     setRouting(null);
   }
   // Mark the routing piece's order as ready (needs at least one stop). This only
   // signals the GM the player is done — it does NOT lock the order; the piece
   // stays selected and every stop remains editable, which flips it back to draft.
   function commitRoutingOrder() {
-    if (!routing) return;
-    const o = orderForPiece(routing.type, routing.id);
-    if (!o || o.path.length === 0 || !canOrderFor(o.factionId)) return;
+    if (!routing || !canAuthorRouting()) return;
+    const o = orderForRouting();
+    if (!o || o.path.length === 0) return;
     setOrders((os) => os.map((x) => (x.id === o.id ? { ...x, committed: true, committedAt: Date.now(), updatedAt: Date.now() } : x)));
+  }
+  // GM: accept a suggested move for a fleet, so the turn advance applies it in
+  // place of the owning faction's own order. Radio semantics per piece — accepting
+  // one suggestion clears any sibling suggestion previously accepted for it.
+  function acceptSuggestion(orderId) {
+    if (!isGM) return;
+    const target = orders.find((o) => o.id === orderId && o.suggestion);
+    if (!target) return;
+    setOrders((os) => os.map((o) => (
+      (o.suggestion && o.pieceType === target.pieceType && o.pieceId === target.pieceId)
+        ? { ...o, accepted: o.id === orderId } : o)));
+  }
+  // GM: revert to the owning faction's own order (or no move) for a piece, by
+  // clearing whichever suggestion was accepted for it.
+  function clearSuggestionAcceptance(pieceType, pieceId) {
+    if (!isGM) return;
+    setOrders((os) => os.map((o) => (
+      (o.suggestion && o.pieceType === pieceType && o.pieceId === pieceId && o.accepted)
+        ? { ...o, accepted: false } : o)));
   }
 
   /* ---- agent action requests: free-text things a player asks their agent to
@@ -947,9 +1090,14 @@ export default function GalaxySectorMap() {
      exactly like a fresh request. */
   function nextTurn() {
     if (!isGM) return;
+    // Every committed order is cleared at the end of the turn (a fresh turn starts
+    // with a clean board), but only one order per piece actually *moves* it — the
+    // owning faction's own, unless the GM has accepted an ally/vassal's suggestion
+    // to override it (see effectiveMoveOrders).
     const ready = orders.filter((o) => o.committed && o.path.length > 0);
+    const effective = effectiveMoveOrders(orders);
     const destFor = (type, id) => {
-      const o = ready.find((x) => x.pieceType === type && x.pieceId === id);
+      const o = effective.find((x) => x.pieceType === type && x.pieceId === id);
       if (!o) return null;
       const dest = o.path[o.path.length - 1];
       return systems.some((s) => s.id === dest) ? dest : null;
@@ -972,7 +1120,7 @@ export default function GalaxySectorMap() {
           const m = fleetMoves.find((x) => x.f.id === f.id);
           return m ? { ...f, systemId: m.dest } : f;
         }) : fs;
-        delayedMissions.forEach((m) => { next = returnDetachments(next, m.fleetId, survivingDetachments(m)); });
+        delayedMissions.forEach((m) => { next = returnDetachments(next, survivingDetachments(m)); });
         return next;
       });
     }
@@ -983,6 +1131,19 @@ export default function GalaxySectorMap() {
       }));
     }
     if (ready.length > 0) setOrders((os) => os.filter((o) => !ready.includes(o)));
+
+    // Strike-craft replenishment staged this turn (GM Tools: Replenish): apply the
+    // top-ups to the carriers now and stamp the records revealed, which is what
+    // surfaces the notice to each fleet's faction in Updates. A separate functional
+    // setFleets composes cleanly with the movement one above.
+    const stagedReplen = replenishments.filter(
+      (r) => (r.turn || 0) === turnNumber && !r.revealedAt && (r.lines || []).length > 0);
+    if (stagedReplen.length > 0) {
+      setFleets((fs) => applyReplenishments(fs, stagedReplen));
+      const revealedAt = Date.now();
+      const revealedIds = new Set(stagedReplen.map((r) => r.id));
+      setReplenishments((rs) => rs.map((r) => (revealedIds.has(r.id) ? { ...r, revealedAt } : r)));
+    }
 
     const systemName = (id) => (systems.find((s) => s.id === id) || {}).name || "?";
     const lines = [];
@@ -1020,6 +1181,14 @@ export default function GalaxySectorMap() {
         lines.push(`  ${fleet ? fleet.name : "Fleet"}: "${m.text}"`);
       });
     }
+    if (stagedReplen.length > 0) {
+      if (lines.length > 0) lines.push("");
+      lines.push("STRIKE CRAFT REPLENISHED");
+      stagedReplen.forEach((r) => {
+        const fleet = fleets.find((f) => f.id === r.fleetId);
+        lines.push(`  ${fleet ? fleet.name : "Fleet"} @ ${systemName(r.systemId)}: ${replenishmentSummary(r)}`);
+      });
+    }
     // Project timers: only those the GM hasn't paused (autoDecrement) and that
     // still have turns left actually tick — a project already at 0 stays there
     // until the GM removes or resets it, rather than going negative.
@@ -1034,6 +1203,58 @@ export default function GalaxySectorMap() {
       });
       const tickingIds = new Set(tickingProjects.map((p) => p.id));
       setProjects((ps) => ps.map((p) => (tickingIds.has(p.id) ? { ...p, turnsRemaining: Math.max(0, (p.turnsRemaining || 0) - 1) } : p)));
+    }
+    // End-of-turn checks: the Ossite Surplus check runs at every system carrying
+    // the ossite trait. Each system uses the check the GM reviewed this turn (or
+    // one rolled here on the spot if the GM never opened the tab), and a passing
+    // check hands its *current* controlling faction +1 Ossite Surplus. The award
+    // follows whoever holds the system right now, so a mid-turn capture credits
+    // the new owner. Uncontrolled (fac_none) systems roll but award nothing.
+    const ossiteSystems = systems.filter((s) => s.hasOssite);
+    if (ossiteSystems.length > 0) {
+      const liveChecks = endTurnChecks.filter((c) => c.type === "ossite" && c.turn === turnNumber && !c.appliedAt);
+      const bySystem = new Map(liveChecks.map((c) => [c.systemId, c]));
+      const rolledHere = []; // checks for ossite systems the GM never had rolled
+      const gains = new Map(); // factionId -> +Ossite Surplus this turn
+      ossiteSystems.forEach((s) => {
+        let check = bySystem.get(s.id);
+        if (!check) {
+          check = { id: uid("etc"), type: "ossite", turn: turnNumber, systemId: s.id,
+            dice: roll2d6(), override: null, appliedAt: null, createdAt: Date.now() };
+          rolledHere.push(check);
+        }
+        if (ossiteCheckPassed(check) && s.factionId && s.factionId !== "fac_none"
+          && factions.some((f) => f.id === s.factionId)) {
+          gains.set(s.factionId, (gains.get(s.factionId) || 0) + 1);
+        }
+      });
+      if (gains.size > 0) {
+        setResources((rs) => {
+          let next = rs;
+          for (const [factionId, amt] of gains) {
+            const idx = next.findIndex((r) => r.factionId === factionId
+              && (r.name || "").trim().toLowerCase() === OSSITE_RESOURCE_NAME.toLowerCase());
+            next = idx >= 0
+              ? next.map((r, i) => (i === idx ? { ...r, value: (r.value || 0) + amt } : r))
+              : [...next, { id: uid("res"), factionId, name: OSSITE_RESOURCE_NAME, value: amt, text: "", createdAt: Date.now() }];
+          }
+          return next;
+        });
+        if (lines.length > 0) lines.push("");
+        lines.push("END OF TURN CHECKS — OSSITE SURPLUS");
+        for (const [factionId, amt] of gains) {
+          const fac = factions.find((f) => f.id === factionId);
+          lines.push(`  ${fac ? fac.name : "?"} +${amt} Ossite Surplus`);
+        }
+      }
+      // Stamp the checks that just resolved (and any rolled here) as applied, so
+      // they drop out of the live board and the fresh turn starts clean.
+      const appliedAt = Date.now();
+      const appliedIds = new Set(liveChecks.map((c) => c.id));
+      setEndTurnChecks((cs) => [
+        ...cs.map((c) => (appliedIds.has(c.id) ? { ...c, appliedAt } : c)),
+        ...rolledHere.map((c) => ({ ...c, appliedAt })),
+      ]);
     }
     if (lines.length > 0) addNote(`Turn advanced — ${new Date().toLocaleString()}\n${lines.join("\n")}`, "turn");
     if (actions.length > 0) {
@@ -1060,7 +1281,28 @@ export default function GalaxySectorMap() {
       setArchivedMissions((arch) => [...revealed.map((m) => ({ ...m, turnEndedAt, turn: turnNumber })), ...arch]);
       setMissions((ms) => ms.filter((m) => m.status !== "resolved" && m.status !== "delayed"));
     }
+    // Stamp when the incoming turn began, so the Timeline tab can sort each wiki
+    // article into the turn its date falls within. Upsert on the turn number
+    // (replace any existing record) rather than append, so nothing can leave two
+    // stamps for one turn; the GM can adjust these afterwards on the Timeline.
+    const startingTurn = (Number(turnNumber) || 0) + 1;
+    const startedAt = Date.now();
+    setTurns((ts) => [...ts.filter((t) => t.turn !== startingTurn), { id: uid("turn"), turn: startingTurn, startedAt }]);
     setTurnNumber((n) => (Number(n) || 0) + 1);
+  }
+
+  /* ---- turn boundaries: the GM sets or adjusts when a past turn began, from the
+     Timeline tab, so articles resort into the right turn. A null `startedAt`
+     removes the record (the turn goes back to having no set start). Upserts on
+     the turn number, same as nextTurn's stamp above. */
+  function setTurnStart(turn, startedAt) {
+    if (!isGM) return;
+    const n = Number(turn);
+    if (!Number.isFinite(n)) return;
+    setTurns((ts) => {
+      const rest = ts.filter((t) => t.turn !== n);
+      return startedAt == null ? rest : [...rest, { id: uid("turn"), turn: n, startedAt }];
+    });
   }
 
   /* ---- squadron missions: a player commits some of a fleet's fighters/bombers
@@ -1103,12 +1345,12 @@ export default function GalaxySectorMap() {
     if (!isGM) return;
     const m = missions.find((x) => x.id === id);
     if (!m) return;
-    if (m.status === "pending") setFleets((fs) => returnDetachments(fs, m.fleetId, m.detachments || []));
+    if (m.status === "pending") setFleets((fs) => returnDetachments(fs, m.detachments || []));
     // A delayed mission already has a ruling (see resolveMission), but its
     // survivors haven't been handed back yet — deleting it before Next Turn
     // reveals it is the only way to return them early, so do that here rather
     // than stranding those craft off the fleet's books forever.
-    else if (m.status === "delayed") setFleets((fs) => returnDetachments(fs, m.fleetId, survivingDetachments(m)));
+    else if (m.status === "delayed") setFleets((fs) => returnDetachments(fs, survivingDetachments(m)));
     setMissions((ms) => ms.filter((x) => x.id !== id));
   }
   // GM: permanently delete an entry from a closed-out turn's archive (contrast
@@ -1148,7 +1390,7 @@ export default function GalaxySectorMap() {
     const m = missions.find((x) => x.id === id);
     if (!m || m.status !== "pending") return;
     const next = { ...m, status: delayed ? "delayed" : "resolved", resolution: resolution || null, resolvedAt: Date.now() };
-    if (!delayed) setFleets((fs) => returnDetachments(fs, m.fleetId, survivingDetachments(next)));
+    if (!delayed) setFleets((fs) => returnDetachments(fs, survivingDetachments(next)));
     setMissions((ms) => ms.map((x) => (x.id === id ? next : x)));
   }
   // GM: fix up a resolved/delayed mission's outcome text after the fact (typo,
@@ -1256,7 +1498,9 @@ export default function GalaxySectorMap() {
   // map tab is actually up and its canvas has a real size to center within.
   function orderFleetMove(fleetId) {
     const f = fleets.find((x) => x.id === fleetId);
-    if (!f || !canOrderFor(f.factionId)) return;
+    // Own it (or GM) → plot a plain order; friendly → plot a suggestion. beginOrder
+    // sorts out which; bail only if the viewer can do neither.
+    if (!f || !(canOrderFor(f.factionId) || canSuggestFor(f.factionId))) return;
     navigate(() => ({ tab: "map" }));
     setMode("orders");
     setLinkSource(null);
@@ -1506,6 +1750,37 @@ export default function GalaxySectorMap() {
       return next;
     });
   }
+  // Same acknowledge model as missions above, against replenishmentReads — a
+  // record's revealedAt (set by nextTurn) is the "resolved at" the receipt races.
+  function markReplenishmentSeen(record) {
+    const factionId = viewer.roleFactionId;
+    if (!factionId || !record || !record.revealedAt) return;
+    const latest = record.revealedAt || 0;
+    setReplenishmentReads((reads) => {
+      const id = `read_${factionId}_${record.id}`;
+      const existing = reads.find((r) => r.id === id);
+      if (existing && existing.seenAt >= latest) return reads;
+      const receipt = { id, factionId, replenishmentId: record.id, seenAt: Date.now() };
+      return existing ? reads.map((r) => r.id === id ? receipt : r) : [...reads, receipt];
+    });
+  }
+  function acknowledgeAllReplenishmentUpdates() {
+    const factionId = viewer.roleFactionId;
+    if (!factionId) return;
+    const now = Date.now();
+    setReplenishmentReads((reads) => {
+      let next = reads;
+      unseenReplenishments.forEach((record) => {
+        const latest = record.revealedAt || 0;
+        const id = `read_${factionId}_${record.id}`;
+        const existing = next.find((r) => r.id === id);
+        if (existing && existing.seenAt >= latest) return;
+        const receipt = { id, factionId, replenishmentId: record.id, seenAt: now };
+        next = existing ? next.map((r) => (r.id === id ? receipt : r)) : [...next, receipt];
+      });
+      return next;
+    });
+  }
 
   /* ------------------------------------------------ map gesture handlers (mode-aware click/tap/drop routing) */
   function onSystemTap(id) {
@@ -1592,79 +1867,6 @@ export default function GalaxySectorMap() {
     onDoubleClickAddSystem: addSystemAt,
   });
 
-  /* ------------------------------------------------ derived fleet positions */
-  const fleetPos = useMemo(() => {
-    const grouping = {};
-    fleets.forEach((f) => { if (f.systemId) (grouping[f.systemId] = grouping[f.systemId] || []).push(f.id); });
-    const out = {};
-    fleets.forEach((f) => {
-      if (f.systemId) {
-        const sys = systems.find((s) => s.id === f.systemId);
-        if (sys) {
-          const arr = grouping[f.systemId]; const idx = arr.indexOf(f.id); const n = arr.length;
-          const ring = Math.floor(idx / 6); const idxInRing = idx % 6;
-          const countInRing = Math.min(6, n - ring * 6);
-          const R = 46 + ring * 26;
-          // Right-hand semicircle: top (-90°) through east (0°) to bottom (+90°),
-          // so fleets never overlap the agent column that hugs the system's left side.
-          const ang = countInRing <= 1 ? 0 : -Math.PI / 2 + idxInRing * (Math.PI / (countInRing - 1));
-          out[f.id] = { x: sys.x + Math.cos(ang) * R, y: sys.y + Math.sin(ang) * R };
-          return;
-        }
-      }
-      out[f.id] = { x: f.x, y: f.y };
-    });
-    return out;
-  }, [fleets, systems]);
-
-  // Consumes focusMapFleetId (set by orderFleetMove above) once the map tab is
-  // actually mounted: reads the canvas's real DOM size directly rather than
-  // mapInt.containerSize, since that state update from the map's own mount/resize
-  // effect hasn't necessarily landed yet in this same pass.
-  useEffect(() => {
-    if (!focusMapFleetId || activeTab !== "map") return;
-    const pos = fleetPos[focusMapFleetId];
-    const el = mapInt.mapRef.current;
-    if (!pos || !el) return;
-    const scale = Math.min(MAX_ZOOM, Math.max(view.scale, 1.6));
-    setView({ scale, ox: el.clientWidth / 2 - pos.x * scale, oy: el.clientHeight / 2 - pos.y * scale });
-    setFocusMapFleetId(null);
-  }, [focusMapFleetId, activeTab, fleetPos]);
-
-  /* ------------------------------------------------ derived agent positions.
-     Agents sit at a system, stacked in a column just to its left so they never
-     cover the system name (which hangs below the plate) or the fleets that fan
-     out around it — wrapping to a further-left column after MAX_PER_COL so a
-     busy system doesn't run a column of agents off past its neighbors. Both
-     agents and fleets are hard-locked to systems: dragging one off any system
-     (see onAgentSnap/onFleetSnap below) reverts it to the system it was
-     dragged from rather than leaving it floating. Only an agent that has never
-     been placed (no systemId) has no map position at all. */
-  const agentPos = useMemo(() => {
-    const grouping = {};
-    agents.forEach((a) => { if (a.systemId) (grouping[a.systemId] = grouping[a.systemId] || []).push(a.id); });
-    const out = {};
-    // world units: how far left the first column sits, the row pitch, the column
-    // pitch, and how many agents stack in a column before wrapping to a new one
-    // (further left again) instead of running off past the system's name.
-    const COL_X = 36, ROW_GAP = 24, COL_GAP = 30, MAX_PER_COL = 4;
-    agents.forEach((a) => {
-      if (a.systemId) {
-        const sys = systems.find((s) => s.id === a.systemId);
-        if (sys) {
-          const arr = grouping[a.systemId]; const idx = arr.indexOf(a.id); const n = arr.length;
-          const col = Math.floor(idx / MAX_PER_COL);
-          const row = idx % MAX_PER_COL;
-          const rowsInCol = Math.min(MAX_PER_COL, n - col * MAX_PER_COL);
-          out[a.id] = { x: sys.x - COL_X - col * COL_GAP, y: sys.y + (row - (rowsInCol - 1) / 2) * ROW_GAP };
-          return;
-        }
-      }
-      if (a.x != null && a.y != null) out[a.id] = { x: a.x, y: a.y };
-    });
-    return out;
-  }, [agents, systems]);
-
   /* ------------------------------------------------ visibility-filtered views (what non-GM viewers render).
      The full arrays stay in state; only the GM/open mode writes, so a narrow player view never overwrites the master. */
   const displayWiki = useMemo(
@@ -1725,9 +1927,92 @@ export default function GalaxySectorMap() {
     () => visibleFleets(fleets, viewer, { relations, fleetsPublic }),
     [fleets, viewer, relations, fleetsPublic]
   );
+
+  /* ------------------------------------------------ derived fleet positions.
+     Grouped over displayFleets — the fleets THIS viewer can actually see — not
+     the full fleet list. A fleet hidden from the viewer must not occupy a slot
+     in a system's fan-out: if it did, the gap it left between the visible fleets
+     would let the viewer infer a hidden fleet is parked there. */
+  const fleetPos = useMemo(() => {
+    const grouping = {};
+    displayFleets.forEach((f) => { if (f.systemId) (grouping[f.systemId] = grouping[f.systemId] || []).push(f.id); });
+    const out = {};
+    displayFleets.forEach((f) => {
+      if (f.systemId) {
+        const sys = systems.find((s) => s.id === f.systemId);
+        if (sys) {
+          const arr = grouping[f.systemId]; const idx = arr.indexOf(f.id); const n = arr.length;
+          const ring = Math.floor(idx / 6); const idxInRing = idx % 6;
+          const countInRing = Math.min(6, n - ring * 6);
+          const R = 46 + ring * 26;
+          // Right-hand semicircle: top (-90°) through east (0°) to bottom (+90°),
+          // so fleets never overlap the agent column that hugs the system's left side.
+          const ang = countInRing <= 1 ? 0 : -Math.PI / 2 + idxInRing * (Math.PI / (countInRing - 1));
+          out[f.id] = { x: sys.x + Math.cos(ang) * R, y: sys.y + Math.sin(ang) * R };
+          return;
+        }
+      }
+      out[f.id] = { x: f.x, y: f.y };
+    });
+    return out;
+  }, [displayFleets, systems]);
+
+  // Consumes focusMapFleetId (set by orderFleetMove above) once the map tab is
+  // actually mounted: reads the canvas's real DOM size directly rather than
+  // mapInt.containerSize, since that state update from the map's own mount/resize
+  // effect hasn't necessarily landed yet in this same pass.
+  useEffect(() => {
+    if (!focusMapFleetId || activeTab !== "map") return;
+    const pos = fleetPos[focusMapFleetId];
+    const el = mapInt.mapRef.current;
+    if (!pos || !el) return;
+    const scale = Math.min(MAX_ZOOM, Math.max(view.scale, 1.6));
+    setView({ scale, ox: el.clientWidth / 2 - pos.x * scale, oy: el.clientHeight / 2 - pos.y * scale });
+    setFocusMapFleetId(null);
+  }, [focusMapFleetId, activeTab, fleetPos]);
+
   // Agents and move orders are strictly own-faction (the GM sees all) — see
   // visibleAgents/visibleOrders. Unlike fleets, allies never see them.
   const displayAgents = useMemo(() => visibleAgents(agents, viewer), [agents, viewer]);
+
+  /* ------------------------------------------------ derived agent positions.
+     Agents sit at a system, stacked in a column just to its left so they never
+     cover the system name (which hangs below the plate) or the fleets that fan
+     out around it — wrapping to a further-left column after MAX_PER_COL so a
+     busy system doesn't run a column of agents off past its neighbors. Both
+     agents and fleets are hard-locked to systems: dragging one off any system
+     (see onAgentSnap/onFleetSnap below) reverts it to the system it was
+     dragged from rather than leaving it floating. Only an agent that has never
+     been placed (no systemId) has no map position at all.
+     Grouped over displayAgents — the agents THIS viewer can see (own faction
+     only) — not the full list, for the same reason as fleetPos above: an agent
+     hidden from the viewer must not occupy a slot in a system's column, or the
+     gap it left would betray that a covert agent is parked there. */
+  const agentPos = useMemo(() => {
+    const grouping = {};
+    displayAgents.forEach((a) => { if (a.systemId) (grouping[a.systemId] = grouping[a.systemId] || []).push(a.id); });
+    const out = {};
+    // world units: how far left the first column sits, the row pitch, the column
+    // pitch, and how many agents stack in a column before wrapping to a new one
+    // (further left again) instead of running off past the system's name.
+    const COL_X = 36, ROW_GAP = 24, COL_GAP = 30, MAX_PER_COL = 4;
+    displayAgents.forEach((a) => {
+      if (a.systemId) {
+        const sys = systems.find((s) => s.id === a.systemId);
+        if (sys) {
+          const arr = grouping[a.systemId]; const idx = arr.indexOf(a.id); const n = arr.length;
+          const col = Math.floor(idx / MAX_PER_COL);
+          const row = idx % MAX_PER_COL;
+          const rowsInCol = Math.min(MAX_PER_COL, n - col * MAX_PER_COL);
+          out[a.id] = { x: sys.x - COL_X - col * COL_GAP, y: sys.y + (row - (rowsInCol - 1) / 2) * ROW_GAP };
+          return;
+        }
+      }
+      if (a.x != null && a.y != null) out[a.id] = { x: a.x, y: a.y };
+    });
+    return out;
+  }, [displayAgents, systems]);
+
   const displayOrders = useMemo(() => visibleOrders(orders, viewer), [orders, viewer]);
   const displayActions = useMemo(() => visibleActions(actions, viewer), [actions, viewer]);
   // Same own-faction filter as displayActions — a resolved request can be swept
@@ -1777,6 +2062,26 @@ export default function GalaxySectorMap() {
         return { ...m, fleetName: fleet ? fleet.name : "Fleet" };
       }).sort((a, b) => (b.resolvedAt || 0) - (a.resolvedAt || 0));
   }, [displayMissions, displayArchivedMissions, missionReads, fleets, viewer.roleFactionId]);
+  // Replenishment notices for this faction's own fleets: records revealed by
+  // nextTurn (revealedAt set) that this faction hasn't acknowledged since. Own-
+  // faction only, routed by the record's factionId — unlike a fleet's position,
+  // an ally isn't told when your carriers get resupplied. Same unseen/receipt
+  // race as unseenResolvedMissions above.
+  const unseenReplenishments = useMemo(() => {
+    const factionId = viewer.roleFactionId;
+    if (!factionId) return [];
+    return (replenishments || [])
+      .filter((r) => r.revealedAt && r.factionId === factionId && (r.lines || []).length > 0)
+      .filter((r) => {
+        const seen = replenishmentReads.find((x) => x.factionId === factionId && x.replenishmentId === r.id);
+        return !seen || seen.seenAt < (r.revealedAt || 0);
+      }).map((r) => {
+        const fleet = fleets.find((f) => f.id === r.fleetId);
+        const system = systems.find((s) => s.id === r.systemId);
+        return { ...r, fleetName: fleet ? fleet.name : "Fleet",
+          systemName: system ? system.name : "", summary: replenishmentSummary(r) };
+      }).sort((a, b) => (b.revealedAt || 0) - (a.revealedAt || 0));
+  }, [replenishments, replenishmentReads, fleets, systems, viewer.roleFactionId]);
   // The Agents page's faction subtabs: every faction for the GM, only their own
   // for a player, none for an anonymous viewer.
   const displayAgentFactions = useMemo(() => {
@@ -1787,7 +2092,7 @@ export default function GalaxySectorMap() {
   // the GM. Gates the map's Orders toggle.
   const canOrder = viewer.seesAll || !!viewer.roleFactionId;
   // The order currently being plotted, resolved from the routing selection.
-  const routingOrder = routing ? orderForPiece(routing.type, routing.id) : null;
+  const routingOrder = routing ? orderForRouting() : null;
   // Assets tab: GM sees every faction's subtab; a player sees their own
   // faction's plus any allied/vassal to it; anyone with no faction tied to
   // their login (anon, or a role the GM hasn't assigned a faction) sees none.
@@ -1843,14 +2148,19 @@ export default function GalaxySectorMap() {
     [resources, viewer.roleFactionId]
   );
   // Badges next to the resource strip: the trackers a signed-in player can
-  // currently see — their own faction's plus any allied/vassal's, same
-  // visibility `displayModifiers` already applies. Nothing for the GM (no
-  // single "own faction" to badge against) or an anonymous viewer.
+  // currently see, restricted to their own faction's plus any allied/vassal's
+  // (including those factions' `public` ones). A `public` tracker from a
+  // faction with no friendly tie is deliberately kept out of the always-on top
+  // strip — it stays on the Assets page. Nothing for the GM (no single "own
+  // faction" to badge against) or an anonymous viewer.
   const visibleTrackers = useMemo(
-    () => (viewer.roleFactionId
-      ? displayModifiers.filter((m) => (m.kind || "text") === "slider")
+    () => (viewer.roleFactionId && modifierFactionIds
+      ? modifiers.filter((m) =>
+          (m.kind || "text") === "slider" &&
+          modifierFactionIds.has(m.factionId) &&
+          (!m.private || m.factionId === viewer.roleFactionId))
       : []),
-    [displayModifiers, viewer.roleFactionId]
+    [modifiers, modifierFactionIds, viewer.roleFactionId]
   );
 
   const accessProps = {
@@ -1870,8 +2180,10 @@ export default function GalaxySectorMap() {
     { id: "politics", label: "Politics", icon: Network, title: "Faction politics", show: true },
     { id: "codex", label: "Codex", icon: Library, title: "Setting codex / wiki", show: true,
       badge: canEdit ? pendingWikiCount : 0 },
+    { id: "timeline", label: "Timeline", icon: History, title: "Campaign timeline — codex articles laid out by turn", show: true },
     { id: "updates", label: "Updates", icon: Bell, title: "Articles, action resolutions & mission resolutions your faction has not seen", show: true,
       badge: unseenArticles.length + unseenResolvedActions.length + unseenResolvedMissions.length },
+    { id: "archive", label: "Archive", icon: Archive, title: "Your submitted actions & squadron orders, by turn", show: canOrder },
     { id: "assets", label: "Assets", icon: Package, title: "Faction assets: modifiers, trackers, resources & projects", show: true },
     { id: "odds", label: "Odds", icon: Dices, title: "Mission odds table", show: true },
     { id: "gmtools", label: "GM Tools", icon: Gavel, title: "GM tools: action & mission requests, roll resolution & notes",
@@ -1976,7 +2288,7 @@ export default function GalaxySectorMap() {
               this strip is always the viewer's own faction, so tinting it adds
               nothing). Desktop only — no room for it alongside the tab dropdown
               trigger on mobile. Jumps to Assets > Resources on click. */}
-          {!isMobile && showAssetsBar && currentFaction && myResources.length > 0 && (
+          {!isNarrow && showAssetsBar && currentFaction && myResources.length > 0 && (
             <div className="scroll" style={{ display: "flex", alignItems: "center", gap: 6, overflowX: "auto", minWidth: 0 }}>
               {myResources.map((r) => (
                 <button key={r.id} onClick={() => goToAssets(currentFaction.id, "resources")} title={r.text || undefined}
@@ -1995,18 +2307,22 @@ export default function GalaxySectorMap() {
           {/* Tracker badges: one per tracker visible to this player (own +
               allied/vassal factions), a one-letter severity abbreviation plus its
               name. Jumps to Assets > Trackers, on that tracker's own faction, on click. */}
-          {!isMobile && showAssetsBar && visibleTrackers.length > 0 && (
+          {!isNarrow && showAssetsBar && visibleTrackers.length > 0 && (
             <div className="scroll" style={{ display: "flex", alignItems: "center", gap: 6, overflowX: "auto", minWidth: 0 }}>
               {visibleTrackers.map((t) => {
                 const color = TRACKER_LEVEL_COLOR[t.level] || TRACKER_LEVEL_COLOR.low;
                 const abbr = TRACKER_LEVEL_ABBR[t.level] || TRACKER_LEVEL_ABBR.low;
                 const levelLabel = TRACKER_LEVEL_LABEL[t.level] || TRACKER_LEVEL_LABEL.low;
+                // Which faction this tracker belongs to — a thin bar of their
+                // color runs along the bottom edge so a glance tells you the
+                // source (own vs. an ally/vassal) without opening Assets.
+                const srcFaction = factionById(t.factionId);
                 return (
                   <button key={t.id} onClick={() => goToAssets(t.factionId, "trackers")}
-                    title={`${t.name || "Untitled tracker"} — ${levelLabel}`}
-                    style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flexShrink: 0,
-                      border: `1px solid ${color}55`, borderRadius: 2, padding: "4px 8px 4px 4px", background: `${color}14`,
-                      color, fontFamily: F.body }}>
+                    title={`${t.name || "Untitled tracker"} — ${levelLabel}${srcFaction ? ` · ${srcFaction.name}` : ""}`}
+                    style={{ position: "relative", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flexShrink: 0,
+                      border: `1px solid ${color}55`, borderRadius: 2, padding: "4px 8px 5px 4px", background: `${color}14`,
+                      color, fontFamily: F.body, overflow: "hidden" }}>
                     <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 16, height: 16,
                       borderRadius: 2, background: color, color: T.onAccent, fontSize: 10, fontWeight: 800, flexShrink: 0 }}>
                       {abbr}
@@ -2014,6 +2330,10 @@ export default function GalaxySectorMap() {
                     <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase" }}>
                       {t.name || "Untitled tracker"}
                     </span>
+                    {srcFaction && (
+                      <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 2,
+                        background: srcFaction.color }} />
+                    )}
                   </button>
                 );
               })}
@@ -2022,7 +2342,7 @@ export default function GalaxySectorMap() {
           {/* Personal show/hide for the resource + tracker strip above — a player
               who finds it noisy (or wants to screenshot without it) can collapse
               it without losing the underlying data. */}
-          {!isMobile && (myResources.length > 0 || visibleTrackers.length > 0) && (
+          {!isNarrow && (myResources.length > 0 || visibleTrackers.length > 0) && (
             <button onClick={() => setShowAssetsBar((v) => !v)}
               title={showAssetsBar ? "Hide resource/tracker strip" : "Show resource/tracker strip"}
               style={{ display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
@@ -2119,7 +2439,7 @@ export default function GalaxySectorMap() {
             addSquadron={addSquadron} patchSquadron={patchSquadron} removeSquadron={removeSquadron}
             art={art} addArt={addArt} patchArt={patchArt} removeArt={removeArt}
             missions={displayMissions} archivedMissions={displayArchivedMissions}
-            canOrderFor={canOrderFor} submitMission={submitMission}
+            canOrderFor={canOrderFor} canSuggestFor={canSuggestFor} submitMission={submitMission}
             onOpenFleetTransfer={openFleetTransfer} onOrderFleetMove={orderFleetMove}
           />
         )}
@@ -2149,13 +2469,35 @@ export default function GalaxySectorMap() {
           />
         )}
 
+        {activeTab === "timeline" && (
+          <TimelineView
+            wiki={displayWiki} factions={factions} turns={turns} turnNumber={turnNumber}
+            isGM={isGM} isMobile={isMobile} goToCodex={goToCodex} setTurnStart={setTurnStart}
+          />
+        )}
+
         {activeTab === "updates" && (
           <UpdatesView articles={unseenArticles} factionName={currentFaction && currentFaction.name} isMobile={isMobile}
             openArticle={goToCodex} acknowledgeArticle={markWikiSeen} acknowledgeAll={acknowledgeAllUpdates}
             resolvedActions={unseenResolvedActions} openAction={goToAgentAction}
             acknowledgeAction={markActionSeen} acknowledgeAllActions={acknowledgeAllActionUpdates}
             resolvedMissions={unseenResolvedMissions} openMission={goToFleet}
-            acknowledgeMission={markMissionSeen} acknowledgeAllMissions={acknowledgeAllMissionUpdates} />
+            acknowledgeMission={markMissionSeen} acknowledgeAllMissions={acknowledgeAllMissionUpdates}
+            replenishments={unseenReplenishments} openReplenishment={goToFleet}
+            acknowledgeReplenishment={markReplenishmentSeen} acknowledgeAllReplenishments={acknowledgeAllReplenishmentUpdates} />
+        )}
+
+        {/* A player's own record of everything they've submitted to the GM. Fed
+            only the faction-filtered display* copies (visibleActions/visibleMissions),
+            so it can never surface another faction's actions — see the file header. */}
+        {activeTab === "archive" && (
+          <ActionArchiveView
+            actions={displayActions} archivedActions={displayArchivedActions}
+            missions={displayMissions} archivedMissions={displayArchivedMissions}
+            agents={displayAgents} fleets={displayFleets} factions={factions} modifiers={modifiers}
+            turnNumber={turnNumber} isMobile={isMobile} viewer={viewer}
+            goToAgentAction={goToAgentAction} goToFleet={goToFleet}
+          />
         )}
 
         {activeTab === "assets" && (
@@ -2205,6 +2547,11 @@ export default function GalaxySectorMap() {
             resolveMission={resolveMission} removeMission={removeMission}
             removeArchivedMission={removeArchivedMission} editMissionResolutionText={editMissionResolutionText}
             orders={orders} nextTurn={nextTurn} turnNumber={turnNumber}
+            acceptSuggestion={acceptSuggestion} clearSuggestionAcceptance={clearSuggestionAcceptance}
+            relations={relations} replenishments={replenishments} stageReplenishment={stageReplenishment}
+            endTurnChecks={endTurnChecks} ensureOssiteChecks={ensureOssiteChecks}
+            rerollOssiteCheck={rerollOssiteCheck} setOssiteCheckOverride={setOssiteCheckOverride}
+            rerollAllOssiteChecks={rerollAllOssiteChecks}
           />
         )}
       </Suspense>

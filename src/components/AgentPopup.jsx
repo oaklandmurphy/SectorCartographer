@@ -13,9 +13,11 @@ import MapPopup from "./ui/MapPopup.jsx";
 // the one field `canManage` does NOT unlock on its own — only the GM places an
 // agent on the map by default; a player requests a move instead, same as a
 // fleet, unless the GM has flipped that player's `canMoveAgents` role toggle
-// in Access, passed in here as `canPlace`.
+// in Access, passed in here as `canPlace`. Removing the agent is a stricter
+// permission still — GM-only (`canRemove`), since the GM owns the roster; a
+// player who can manage the agent's details can't drop it.
 export default function AgentPopup({
-  agent, faction, anchor, containerSize, isMobile, canManage, canPlace,
+  agent, faction, anchor, containerSize, isMobile, canManage, canPlace, canRemove,
   patchAgent, removeAgent, systems, onClose, onRequestAction,
 }) {
   const confirm = useConfirm();
@@ -97,7 +99,7 @@ export default function AgentPopup({
         </Btn>
       )}
 
-      {canManage && (
+      {canRemove && (
         <Btn kind="danger" style={{ alignSelf: "flex-start" }}
           onClick={async () => { if (await confirm("Remove this agent?")) { removeAgent(agent.id); onClose(); } }}>
           <Trash2 size={13} /> Remove agent

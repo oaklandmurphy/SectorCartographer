@@ -3,6 +3,11 @@ import { uid } from "../utils/id.js";
 import { MIN_ZOOM, MAX_ZOOM } from "../constants.js";
 import { simplifyPath } from "../lib/simplifyPath.js";
 
+// How far the pointer must travel before a press counts as a drag rather than a
+// tap. Below this nothing moves at all — see onMove, where crossing it is what
+// first commits a piece to being dragged.
+const DRAG_THRESHOLD = 4; // screen px
+
 // Owns everything about the map surface: panning/zooming the view, dragging
 // systems/fleets/ships, and the freehand-drawing canvas. This is the one part
 // of the app that talks to the DOM directly (pointer/touch/wheel listeners,
@@ -119,6 +124,23 @@ export function useMapInteractions({
     return () => el.removeEventListener("wheel", onWheel);
   }, [activeTab]);
 
+  /* ------------------------------------------------ ending a drag early
+
+     A piece drag clears the piece's systemId while it follows the cursor (see
+     onMove), and only the snap callbacks put a location back. So a drag that
+     ends any way *other* than a normal pointerup — a pointercancel, or a second
+     finger taking over as a pinch — still has to snap, or it leaves the piece
+     floating with no system at all. */
+  function cancelDrag() {
+    const d = dragRef.current;
+    if (d && d.moved) {
+      if (d.kind === "fleet") callbacksRef.current.onFleetSnap(d.id, systemsRef.current, d.origSystemId);
+      if (d.kind === "agent") callbacksRef.current.onAgentSnap(d.id, systemsRef.current, d.origSystemId);
+    }
+    dragRef.current = null;
+    document.body.style.userSelect = "";
+  }
+
   /* ------------------------------------------------ pinch-to-zoom (native Touch Events) */
   useEffect(() => {
     const el = mapRef.current; if (!el) return;
@@ -139,7 +161,7 @@ export function useMapInteractions({
         worldY: (m.y - rect.top - v.oy) / v.scale,
       };
       // a 2nd finger joining takes over as a pinch — cancel whatever the 1st finger was doing
-      dragRef.current = null;
+      cancelDrag();
       activeStrokeRef.current = null;
       redraw();
     }
@@ -185,7 +207,16 @@ export function useMapInteractions({
       }
       if (!d) return;
       const dx = e.clientX - d.startX, dy = e.clientY - d.startY;
-      if (Math.hypot(dx, dy) > 4) d.moved = true;
+      // Nothing moves until the pointer clears the tap threshold, because moving
+      // a piece is destructive: the fleet/agent branches below drop the piece's
+      // systemId so it can follow the cursor, and only onUp's `d.moved` branch
+      // snaps a location back. Acting on sub-threshold jitter — the stray pixel
+      // an ordinary click on a fleet marker produces — stripped that fleet's
+      // system and then took onUp's *tap* branch, leaving it with no location.
+      if (!d.moved) {
+        if (Math.hypot(dx, dy) <= DRAG_THRESHOLD) return;
+        d.moved = true;
+      }
       if (d.kind === "pan") {
         setView((v) => ({ ...v, ox: d.origOx + dx, oy: d.origOy + dy }));
       } else if (d.kind === "system" && canEditRef.current) {
@@ -227,8 +258,7 @@ export function useMapInteractions({
       }
     };
     const onCancel = () => {
-      dragRef.current = null;
-      document.body.style.userSelect = "";
+      cancelDrag();
       setShipDrag(null);
       setHoverFleet(null);
     };

@@ -46,12 +46,35 @@ export function movementIssues({ pieceType, path, currentSystemId, systems, link
   return issues;
 }
 
-// Scan every committed, non-empty order and report the ones that break the
-// movement rules — { order, piece, pieceType, issues }[], empty if all clear.
-export function collectMovementViolations({ orders, agents, fleets, systems, links }) {
+// Among committed, non-empty orders, the single one that will actually move each
+// piece. Most pieces have just their owning faction's own order, but an ally or
+// vassal can file a *suggested* move for a friendly fleet; when the GM ticks one
+// (order.accepted), that suggestion overrides the owner's own order. An accepted
+// suggestion wins; otherwise the owner's order stands. An un-accepted suggestion
+// never moves anything on its own — it's only ever a proposal for the GM.
+export function effectiveMoveOrders(orders) {
   const ready = (orders || []).filter((o) => o.committed && o.path && o.path.length > 0);
+  const owner = new Map();    // "type:id" -> the piece's own order
+  const accepted = new Map(); // "type:id" -> an accepted suggestion for it
+  for (const o of ready) {
+    const key = `${o.pieceType}:${o.pieceId}`;
+    if (o.suggestion) { if (o.accepted) accepted.set(key, o); }
+    else owner.set(key, o);
+  }
   const out = [];
-  for (const order of ready) {
+  for (const key of new Set([...owner.keys(), ...accepted.keys()])) {
+    out.push(accepted.get(key) || owner.get(key));
+  }
+  return out;
+}
+
+// Scan every move order that will actually be applied (see effectiveMoveOrders —
+// one per piece, an accepted suggestion overriding the owner's) and report the
+// ones that break the movement rules: { order, piece, pieceType, issues }[],
+// empty if all clear.
+export function collectMovementViolations({ orders, agents, fleets, systems, links }) {
+  const out = [];
+  for (const order of effectiveMoveOrders(orders)) {
     const pool = order.pieceType === "fleet" ? fleets : agents;
     const piece = (pool || []).find((p) => p.id === order.pieceId);
     if (!piece) continue;

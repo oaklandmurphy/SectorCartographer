@@ -3,3 +3,5 @@ dist
 .env.local
 .env.*.local
 *.log
+story-log.md
+recap.md

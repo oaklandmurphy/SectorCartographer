@@ -15,8 +15,10 @@ import MobileTabRail from "./ui/MobileTabRail.jsx";
 // (App.jsx) from the viewer: the GM sees every faction, a player only their own.
 //
 // The number of agents a faction may field is a GM-set cap (faction.agentCap);
-// the GM edits it here, players fill the slots by adding agents up to it, tying
-// each to one of their characters and parking it at a system. Agents are strictly
+// the GM edits it here and fills the roster — adding and removing agents is
+// GM-only. A player of the faction manages the agents the GM gives them (tying
+// each to one of their characters, parking it at a system, editing its notes and
+// raising its action requests) but can't add or remove a slot. Agents are strictly
 // own-faction — even allies never see them — so there is no visibility control to
 // manage here, unlike modifiers.
 export default function AgentsView({
@@ -113,7 +115,7 @@ export default function AgentsView({
       width: fullWidth ? "100%" : vertical ? 240 : "auto", minHeight: 0 }}>
       {facAgents.length === 0 && (
         <div style={{ fontSize: 10.5, color: T.faint, padding: "12px 6px", textAlign: "center", lineHeight: 1.5 }}>
-          {canManage ? (cap > 0 ? "No agents yet." : "No agent slots allotted.") : "No agents."}
+          {canEdit ? (cap > 0 ? "No agents yet." : "No agent slots allotted.") : "No agents."}
         </div>
       )}
       {facAgents.map((a) => {
@@ -150,7 +152,7 @@ export default function AgentsView({
           </button>
         );
       })}
-      {canManage && (
+      {canEdit && (
         <Btn kind="primary" onClick={() => addAgent(activeFaction.id)} disabled={atCap}
           title={atCap ? "At the GM's agent cap for this faction" : "Add an agent"}
           style={{ justifyContent: "center", flexShrink: 0, marginTop: vertical ? 4 : 0 }}>
@@ -199,7 +201,7 @@ export default function AgentsView({
           <VenetianMask size={36} strokeWidth={1.2} />
           <div style={{ fontSize: 11.5, lineHeight: 1.6, maxWidth: 320 }}>
             {facAgents.length === 0
-              ? (canManage
+              ? (canEdit
                   ? (cap > 0 ? "No agents yet — add one from the rail." : "The GM has not allotted any agent slots to this faction.")
                   : "This faction has no agents.")
               : "Select an agent from the rail to see its detail."}
@@ -219,7 +221,7 @@ export default function AgentsView({
           <span style={{ flex: 1, minWidth: 0, fontSize: 17, fontWeight: 800, fontFamily: F.body,
             letterSpacing: ".05em", textTransform: "uppercase", color: activeFaction.color,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentLabel(a)}</span>
-          {canManage && (
+          {canEdit && (
             <Btn kind="danger" title="Remove this agent"
               onClick={async () => {
                 if (await confirm(`Remove ${agentLabel(a)}?`)) { removeAgent(a.id); setSelectedAgentId(null); }

@@ -61,25 +61,40 @@ export function commitDetachments(fleets, fleetId, detachments) {
 }
 
 // Return craft from a mission — either survivors after a resolved strike, or
-// the full detachment if the request is withdrawn before resolution. Adds each
-// detachment's count back onto its source squadron, or recreates the squadron
-// (by the model it flew as) if the hangar slot was removed while it was away.
-export function returnDetachments(fleets, fleetId, detachments) {
-  return fleets.map((f) => (f.id !== fleetId ? f : {
-    ...f,
-    ships: f.ships.map((s) => {
-      const backs = detachments.filter((d) => d.shipId === s.id && d.count > 0);
-      if (backs.length === 0) return s;
-      let squadrons = squadronsOf(s);
-      for (const d of backs) {
-        const idx = squadrons.findIndex((q) => q.id === d.squadronId);
-        squadrons = idx === -1
-          ? [...squadrons, { id: d.squadronId, count: d.count, model: d.model }]
-          : squadrons.map((q, i) => (i === idx ? { ...q, count: (Number(q.count) || 0) + d.count } : q));
-      }
-      return { ...s, squadrons };
-    }),
-  }));
+// the full detachment if the request is withdrawn before resolution. Craft are
+// routed home by carrier id (each detachment's `shipId`), never by the fleet
+// they launched from: while the mission was away the player may have split that
+// fleet (moving the carrier under a brand-new fleet id) or renamed it, so the
+// launching fleet is not a reliable handle on where the carrier lives now.
+// Adds each detachment's count back onto its source squadron wherever that
+// carrier currently is, or recreates the squadron (by the model it flew as) if
+// the hangar slot was removed while it was away. A detachment whose carrier no
+// longer exists anywhere (scrapped or destroyed mid-mission) has nothing to
+// land on and is dropped — the same as before, just now checked sector-wide.
+export function returnDetachments(fleets, detachments) {
+  const backs = (detachments || []).filter((d) => d.count > 0);
+  if (backs.length === 0) return fleets;
+  return fleets.map((f) => {
+    // Leave fleets holding none of these carriers untouched, so React can skip
+    // re-rendering them — same identity-preserving intent as the old per-fleet
+    // guard, just no longer tied to a single fleetId.
+    if (!f.ships.some((s) => backs.some((d) => d.shipId === s.id))) return f;
+    return {
+      ...f,
+      ships: f.ships.map((s) => {
+        const mine = backs.filter((d) => d.shipId === s.id);
+        if (mine.length === 0) return s;
+        let squadrons = squadronsOf(s);
+        for (const d of mine) {
+          const idx = squadrons.findIndex((q) => q.id === d.squadronId);
+          squadrons = idx === -1
+            ? [...squadrons, { id: d.squadronId, count: d.count, model: d.model }]
+            : squadrons.map((q, i) => (i === idx ? { ...q, count: (Number(q.count) || 0) + d.count } : q));
+        }
+        return { ...s, squadrons };
+      }),
+    };
+  });
 }
 
 // A carrier's optional `model` is its design ("Gorb-class Carrier") — what sister

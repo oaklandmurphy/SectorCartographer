@@ -1,20 +1,49 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Gavel, Copy, Trash2, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6,
   ClipboardList, VenetianMask, Flag, Check, Clock, RotateCcw, Wand2, Users, Rocket, SkipForward,
-  Pencil, X, MapPin, History, Star, Sparkles, ArrowLeftRight, ArrowRight } from "lucide-react";
+  Pencil, X, MapPin, History, Star, Sparkles, ArrowLeftRight, ArrowRight, PackagePlus, Route, ListChecks } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
-import { collectMovementViolations } from "../lib/movement.js";
+import { collectMovementViolations, effectiveMoveOrders } from "../lib/movement.js";
+import { lineTotal } from "../lib/replenish.js";
 import Btn from "./ui/Btn.jsx";
 import ActionResolution from "./ui/ActionResolution.jsx";
 import GMNotesPanel from "./ui/GMNotesPanel.jsx";
 import SquadronMissionsPanel from "./SquadronMissionsPanel.jsx";
+import ReplenishPanel from "./ReplenishPanel.jsx";
+import EndTurnChecksPanel from "./EndTurnChecksPanel.jsx";
+import { ossiteCheckPassed } from "../lib/endTurnChecks.js";
 import MobileTabRail from "./ui/MobileTabRail.jsx";
 import TurnMovementWarningModal from "./TurnMovementWarningModal.jsx";
 
 const sign = (n) => (n >= 0 ? `+${n}` : `${n}`);
 const rollDie = () => 1 + Math.floor(Math.random() * 6);
 const DIE_FACES = { 1: Dice1, 2: Dice2, 3: Dice3, 4: Dice4, 5: Dice5, 6: Dice6 };
+
+// One selectable move for a fleet in the Suggested Moves review — a radio-style
+// row the GM clicks to pick the owner's own order or an ally/vassal's suggestion.
+// A row for a suggestion that's still a draft is shown disabled (nothing to apply).
+function MoveChoice({ selected, onSelect, color, label, note, disabled, hint }) {
+  return (
+    <button type="button" onClick={disabled ? undefined : onSelect} disabled={disabled}
+      style={{ display: "flex", alignItems: "flex-start", gap: 8, width: "100%", textAlign: "left",
+        background: selected ? `${color}1e` : "transparent", border: `1px solid ${selected ? color : T.line}`,
+        borderRadius: 2, padding: "5px 7px", marginTop: 5, cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.55 : 1 }}>
+      <span style={{ width: 13, height: 13, borderRadius: "50%", flexShrink: 0, marginTop: 1,
+        border: `2px solid ${selected ? color : T.faint}`, background: selected ? color : "transparent",
+        boxShadow: selected ? `inset 0 0 0 2px ${T.ink}` : "none" }} />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.text, fontWeight: 600 }}>
+          {label}
+          {hint && <span style={{ fontSize: 9.5, color: T.faint, fontWeight: 400 }}>· {hint}</span>}
+        </span>
+        {note && <span style={{ display: "block", fontSize: 10.5, color: T.mut, marginTop: 2, lineHeight: 1.4,
+          whiteSpace: "pre-wrap" }}>{note}</span>}
+      </span>
+    </button>
+  );
+}
 
 const OUTCOMES = [
   { id: "success", label: "Success", kind: "primary" },
@@ -79,17 +108,36 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   editActionResolution, editArchivedActionResolution, setActionImportant, setArchivedActionImportant,
   fleets, missions, archivedMissions, resolveMission, removeMission, removeArchivedMission,
   editMissionResolutionText,
-  orders, nextTurn, turnNumber, resourceTransactions, removeResourceTransaction }) {
+  orders, nextTurn, turnNumber, acceptSuggestion, clearSuggestionAcceptance,
+  resourceTransactions, removeResourceTransaction,
+  relations, replenishments, stageReplenishment,
+  endTurnChecks, ensureOssiteChecks, rerollOssiteCheck, setOssiteCheckOverride, rerollAllOssiteChecks }) {
   const confirm = useConfirm();
   const [showMovementWarning, setShowMovementWarning] = useState(false);
-  const [section, setSection] = useState("actions"); // "actions" | "missions" | "narrative" | "transactions"
+  const [section, setSection] = useState("actions"); // "actions" | "missions" | "replenish" | "checks" | "narrative" | "transactions"
   const pendingMissionTotal = (missions || []).filter((m) => m.status !== "resolved" && m.status !== "delayed").length;
+  // Ossite Surplus checks passing this turn (GM Tools: End of Turn Checks) — the
+  // badge on the tab, and a nudge that a surplus award is queued for Next Turn.
+  const ossitePassingTotal = (systems || []).filter((s) => s.hasOssite).filter((s) => {
+    const c = (endTurnChecks || []).find((x) => x.type === "ossite" && x.turn === turnNumber && !x.appliedAt && x.systemId === s.id);
+    return c && ossiteCheckPassed(c);
+  }).length;
+  // Strike craft staged for resupply this turn (GM Tools: Replenish) — applied on
+  // Next Turn, so they count as pending work the turn advance will close out.
+  const stagedReplenTotal = (replenishments || [])
+    .filter((r) => (r.turn || 0) === turnNumber && !r.revealedAt)
+    .reduce((n, r) => n + lineTotal(r), 0);
   // What "Next Turn" is about to do: land every committed move order and close
   // out every agent's action requests. Shown beside the button so the GM isn't
   // clicking blind — see App.jsx's nextTurn for what actually runs.
   const readyOrders = (orders || []).filter((o) => o.committed && o.path.length > 0);
-  const readyFleetMoves = readyOrders.filter((o) => o.pieceType === "fleet").length;
-  const readyAgentMoves = readyOrders.filter((o) => o.pieceType === "agent").length;
+  // The moves that will actually land — one per piece, with any accepted ally/
+  // vassal suggestion standing in for the owner's order (see effectiveMoveOrders).
+  // Counting these (not every committed order) keeps a fleet with both its own
+  // order and a suggestion from double-counting in the turn summary.
+  const effectiveMoves = useMemo(() => effectiveMoveOrders(orders), [orders]);
+  const readyFleetMoves = effectiveMoves.filter((o) => o.pieceType === "fleet").length;
+  const readyAgentMoves = effectiveMoves.filter((o) => o.pieceType === "agent").length;
   // "Delayed" (see resolveAction/resolveMission's `delayed` flag) counts as
   // resolved for turn-advance purposes — Next Turn is exactly what reveals it —
   // even though it doesn't count as resolved for the player yet.
@@ -101,7 +149,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   // move into the archive.
   const resolvedMissionsTotal = (missions || []).filter((m) => m.status === "resolved" || m.status === "delayed").length;
   const turnHasWork = readyOrders.length > 0 || resolvedActionsTotal > 0 || pendingActionsTotal > 0
-    || resolvedMissionsTotal > 0;
+    || resolvedMissionsTotal > 0 || stagedReplenTotal > 0;
   // Committed orders that break the movement rules (lib/movement.js) — an
   // agent moving further than 3 systems (4 from a jump gate), a fleet further
   // than 1 (2 from a jump gate), or a route that skips a link. Recomputed
@@ -117,6 +165,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
     if (resolvedActionsTotal > 0) parts.push(`${resolvedActionsTotal} action request${resolvedActionsTotal === 1 ? "" : "s"} closed out`);
     if (pendingActionsTotal > 0) parts.push(`${pendingActionsTotal} still pending, carried over`);
     if (resolvedMissionsTotal > 0) parts.push(`${resolvedMissionsTotal} squadron mission${resolvedMissionsTotal === 1 ? "" : "s"} closed out`);
+    if (stagedReplenTotal > 0) parts.push(`${stagedReplenTotal} strike craft replenished`);
     return parts.length > 0 ? parts.join(" · ") : "Nothing queued — no committed moves or open action requests.";
   }
 
@@ -735,6 +784,14 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
         style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
         <Rocket size={13} /> Squadron Missions {countBadge(pendingMissionTotal)}
       </Btn>
+      <Btn active={section === "replenish"} onClick={() => setSection("replenish")} title="Top up strike craft on carriers in friendly space"
+        style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
+        <PackagePlus size={13} /> Replenish {countBadge(stagedReplenTotal)}
+      </Btn>
+      <Btn active={section === "checks"} onClick={() => setSection("checks")} title="Checks that resolve when the turn advances — the Ossite Surplus check"
+        style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
+        <ListChecks size={13} /> End of Turn Checks {countBadge(ossitePassingTotal)}
+      </Btn>
       <Btn active={section === "narrative"} onClick={() => setSection("narrative")} title="Generate a narration prompt from last turn's important events"
         style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
         <Sparkles size={13} /> Narrative {countBadge(importantLastTurn.length)}
@@ -752,7 +809,83 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
   // which is what Previous Actions stamps onto an entry to record which turn
   // it was resolved on. Always visible (not tied to either section) since it
   // spans both movement and agent actions.
+  // Suggested moves an ally/vassal has filed for another faction's fleet, grouped
+  // by the fleet they target. Per fleet the GM picks the owner's own order (the
+  // default) or overrides it with one of the suggestions — the pick is exactly
+  // what effectiveMoveOrders/nextTurn read to decide where the fleet lands.
+  // Absent entirely when there are no suggestions on the board.
+  function suggestionReview() {
+    const suggestions = (orders || []).filter((o) => o.suggestion && o.path && o.path.length > 0);
+    if (suggestions.length === 0) return null;
+    const facById = (id) => factions.find((f) => f.id === id);
+    const sysName = (id) => ((systems || []).find((s) => s.id === id) || {}).name || "?";
+    const destName = (o) => sysName(o.path[o.path.length - 1]);
+    const pieceOrder = [];
+    const groups = new Map();
+    for (const s of suggestions) {
+      if (!groups.has(s.pieceId)) { groups.set(s.pieceId, []); pieceOrder.push(s.pieceId); }
+      groups.get(s.pieceId).push(s);
+    }
+    return (
+      <div style={{ margin: isMobile ? "0 0 14px" : "10px 12px 0", border: `1px solid ${T.line}`,
+        borderRadius: 2, background: T.panel, padding: "10px 12px" }}>
+        <div className="stencil" style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap",
+          fontSize: 12, letterSpacing: ".07em", color: T.text, marginBottom: 8 }}>
+          <Route size={13} color={T.accent} /> SUGGESTED MOVES
+          <span style={{ fontSize: 10, color: T.faint, fontWeight: 400, letterSpacing: 0 }}>
+            an ally/vassal's proposed route for another faction's fleet — pick which move to apply this turn
+          </span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {pieceOrder.map((pieceId) => {
+            const fleet = (fleets || []).find((f) => f.id === pieceId);
+            const list = groups.get(pieceId);
+            const owner = (orders || []).find((o) => o.pieceType === "fleet" && o.pieceId === pieceId && !o.suggestion);
+            const ownerReady = !!(owner && owner.committed && owner.path.length > 0);
+            const anyAccepted = list.some((s) => s.accepted);
+            const ownerFac = fleet ? facById(fleet.factionId) : null;
+            return (
+              <div key={pieceId} style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel2, padding: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
+                  <span style={{ width: 9, height: 9, background: ownerFac ? ownerFac.color : T.faint, ...cut(2), flexShrink: 0 }} />
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: T.text }}>{fleet ? fleet.name : "Unknown fleet"}</span>
+                  <span style={{ fontSize: 10, color: T.faint }}>{ownerFac ? ownerFac.name : ""}</span>
+                </div>
+                <MoveChoice
+                  selected={!anyAccepted}
+                  onSelect={() => clearSuggestionAcceptance("fleet", pieceId)}
+                  color={ownerFac ? ownerFac.color : T.faint}
+                  label={ownerReady
+                    ? `Keep ${ownerFac ? ownerFac.name : "owner"}'s order → ${destName(owner)}`
+                    : `No move — ${ownerFac ? ownerFac.name : "owner"} filed no order`}
+                  note={ownerReady ? (owner.notes || "") : ""}
+                  disabled={false}
+                />
+                {list.map((s) => {
+                  const sug = facById(s.suggesterFactionId);
+                  const ready = !!(s.committed && s.path.length > 0);
+                  return (
+                    <MoveChoice key={s.id}
+                      selected={!!s.accepted}
+                      onSelect={ready ? () => acceptSuggestion(s.id) : undefined}
+                      color={sug ? sug.color : T.accent}
+                      label={`${sug ? sug.name : "An ally"} suggests → ${destName(s)}`}
+                      note={s.notes || ""}
+                      disabled={!ready}
+                      hint={ready ? "" : "still drafting"}
+                    />
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   const turnBar = () => (
+    <>
     <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap",
       margin: isMobile ? "0 0 14px" : "12px 12px 0" }}>
       <span className="mono" title="The current turn — stamped onto action requests as they're resolved"
@@ -780,6 +913,8 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
           onConfirm={() => { setShowMovementWarning(false); nextTurn(); }} />
       )}
     </div>
+    {suggestionReview()}
+    </>
   );
   const notes_ = <GMNotesPanel notes={notes} addNote={addNote} removeNote={removeNote} />;
 
@@ -796,6 +931,15 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
             archivedMissions={archivedMissions}
             isMobile={isMobile} resolveMission={resolveMission} removeMission={removeMission}
             removeArchivedMission={removeArchivedMission} editMissionResolutionText={editMissionResolutionText} />
+        ) : section === "replenish" ? (
+          <ReplenishPanel fleets={fleets} systems={systems} relations={relations} factions={factions}
+            replenishments={replenishments} turnNumber={turnNumber} isMobile={isMobile}
+            stageReplenishment={stageReplenishment} />
+        ) : section === "checks" ? (
+          <EndTurnChecksPanel systems={systems} factions={factions} endTurnChecks={endTurnChecks}
+            turnNumber={turnNumber} isMobile={isMobile} ensureOssiteChecks={ensureOssiteChecks}
+            rerollOssiteCheck={rerollOssiteCheck} setOssiteCheckOverride={setOssiteCheckOverride}
+            rerollAllOssiteChecks={rerollAllOssiteChecks} />
         ) : section === "narrative" ? (
           narrativePane()
         ) : section === "transactions" ? (
@@ -836,6 +980,29 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
           isMobile={isMobile} resolveMission={resolveMission} removeMission={removeMission}
           removeArchivedMission={removeArchivedMission} editMissionResolutionText={editMissionResolutionText}
           notesPane={notes_} />
+      </div>
+    );
+  }
+  if (section === "replenish") {
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.void }}>
+        {sectionBar()}
+        {turnBar()}
+        <ReplenishPanel fleets={fleets} systems={systems} relations={relations} factions={factions}
+          replenishments={replenishments} turnNumber={turnNumber} isMobile={isMobile}
+          stageReplenishment={stageReplenishment} notesPane={notes_} />
+      </div>
+    );
+  }
+  if (section === "checks") {
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.void }}>
+        {sectionBar()}
+        {turnBar()}
+        <EndTurnChecksPanel systems={systems} factions={factions} endTurnChecks={endTurnChecks}
+          turnNumber={turnNumber} isMobile={isMobile} ensureOssiteChecks={ensureOssiteChecks}
+          rerollOssiteCheck={rerollOssiteCheck} setOssiteCheckOverride={setOssiteCheckOverride}
+          rerollAllOssiteChecks={rerollAllOssiteChecks} notesPane={notes_} />
       </div>
     );
   }
