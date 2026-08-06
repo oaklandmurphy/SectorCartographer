@@ -74,7 +74,7 @@ export default function GalaxySectorMap() {
   const [showOrders, setShowOrders] = useState(true); // personal: show/hide the move-order overlay on the map
   const [showFleets, setShowFleets] = useState(true); // personal: show/hide fleet pieces on the map
   const [showAgents, setShowAgents] = useState(true); // personal: show/hide agent pieces on the map
-  const [showAssetsBar, setShowAssetsBar] = useState(true); // personal: show/hide the resource/tracker strip in the top bar
+  const [showAssetsBar, setShowAssetsBar] = useState(true); // personal: show/hide the resource/tracker rail below the tab bar
   const [view, setView] = useState({ scale: 1, ox: 60, oy: 40 });
   const [strokes, setStrokes] = useState([]);
 
@@ -112,12 +112,6 @@ export default function GalaxySectorMap() {
   const editingEnabled = canEdit && !editLocked;
 
   const isMobile = useResponsive();
-  // The resource/tracker strip shares the top row with the tab bar. Between the
-  // mobile breakpoint and full desktop there isn't room for both, so the strip
-  // pushes the tabs off the row (they scroll out of reach). Below this width it
-  // auto-hides — independent of the personal showAssetsBar toggle, which only
-  // decides whether to show it once the row is wide enough to fit it.
-  const isNarrow = useResponsive("(max-width: 1100px)");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [navMenuOpen, setNavMenuOpen] = useState(false); // mobile: the global tab-bar dropdown
 
@@ -2282,14 +2276,39 @@ export default function GalaxySectorMap() {
         )}
 
         <div style={{ marginLeft: "auto", flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
-          {/* A signed-in player's own faction's resource counters, inline with the
-              tab bar so a glance at the top of the page shows where they stand
-              regardless of what tab they're on. Neutral chrome (no faction color —
-              this strip is always the viewer's own faction, so tinting it adds
-              nothing). Desktop only — no room for it alongside the tab dropdown
-              trigger on mobile. Jumps to Assets > Resources on click. */}
-          {!isNarrow && showAssetsBar && currentFaction && myResources.length > 0 && (
-            <div className="scroll" style={{ display: "flex", alignItems: "center", gap: 6, overflowX: "auto", minWidth: 0 }}>
+          {/* Personal show/hide for the resource + tracker rail below the tab bar
+              — a player who finds it noisy (or wants to screenshot without it) can
+              collapse it without losing the underlying data. Kept up here in the
+              tab row so it stays reachable even once the rail is collapsed. */}
+          {!isMobile && (myResources.length > 0 || visibleTrackers.length > 0) && (
+            <button onClick={() => setShowAssetsBar((v) => !v)}
+              title={showAssetsBar ? "Hide resource/tracker rail" : "Show resource/tracker rail"}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
+                width: 26, height: 26, border: `1px solid ${T.line}`, borderRadius: 2,
+                background: T.panel3, color: showAssetsBar ? T.text : T.faint }}>
+              {showAssetsBar ? <Eye size={13} /> : <EyeOff size={13} />}
+            </button>
+          )}
+          {(canEdit || viewer.kind === "player") && <SaveStatus saveStatus={saveStatus} isMobile={isMobile} />}
+          <AccessControl compact={isMobile} {...accessProps} />
+        </div>
+      </div>
+
+      {/* ------------------------------------------------ ASSET RAIL — the signed-in
+          player's own faction's resource counters plus the trackers they can see,
+          on its own row directly under the tab bar rather than crammed inline with
+          the tabs. Collapsible via the eye toggle up in the tab row. Desktop only
+          — on mobile the tab dropdown trigger owns the top row. */}
+      {!isMobile && showAssetsBar && (myResources.length > 0 || visibleTrackers.length > 0) && (
+        <div className="scroll" style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px",
+          background: T.panel, borderBottom: `1px solid ${T.line}`, overflowX: "auto", zIndex: 40 }}>
+          {/* A signed-in player's own faction's resource counters — a glance at the
+              top of the page shows where they stand regardless of what tab they're
+              on. Neutral chrome (no faction color — this rail is always the
+              viewer's own faction, so tinting it adds nothing). Jumps to
+              Assets > Resources on click. */}
+          {currentFaction && myResources.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
               {myResources.map((r) => (
                 <button key={r.id} onClick={() => goToAssets(currentFaction.id, "resources")} title={r.text || undefined}
                   style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flexShrink: 0,
@@ -2307,8 +2326,8 @@ export default function GalaxySectorMap() {
           {/* Tracker badges: one per tracker visible to this player (own +
               allied/vassal factions), a one-letter severity abbreviation plus its
               name. Jumps to Assets > Trackers, on that tracker's own faction, on click. */}
-          {!isNarrow && showAssetsBar && visibleTrackers.length > 0 && (
-            <div className="scroll" style={{ display: "flex", alignItems: "center", gap: 6, overflowX: "auto", minWidth: 0 }}>
+          {visibleTrackers.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
               {visibleTrackers.map((t) => {
                 const color = TRACKER_LEVEL_COLOR[t.level] || TRACKER_LEVEL_COLOR.low;
                 const abbr = TRACKER_LEVEL_ABBR[t.level] || TRACKER_LEVEL_ABBR.low;
@@ -2339,22 +2358,8 @@ export default function GalaxySectorMap() {
               })}
             </div>
           )}
-          {/* Personal show/hide for the resource + tracker strip above — a player
-              who finds it noisy (or wants to screenshot without it) can collapse
-              it without losing the underlying data. */}
-          {!isNarrow && (myResources.length > 0 || visibleTrackers.length > 0) && (
-            <button onClick={() => setShowAssetsBar((v) => !v)}
-              title={showAssetsBar ? "Hide resource/tracker strip" : "Show resource/tracker strip"}
-              style={{ display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
-                width: 26, height: 26, border: `1px solid ${T.line}`, borderRadius: 2,
-                background: T.panel3, color: showAssetsBar ? T.text : T.faint }}>
-              {showAssetsBar ? <Eye size={13} /> : <EyeOff size={13} />}
-            </button>
-          )}
-          {(canEdit || viewer.kind === "player") && <SaveStatus saveStatus={saveStatus} isMobile={isMobile} />}
-          <AccessControl compact={isMobile} {...accessProps} />
         </div>
-      </div>
+      )}
 
       {activeTab === "map" && (
         <>

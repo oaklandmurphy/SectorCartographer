@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { Rocket, Trash2, Dices, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6,
-  Users, Check, Clock, Wand2, Ship, Pencil, X } from "lucide-react";
+  Users, Check, Clock, Wand2, Ship, Pencil, X, Zap } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import {
   RATIO_COLS, EVEN_RATIO_INDEX, MIN_SHIFT, MAX_SHIFT,
@@ -171,6 +171,22 @@ export default function SquadronMissionsPanel({
       roll: rollValue, dice: dice || null,
       outcomeE: outE, casualtyE: casE, grade, casualtyPct: cas,
       actualCasualtyPct: actualPct, detachmentLosses,
+      text: outcomeText.trim(),
+    };
+    resolveMission(targetMission.id, resolution, delayResolution);
+    setTargetId(""); clearTool();
+  }
+  // Skip the odds table: rule the mission a clean win — 5/5 and zero casualties,
+  // so every committed craft comes home (survivingDetachments reads casualtyPct,
+  // which is 0 here). Marked `auto` so the shared resolution view knows to drop
+  // the roll/ratio/E rows it has no values for. Still honours the delay checkbox
+  // and any outcome text the GM has typed.
+  function resolveAuto() {
+    if (!targetMission) return;
+    const resolution = {
+      auto: true,
+      mine, enemyCount: theirsValue,
+      grade: 5, casualtyPct: 0, actualCasualtyPct: 0,
       text: outcomeText.trim(),
     };
     resolveMission(targetMission.id, resolution, delayResolution);
@@ -565,6 +581,10 @@ export default function SquadronMissionsPanel({
 
             <Btn kind="primary" onClick={resolve} style={{ justifyContent: "center" }}>
               <Check size={14} /> {delayResolution ? "Delay Resolution" : "Resolve & Return Craft"}
+            </Btn>
+            <Btn onClick={resolveAuto} style={{ justifyContent: "center" }}
+              title="Skip the roll — rule this a clean win: 5/5 mission success and zero casualties">
+              <Zap size={14} /> Automatic Success — 5/5, no casualties
             </Btn>
           </>
         )}

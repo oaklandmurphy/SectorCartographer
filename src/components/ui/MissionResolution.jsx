@@ -24,6 +24,10 @@ export default function MissionResolution({ resolution }) {
   const grade = Number(resolution.grade) || 0;
   const cas = Number(resolution.casualtyPct) || 0;
   const gColor = gradeColor(grade);
+  // An automatic-success ruling (see SquadronMissionsPanel's resolveAuto) skips
+  // the odds table entirely, so it carries no roll, force ratio, or E values —
+  // hide those rows rather than print blanks.
+  const hasE = resolution.outcomeE != null && resolution.casualtyE != null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -35,6 +39,7 @@ export default function MissionResolution({ resolution }) {
           Mission Success Rating {grade}/5
         </span>
         <Chip color={cas > 0 ? T.danger : T.mut}>Casualties {cas}%</Chip>
+        {resolution.auto && <Chip color={T.accent}>Automatic success</Chip>}
         {resolution.ratioLabel && (
           <Chip>{resolution.mine ?? "?"}:{resolution.enemyCount ?? "?"} → {resolution.ratioLabel} ({sign(resolution.ratioShift || 0)})</Chip>
         )}
@@ -43,10 +48,12 @@ export default function MissionResolution({ resolution }) {
         )}
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-        <Chip color={T.mut}>Outcome E {resolution.outcomeE} ({sign(resolution.outcomeShift || 0)} mission)</Chip>
-        <Chip color={T.mut}>Casualty E {resolution.casualtyE} ({sign(resolution.casualtyShift || 0)} mission)</Chip>
-      </div>
+      {hasE && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          <Chip color={T.mut}>Outcome E {resolution.outcomeE} ({sign(resolution.outcomeShift || 0)} mission)</Chip>
+          <Chip color={T.mut}>Casualty E {resolution.casualtyE} ({sign(resolution.casualtyShift || 0)} mission)</Chip>
+        </div>
+      )}
 
       {resolution.detachmentLosses && resolution.detachmentLosses.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 2 }}>
