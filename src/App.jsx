@@ -92,7 +92,7 @@ export default function GalaxySectorMap() {
   const [lockCode, setLockCode] = useState("");   // shared: "" means editing is open to everyone; else the GM code
   const [fleetsPublic, setFleetsPublic] = useState(true); // shared: false hides fleet positions from anyone without a matching login
   const [turnNumber, setTurnNumber] = useState(0); // shared: bumped by nextTurn(), stamped onto actions as they're archived — the campaign starts at turn 0
-  const [turns, setTurns] = useState([]); // shared: turn-boundary records { turn, startedAt } — when each turn began, stamped by nextTurn() and editable by the GM on the Timeline tab
+  const [turns, setTurns] = useState([]); // shared: turn-boundary records { turn, startedAt, name } — when each turn began (stamped by nextTurn(), editable by the GM on the Timeline tab) and the GM's optional name for it
   const [knownCode, setKnownCode] = useState(""); // personal: the GM/player code this browser has entered
   const [accessOpen, setAccessOpen] = useState(false);
   const [codeInput, setCodeInput] = useState("");
@@ -1281,23 +1281,36 @@ export default function GalaxySectorMap() {
     // stamps for one turn; the GM can adjust these afterwards on the Timeline.
     const startingTurn = (Number(turnNumber) || 0) + 1;
     const startedAt = Date.now();
-    setTurns((ts) => [...ts.filter((t) => t.turn !== startingTurn), { id: uid("turn"), turn: startingTurn, startedAt }]);
+    setTurns((ts) => {
+      const existing = ts.find((t) => t.turn === startingTurn); // keep a name the GM set ahead of time
+      return [...ts.filter((t) => t.turn !== startingTurn), { id: existing?.id || uid("turn"), ...existing, turn: startingTurn, startedAt }];
+    });
     setTurnNumber((n) => (Number(n) || 0) + 1);
   }
 
-  /* ---- turn boundaries: the GM sets or adjusts when a past turn began, from the
-     Timeline tab, so articles resort into the right turn. A null `startedAt`
-     removes the record (the turn goes back to having no set start). Upserts on
-     the turn number, same as nextTurn's stamp above. */
-  function setTurnStart(turn, startedAt) {
+  /* ---- turn boundaries: the GM sets or adjusts when a past turn began, and can
+     give the turn a name — both from the Timeline tab. The start time resorts
+     articles into the right turn; the name is just a label the Timeline shows.
+     Both upsert on the turn number (same as nextTurn's stamp above) through
+     upsertTurn, which merges the patch onto any existing record so setting one
+     field never drops the other. A record left with neither a start time nor a
+     name is removed entirely — that's how clearing the last of the two works. */
+  function upsertTurn(turn, patch) {
     if (!isGM) return;
     const n = Number(turn);
     if (!Number.isFinite(n)) return;
     setTurns((ts) => {
+      const existing = ts.find((t) => t.turn === n);
       const rest = ts.filter((t) => t.turn !== n);
-      return startedAt == null ? rest : [...rest, { id: uid("turn"), turn: n, startedAt }];
+      const merged = { id: existing?.id || uid("turn"), ...existing, ...patch, turn: n };
+      const name = (merged.name || "").trim();
+      const hasStart = Number.isFinite(merged.startedAt) && merged.startedAt > 0;
+      if (!hasStart && !name) return rest; // nothing left worth keeping
+      return [...rest, { ...merged, name }];
     });
   }
+  const setTurnStart = (turn, startedAt) => upsertTurn(turn, { startedAt });
+  const setTurnName = (turn, name) => upsertTurn(turn, { name });
 
   /* ---- squadron missions: a player commits some of a fleet's fighters/bombers
      (whole or partial squadrons) to a free-text mission, for the GM to adjudicate
@@ -2437,7 +2450,7 @@ export default function GalaxySectorMap() {
         {activeTab === "fleet" && (
           <FleetView
             fleets={displayFleets} systems={systems} canEdit={canEdit} isMobile={isMobile}
-            factionById={factionById}
+            factionById={factionById} factions={factions} patchFleet={patchFleet}
             primaryId={fleetPrimaryId} setPrimaryId={setFleetPrimaryId}
             compareId={fleetCompareId} setCompareId={setFleetCompareId}
             addShip={addShip} patchShip={patchShip} removeShip={removeShip} renameFleet={renameFleet}
@@ -2477,7 +2490,7 @@ export default function GalaxySectorMap() {
         {activeTab === "timeline" && (
           <TimelineView
             wiki={displayWiki} factions={factions} turns={turns} turnNumber={turnNumber}
-            isGM={isGM} isMobile={isMobile} goToCodex={goToCodex} setTurnStart={setTurnStart}
+            isGM={isGM} isMobile={isMobile} goToCodex={goToCodex} setTurnStart={setTurnStart} setTurnName={setTurnName}
           />
         )}
 

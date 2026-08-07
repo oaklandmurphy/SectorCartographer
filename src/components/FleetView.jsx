@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Ship, Anchor, Plus, X, Columns2, StickyNote, Rocket, Clock, Check, SplitSquareHorizontal,
   History, ChevronDown, ChevronUp, Route } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
@@ -10,6 +10,89 @@ import ArtLibrary from "./ArtLibrary.jsx";
 import SquadronOrderModal from "./SquadronOrderModal.jsx";
 import MissionResolution from "./ui/MissionResolution.jsx";
 
+// The Fleet / Compare selectors up top. A native <select> can't color a row to
+// its faction or stack a second line of detail, so this is a small custom
+// dropdown: the trigger shows the current pick (faction swatch + name), and the
+// open list gives each fleet a faction-colored stripe over a name and a
+// meta line (faction · carrier count · home). Closes on pick, click-outside,
+// or Escape. `value` is a fleet id or null; `onChange` gets a fleet id or null.
+function FleetPicker({ fleets, value, onChange, factionById, systems, isMobile,
+  placeholder = "— none —", allowNone = false, disabled = false }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+
+  const selected = fleets.find((f) => f.id === value) || null;
+  const minWidth = isMobile ? 150 : 200;
+  const pick = (id) => { onChange(id); setOpen(false); };
+
+  const row = (fleet, isSel, key) => {
+    const fac = fleet ? factionById(fleet.factionId) || {} : {};
+    const home = fleet && fleet.systemId ? systems.find((s) => s.id === fleet.systemId) : null;
+    const n = fleet ? fleet.ships.length : 0;
+    return (
+      <button key={key} type="button" onClick={() => pick(fleet ? fleet.id : null)}
+        style={{ display: "flex", alignItems: "stretch", gap: 8, width: "100%", textAlign: "left",
+          background: isSel ? "rgba(159,194,58,.14)" : "transparent",
+          border: `1px solid ${isSel ? T.accent : "transparent"}`, borderRadius: 2,
+          padding: "5px 7px", cursor: "pointer" }}>
+        <span style={{ width: 4, minHeight: 24, background: fleet ? fac.color : T.faint, flexShrink: 0,
+          borderRadius: 1, opacity: fleet ? 1 : 0.4 }} />
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: T.text,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {fleet ? fleet.name : placeholder}
+          </span>
+          {fleet && (
+            <span className="mono" style={{ display: "block", fontSize: 10, color: T.faint, marginTop: 1,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {fac.name || "No faction"} · {n} carrier{n === 1 ? "" : "s"} · {home ? home.name : "In transit"}
+            </span>
+          )}
+        </span>
+      </button>
+    );
+  };
+
+  return (
+    <div ref={ref} style={{ position: "relative", flexShrink: 0 }}>
+      <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
+        style={{ ...selStyle, width: "auto", minWidth, display: "flex", alignItems: "center", gap: 7,
+          opacity: disabled ? 0.5 : 1, cursor: disabled ? "default" : "pointer" }}>
+        {selected ? (
+          <>
+            <span style={{ width: 9, height: 9, flexShrink: 0, ...cut(2),
+              background: (factionById(selected.factionId) || {}).color }} />
+            <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis",
+              whiteSpace: "nowrap", color: T.text }}>{selected.name}</span>
+          </>
+        ) : (
+          <span style={{ flex: 1, minWidth: 0, color: T.faint, overflow: "hidden",
+            textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{placeholder}</span>
+        )}
+        {open ? <ChevronUp size={13} style={{ flexShrink: 0, color: T.faint }} />
+          : <ChevronDown size={13} style={{ flexShrink: 0, color: T.faint }} />}
+      </button>
+      {open && (
+        <div className="scroll" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 60,
+          width: "max-content", minWidth, maxWidth: isMobile ? 260 : 340, maxHeight: 320, overflowY: "auto",
+          background: T.panel, border: `1px solid ${T.line}`, borderRadius: 2,
+          boxShadow: "0 14px 30px rgba(0,0,0,.6)", padding: 4, display: "flex", flexDirection: "column", gap: 2 }}>
+          {allowNone && row(null, value == null, "_none")}
+          {fleets.map((f) => row(f, f.id === value, f.id))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // A whole fleet at a glance: carriers stacked down a scrolling column, each
 // carrier's hangar laid out to its right. A second fleet can be pinned beside
 // the first to compare the two.
@@ -18,7 +101,7 @@ import MissionResolution from "./ui/MissionResolution.jsx";
 // returning JSX (called, not mounted as <Components>) — mounting them would
 // remount the subtree on every keystroke and drop focus out of the inputs.
 export default function FleetView({
-  fleets, systems, canEdit, isMobile, factionById,
+  fleets, systems, canEdit, isMobile, factionById, factions = [], patchFleet,
   primaryId, setPrimaryId, compareId, setCompareId,
   addShip, patchShip, removeShip, renameFleet,
   addSquadron, patchSquadron, removeSquadron,
@@ -247,7 +330,17 @@ export default function FleetView({
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
           fontSize: 10.5, color: T.mut }}>
-          <span>{fac.name}</span>
+          {/* Allegiance: read-only for players, a reassignment dropdown for the GM.
+              patchFleet is itself canEdit-gated in App.jsx — this only surfaces the control. */}
+          {canEdit && patchFleet ? (
+            <select value={fleet.factionId} title="Change this fleet's allegiance"
+              onChange={(e) => patchFleet(fleet.id, { factionId: e.target.value })}
+              style={{ ...selStyle, width: "auto", padding: "2px 5px", fontSize: 10.5 }}>
+              {factions.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
+          ) : (
+            <span>{fac.name}</span>
+          )}
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <Anchor size={11} style={{ color: T.faint }} />
             {home ? home.name : "In transit"}
@@ -358,23 +451,18 @@ export default function FleetView({
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <Ship size={14} style={{ color: T.accent, flexShrink: 0 }} />
         <span style={lbl}>Fleet</span>
-        <select value={primary ? primary.id : ""} onChange={(e) => selectPrimary(e.target.value)}
-          disabled={fleets.length === 0}
-          style={{ ...selStyle, width: "auto", minWidth: isMobile ? 130 : 180 }}>
-          {fleets.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-        </select>
+        <FleetPicker fleets={fleets} value={primary ? primary.id : null}
+          onChange={(id) => { if (id) selectPrimary(id); }}
+          factionById={factionById} systems={systems} isMobile={isMobile}
+          placeholder="No fleets" disabled={fleets.length === 0} />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <Columns2 size={14} style={{ color: compare ? T.accent : T.faint, flexShrink: 0 }} />
         <span style={lbl}>Compare</span>
-        <select value={compare ? compare.id : ""} onChange={(e) => setCompareId(e.target.value || null)}
-          disabled={fleets.length < 2}
-          style={{ ...selStyle, width: "auto", minWidth: isMobile ? 130 : 180,
-            color: compare ? T.text : T.faint }}>
-          <option value="">— none —</option>
-          {fleets.filter((f) => !primary || f.id !== primary.id)
-            .map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-        </select>
+        <FleetPicker fleets={fleets.filter((f) => !primary || f.id !== primary.id)}
+          value={compare ? compare.id : null} onChange={(id) => setCompareId(id || null)}
+          factionById={factionById} systems={systems} isMobile={isMobile}
+          placeholder="— none —" allowNone disabled={fleets.length < 2} />
         {compare && (
           <button onClick={() => setCompareId(null)} title="Stop comparing"
             style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: 2, color: T.faint,

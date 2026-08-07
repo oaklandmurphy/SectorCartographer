@@ -16,6 +16,11 @@ export const MIN_ZOOM = 0.1;   // 10% — far enough out to see a whole large se
 export const MAX_ZOOM = 3;     // 300%
 export const OVERVIEW_ZOOM = 0.45; // at or below this scale, systems simplify to plain markers (names/status icons hidden)
 
+// Discord role the GM pings when announcing a codex article — the "@everyone in
+// this game" mention pasted at the top of the copy-for-Discord text (WikiView).
+// One role per campaign; change this if the game's server names it differently.
+export const DISCORD_GAME_ROLE = "@ZotovSector";
+
 export const WIKI_CATS = [
   { id: "news", label: "News", icon: Newspaper },
   { id: "factions", label: "Factions", icon: Users },

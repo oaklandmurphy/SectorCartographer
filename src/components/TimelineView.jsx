@@ -39,11 +39,12 @@ function fromLocalInput(v) {
 // (stamped by Next Turn, adjustable here by the GM). News only by default, with
 // a toggle for every category. Clicking a box opens its article inline below the
 // strip rather than leaving for the Codex.
-export default function TimelineView({ wiki, factions, turns, turnNumber, isGM, isMobile, goToCodex, setTurnStart }) {
+export default function TimelineView({ wiki, factions, turns, turnNumber, isGM, isMobile, goToCodex, setTurnStart, setTurnName }) {
   const [showAll, setShowAll] = useState(false);
   const [selectedId, setSelectedId] = useState(null); // article shown in the reader below
-  const [editingTurn, setEditingTurn] = useState(null); // turn number whose start the GM is editing
+  const [editingTurn, setEditingTurn] = useState(null); // turn number the GM is editing (start time + name)
   const [draft, setDraft] = useState("");
+  const [nameDraft, setNameDraft] = useState("");
   const [hoverId, setHoverId] = useState(null);
   const stripRef = useRef(null);
   const readerRef = useRef(null);
@@ -59,6 +60,12 @@ export default function TimelineView({ wiki, factions, turns, turnNumber, isGM, 
   const startOf = (turn) => {
     const m = marks.find((x) => x.turn === turn);
     return m ? m.startedAt : null;
+  };
+  // The GM's name for a turn, if any. Read straight from `turns` (not `marks`) —
+  // a turn can be named without having a start time set.
+  const nameOf = (turn) => {
+    const m = (turns || []).find((x) => x.turn === turn);
+    return (m && m.name) || "";
   };
   // The turn a given date belongs to: the highest turn whose recorded start is at
   // or before the date. A date earlier than every recorded start belongs to the
@@ -114,7 +121,7 @@ export default function TimelineView({ wiki, factions, turns, turnNumber, isGM, 
   const COL_MIN_W = Math.max(184, EDGE_PAD * 2);
   const ROWS = 3;
   const ROW_STEP = BOX_H + 14;
-  const HEADER_H = 54;
+  const HEADER_H = 68;                       // room for the turn label, its name, and start time
   const TOP_PAD = 8;
   const STEM_EXTRA = 34;                     // stem length below the lowest row
   const AXIS_Y = HEADER_H + TOP_PAD + (ROWS - 1) * ROW_STEP + BOX_H + STEM_EXTRA;
@@ -175,6 +182,7 @@ export default function TimelineView({ wiki, factions, turns, turnNumber, isGM, 
   const openEditor = (turn) => {
     setEditingTurn(turn);
     setDraft(toLocalInput(startOf(turn)));
+    setNameDraft(nameOf(turn));
   };
 
   const toggle = (
@@ -235,6 +243,7 @@ export default function TimelineView({ wiki, factions, turns, turnNumber, isGM, 
           {columns.map((col) => {
             const isCurrent = col.turn === (Number(turnNumber) || 0);
             const start = startOf(col.turn);
+            const turnName = nameOf(col.turn);
             return (
               <div key={col.turn} style={{ position: "relative", width: col.width, height: TOTAL_H, flex: "0 0 auto",
                 borderLeft: `1px ${isCurrent ? "solid" : "dashed"} ${isCurrent ? T.accent : T.line}` }}>
@@ -246,20 +255,31 @@ export default function TimelineView({ wiki, factions, turns, turnNumber, isGM, 
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span className="stencil" style={{ fontSize: 13, fontWeight: 800, letterSpacing: ".05em",
                       color: isCurrent ? T.accent : T.text }}>
-                      TURN {col.turn}
+                      CYCLE {col.turn}
                     </span>
                     {isCurrent && (
                       <span className="mono" style={{ fontSize: 8, letterSpacing: ".1em", textTransform: "uppercase",
                         color: T.accent, border: `1px solid ${T.accent}`, borderRadius: 2, padding: "0 4px" }}>Current</span>
                     )}
                     {isGM && (
-                      <button onClick={() => openEditor(col.turn)} title="Set when this turn began"
+                      <button onClick={() => openEditor(col.turn)} title="Name this cycle or set when it began"
                         style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", padding: 2,
                           color: T.faint, display: "flex" }}>
                         <Pencil size={12} />
                       </button>
                     )}
                   </div>
+                  {/* The GM's name for this turn — the headline. Players see nothing
+                      for an unnamed turn; the GM sees a faint prompt to add one. */}
+                  {(turnName || isGM) && (
+                    <div title={turnName || undefined}
+                      style={{ fontFamily: F.body, fontSize: 12.5, fontWeight: turnName ? 600 : 400,
+                        fontStyle: turnName ? "normal" : "italic", lineHeight: 1.2,
+                        color: turnName ? (isCurrent ? T.accent : T.text) : T.faint,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {turnName || "Unnamed cycle"}
+                    </div>
+                  )}
                   <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9.5,
                     color: start ? T.mut : T.faint, minWidth: 0 }}>
                     <Clock size={10} style={{ flexShrink: 0 }} />
@@ -269,27 +289,32 @@ export default function TimelineView({ wiki, factions, turns, turnNumber, isGM, 
                   </div>
                 </div>
 
-                {/* GM inline editor for this turn's start */}
+                {/* GM inline editor for this turn's name and start */}
                 {isGM && editingTurn === col.turn && (
                   <div style={{ position: "absolute", top: 6, left: 8, zIndex: 30, width: 236, background: T.panel,
                     border: `1px solid ${T.accent}`, ...cut(6), padding: 10, display: "flex", flexDirection: "column", gap: 8,
                     boxShadow: "0 12px 28px rgba(0,0,0,.6)" }}>
-                    <span style={lbl}>Turn {col.turn} — start time</span>
+                    <span style={lbl}>Cycle {col.turn} — name</span>
+                    <input type="text" value={nameDraft} maxLength={60} placeholder="e.g. The Siege of Kessler"
+                      onChange={(e) => setNameDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { setTurnName(col.turn, nameDraft); setTurnStart(col.turn, fromLocalInput(draft)); setEditingTurn(null); } }}
+                      style={{ ...inputStyle }} />
+                    <span style={lbl}>Start time</span>
                     <input type="datetime-local" value={draft} onChange={(e) => setDraft(e.target.value)}
                       style={{ ...inputStyle, fontFamily: F.mono }} />
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      <Btn kind="primary" onClick={() => { setTurnStart(col.turn, fromLocalInput(draft)); setEditingTurn(null); }}>
+                      <Btn kind="primary" onClick={() => { setTurnName(col.turn, nameDraft); setTurnStart(col.turn, fromLocalInput(draft)); setEditingTurn(null); }}>
                         <Check size={12} /> Save
                       </Btn>
                       {start != null && (
-                        <Btn onClick={() => { setTurnStart(col.turn, null); setEditingTurn(null); }} title="Remove this turn's start time">
-                          <X size={12} /> Clear
+                        <Btn onClick={() => { setTurnStart(col.turn, null); setEditingTurn(null); }} title="Remove this cycle's start time (keeps its name)">
+                          <X size={12} /> Clear time
                         </Btn>
                       )}
                       <Btn onClick={() => setEditingTurn(null)} style={{ marginLeft: "auto" }}>Cancel</Btn>
                     </div>
                     <span style={{ fontSize: 9.5, color: T.faint, lineHeight: 1.5 }}>
-                      Articles dated on or after this move into Turn {col.turn}.
+                      The name labels this cycle on the timeline. Articles dated on or after the start move into Cycle {col.turn}.
                     </span>
                   </div>
                 )}

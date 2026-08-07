@@ -1,10 +1,10 @@
 import { useRef, useState } from "react";
 import { Plus, Trash2, ChevronLeft, FileText, EyeOff, Users, Table, Eye, Pencil,
   Image as ImageIcon, ImagePlus, X, AlertTriangle, Inbox, CheckCircle2, Undo2, Send, Clock, Search, Globe,
-  ArrowUpDown, Filter, BellOff } from "lucide-react";
+  ArrowUpDown, Filter, BellOff, Copy, Check } from "lucide-react";
 import { T, F, inputStyle, selStyle, lbl } from "../theme.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
-import { WIKI_CATS } from "../constants.js";
+import { WIKI_CATS, DISCORD_GAME_ROLE } from "../constants.js";
 import { isRestricted } from "../lib/visibility.js";
 import { bodyExcerpt, CSV_TEMPLATE, CSV_TEMPLATE_CAPTION } from "../lib/codexBody.js";
 import { processImage } from "../lib/codexImage.js";
@@ -88,11 +88,14 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
   // the live entry. On by default (it's the point of the review); reset whenever
   // the open entry changes.
   const [showDiff, setShowDiff] = useState(true);
+  // Transient "Copied" confirmation on the copy-for-Discord button; the id keeps
+  // the tick on the entry that was actually copied, so switching entries clears it.
+  const [copiedId, setCopiedId] = useState(null);
   // setActiveCat clears the open entry itself (see App.jsx) — clearing it here
   // too would be a second URL change, i.e. two Back presses for one click.
   const selectCat = (id) => { setQueueMode(false); setQuery(""); setActiveCat(id); };
   const openQueue = () => { setQueueMode(true); setQuery(""); setSelectedId(null); };
-  const selectEntry = (id) => { setPreviewOf(null); setImgError(null); setShowDiff(true); setSelectedId(id); };
+  const selectEntry = (id) => { setPreviewOf(null); setImgError(null); setShowDiff(true); setCopiedId(null); setSelectedId(id); };
   // Typing a query leaves the queue (results are live articles, not submissions).
   const onSearch = (v) => { setQuery(v); if (v) setQueueMode(false); };
 
@@ -130,6 +133,18 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
       bodyRef.current.focus();
       bodyRef.current.setSelectionRange(start, start + CSV_TEMPLATE_CAPTION.length);
     });
+  }
+
+  // Copy a Discord-ready version of an entry to the clipboard: the game's role
+  // ping, then the title in bold, then the body — each separated by a blank line
+  // so it pastes into Discord already formatted for an announcement.
+  async function copyForDiscord(entry) {
+    const text = `${DISCORD_GAME_ROLE}\n\n**${(entry.title || "Untitled").trim()}**\n\n${(entry.body || "").trim()}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(entry.id);
+      setTimeout(() => setCopiedId((id) => (id === entry.id ? null : id)), 1600);
+    } catch (e) { /* clipboard unavailable */ }
   }
 
   // A codex image is always a raster data URI shown through <img> — never inline
@@ -572,6 +587,14 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
                     <BellOff size={14} /> Save quietly
                   </Btn>
                 </>
+              )}
+              {!pending && (
+                <Btn onClick={() => copyForDiscord(selected)}
+                  title="Copy a Discord-ready announcement — role ping, bold title, then the body — to your clipboard">
+                  {copiedId === selected.id
+                    ? <><Check size={14} /> Copied</>
+                    : <><Copy size={14} /> Copy for Discord</>}
+                </Btn>
               )}
               <Btn kind="danger"
                 onClick={async () => {

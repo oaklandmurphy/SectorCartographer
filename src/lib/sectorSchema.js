@@ -80,9 +80,10 @@ const defaults = {
   relations: {}, layers: {}, links: {}, wikiReads: {}, roles: {}, art: {}, modifiers: {}, resources: {}, resourceTransactions: {}, notes: { text: "" }, ships: {},
   actionReads: {}, missionReads: {}, replenishmentReads: {},
   // A turn boundary record: the moment turn `turn` began (stamped by nextTurn(),
-  // or set/adjusted by the GM on the Timeline tab). The Timeline uses these
-  // boundaries to sort each wiki article into the turn its date falls within.
-  turns: { turn: 0, startedAt: 0 },
+  // or set/adjusted by the GM on the Timeline tab), plus the GM's optional `name`
+  // for it. The Timeline uses these boundaries to sort each wiki article into the
+  // turn its date falls within, and shows the name as the turn's label.
+  turns: { turn: 0, startedAt: 0, name: "" },
   // An end-of-turn check the GM manages from GM Tools → End of Turn Checks.
   // Today the only `type` is "ossite" — the Ossite Surplus check, one per
   // system with the ossite trait, rolled 2d6 and passing on 8+ to hand its
