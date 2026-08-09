@@ -3,6 +3,7 @@ import { T, inputStyle, selStyle, lbl } from "../theme.js";
 import { AGENT_ICONS, AGENT_ICON_KEYS } from "../constants.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
+import AutoTextarea from "./ui/AutoTextarea.jsx";
 import MapPopup from "./ui/MapPopup.jsx";
 
 // The map's popup for an agent — the same fields as an AgentsView card, anchored
@@ -85,7 +86,7 @@ export default function AgentPopup({
       <div>
         <div style={{ ...lbl, marginBottom: 4 }}>Notes</div>
         {canManage ? (
-          <textarea value={agent.notes || ""} onChange={(e) => patchAgent(agent.id, { notes: e.target.value })}
+          <AutoTextarea value={agent.notes || ""} onChange={(e) => patchAgent(agent.id, { notes: e.target.value })}
             placeholder="Orders, cover identity, status…"
             style={{ ...inputStyle, minHeight: 64, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 10 }} />
         ) : (

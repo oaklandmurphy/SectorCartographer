@@ -5,6 +5,7 @@ import { T, F, inputStyle, selStyle, lbl, cut } from "../theme.js";
 import { squadronsOf, craftInCarrier, craftInFleet, knownModels, knownCarrierModels } from "../lib/carriers.js";
 import { mergeNames } from "../lib/shipArt.js";
 import Btn from "./ui/Btn.jsx";
+import AutoTextarea from "./ui/AutoTextarea.jsx";
 import ShipArt from "./ui/ShipArt.jsx";
 import ArtLibrary from "./ArtLibrary.jsx";
 import SquadronOrderModal from "./SquadronOrderModal.jsx";
@@ -265,7 +266,7 @@ export default function FleetView({
             <span style={lbl}>Notes</span>
           </div>
           {canEdit ? (
-            <textarea value={sh.notes || ""} placeholder="Track anything about this ship…"
+            <AutoTextarea value={sh.notes || ""} placeholder="Track anything about this ship…"
               onChange={(e) => patchShip(fleet.id, sh.id, { notes: e.target.value })} rows={2}
               style={{ ...inputStyle, padding: "5px 8px", resize: "vertical", minHeight: 44,
                 lineHeight: 1.5 }} />

@@ -4,6 +4,7 @@ import { T, F, inputStyle, selStyle, lbl } from "../theme.js";
 import { AGENT_ICONS, AGENT_ICON_KEYS } from "../constants.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
+import AutoTextarea from "./ui/AutoTextarea.jsx";
 import ActionResolution from "./ui/ActionResolution.jsx";
 import MobileTabRail from "./ui/MobileTabRail.jsx";
 
@@ -298,7 +299,7 @@ export default function AgentsView({
           <div>
             <div style={{ ...lbl, marginBottom: 4 }}>Notes</div>
             {canManage ? (
-              <textarea value={a.notes || ""} onChange={(e) => patchAgent(a.id, { notes: e.target.value })}
+              <AutoTextarea value={a.notes || ""} onChange={(e) => patchAgent(a.id, { notes: e.target.value })}
                 placeholder="Orders, cover identity, status…"
                 style={{ ...inputStyle, minHeight: 70, resize: "vertical", lineHeight: 1.6, fontSize: 13, padding: 10 }} />
             ) : (
@@ -526,7 +527,7 @@ function AgentActions({ agent, color, isMobile, actions, archivedActions, facMod
       {canManage && remaining > 0 && open && (
         <div style={{ border: `1px solid ${T.line}`, borderRadius: 2, background: T.panel2,
           padding: 8, display: "flex", flexDirection: "column", gap: 7 }}>
-          <textarea value={text} onChange={(e) => setText(e.target.value)} autoFocus
+          <AutoTextarea value={text} onChange={(e) => setText(e.target.value)} autoFocus
             placeholder="Describe the action this agent should attempt…"
             style={{ ...inputStyle, minHeight: 64, resize: "vertical",
               fontFamily: F.mono,

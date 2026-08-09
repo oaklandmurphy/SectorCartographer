@@ -3,6 +3,7 @@ import { X, Rocket, Send, TriangleAlert } from "lucide-react";
 import { T, F, panelStyle, inputStyle, lbl, cut } from "../theme.js";
 import { squadronsOf } from "../lib/carriers.js";
 import Btn from "./ui/Btn.jsx";
+import AutoTextarea from "./ui/AutoTextarea.jsx";
 
 // The player-side composer for a squadron mission: pick any combination of
 // fighters/bombers across every carrier in one fleet — whole squadrons or part
@@ -106,7 +107,7 @@ export default function SquadronOrderModal({ fleet, isMobile, onClose, onSubmit 
 
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <span style={lbl}>Mission</span>
-            <textarea value={text} onChange={(e) => setText(e.target.value)} autoFocus
+            <AutoTextarea value={text} onChange={(e) => setText(e.target.value)} autoFocus
               placeholder="Describe what this squadron order should attempt…"
               style={{ ...inputStyle, minHeight: 80, resize: "vertical",
                 fontFamily: F.mono,

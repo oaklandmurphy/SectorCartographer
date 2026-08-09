@@ -4,6 +4,7 @@ import { T, F, inputStyle } from "../theme.js";
 import { GM_RECIPIENT } from "../constants.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
+import AutoTextarea from "./ui/AutoTextarea.jsx";
 import MobileTabRail from "./ui/MobileTabRail.jsx";
 
 const LEVELS = [
@@ -251,7 +252,7 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
         ) : null}
         {canEdit ? (
           <>
-            <textarea value={m.text} onChange={(e) => patchModifier(m.id, { text: e.target.value })}
+            <AutoTextarea value={m.text} onChange={(e) => patchModifier(m.id, { text: e.target.value })}
               placeholder="Description…"
               style={{ ...inputStyle, minHeight: packed ? 56 : 70, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 10 }} />
             <Btn kind="danger" style={{ alignSelf: "flex-start" }}
@@ -329,7 +330,7 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
         {/* What this resource is for/spent on — players see it read-only so a
             counter isn't just a bare number with no context. */}
         {canEdit ? (
-          <textarea value={r.text || ""} onChange={(e) => patchResource(r.id, { text: e.target.value })}
+          <AutoTextarea value={r.text || ""} onChange={(e) => patchResource(r.id, { text: e.target.value })}
             placeholder="What is this spent on / used for…"
             style={{ ...inputStyle, minHeight: 44, resize: "vertical", lineHeight: 1.5, fontSize: 12, padding: 8 }} />
         ) : r.text ? (
@@ -480,7 +481,7 @@ export default function AssetsView({ factions, allFactions, modifiers, resources
           </div>
         ) : null}
         {canEdit ? (
-          <textarea value={p.text || ""} onChange={(e) => patchProject(p.id, { text: e.target.value })}
+          <AutoTextarea value={p.text || ""} onChange={(e) => patchProject(p.id, { text: e.target.value })}
             placeholder="What this project does when it completes…"
             style={{ ...inputStyle, minHeight: 44, resize: "vertical", lineHeight: 1.5, fontSize: 12, padding: 8 }} />
         ) : p.text ? (

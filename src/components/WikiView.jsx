@@ -9,6 +9,7 @@ import { isRestricted } from "../lib/visibility.js";
 import { bodyExcerpt, CSV_TEMPLATE, CSV_TEMPLATE_CAPTION } from "../lib/codexBody.js";
 import { processImage } from "../lib/codexImage.js";
 import Btn from "./ui/Btn.jsx";
+import AutoTextarea from "./ui/AutoTextarea.jsx";
 import CodexBody from "./CodexBody.jsx";
 import CodexDiff, { DiffLegend } from "./CodexDiff.jsx";
 import VisibilityRow from "./VisibilityRow.jsx";
@@ -447,7 +448,7 @@ export default function WikiView({ wiki, roles = [], factions = [], canEdit, isM
             <CodexBody body={selected.body} isMobile={isMobile} />
           </div>
         ) : (
-          <textarea ref={bodyRef} value={selected.body} onChange={(e) => patch(selected.id, { body: e.target.value })}
+          <AutoTextarea ref={bodyRef} value={selected.body} onChange={(e) => patch(selected.id, { body: e.target.value })}
             placeholder="Write anything here — lore, notes, stats, rules…"
             style={{ ...inputStyle, minHeight: isMobile ? 220 : 340, resize: "vertical", lineHeight: 1.6,
               fontFamily: F.mono, fontSize: 12.5, padding: 12 }} />

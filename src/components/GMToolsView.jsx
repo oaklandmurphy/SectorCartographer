@@ -7,6 +7,7 @@ import { useConfirm } from "../hooks/useConfirm.jsx";
 import { collectMovementViolations, effectiveMoveOrders } from "../lib/movement.js";
 import { lineTotal } from "../lib/replenish.js";
 import Btn from "./ui/Btn.jsx";
+import AutoTextarea from "./ui/AutoTextarea.jsx";
 import ActionResolution from "./ui/ActionResolution.jsx";
 import GMNotesPanel from "./ui/GMNotesPanel.jsx";
 import SquadronMissionsPanel from "./SquadronMissionsPanel.jsx";
@@ -603,7 +604,7 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
 
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <span style={lbl}>Outcome text</span>
-          <textarea value={outcomeText} onChange={(e) => setOutcomeText(e.target.value)}
+          <AutoTextarea value={outcomeText} onChange={(e) => setOutcomeText(e.target.value)}
             placeholder="What happens as a result… (appended after the success/failure line)"
             style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9,
               fontFamily: F.mono }} />
@@ -772,36 +773,52 @@ export default function GMToolsView({ roles, factions, modifiers, notes, isMobil
 
   // The section switch: agent actions vs. squadron missions vs. narrative
   // prompt vs. resource transactions. Each owns its own content; Notes stays
-  // shared underneath either one.
-  const sectionBar = () => (
-    <div style={{ display: "flex", gap: 3, background: T.panel3, padding: 3, border: `1px solid ${T.line}`,
-      margin: isMobile ? "0 0 14px" : "12px 12px 0", alignSelf: isMobile ? "stretch" : "flex-start" }}>
-      <Btn active={section === "actions"} onClick={() => setSection("actions")} title="Agent action requests"
-        style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
-        <ClipboardList size={13} /> Agent Actions {countBadge(pendingTotal)}
-      </Btn>
-      <Btn active={section === "missions"} onClick={() => setSection("missions")} title="Squadron mission requests"
-        style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
-        <Rocket size={13} /> Squadron Missions {countBadge(pendingMissionTotal)}
-      </Btn>
-      <Btn active={section === "replenish"} onClick={() => setSection("replenish")} title="Top up strike craft on carriers in friendly space"
-        style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
-        <PackagePlus size={13} /> Replenish {countBadge(stagedReplenTotal)}
-      </Btn>
-      <Btn active={section === "checks"} onClick={() => setSection("checks")} title="Checks that resolve when the turn advances — the Ossite Surplus check"
-        style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
-        <ListChecks size={13} /> End of Turn Checks {countBadge(ossitePassingTotal)}
-      </Btn>
-      <Btn active={section === "narrative"} onClick={() => setSection("narrative")} title="Generate a narration prompt from last turn's important events"
-        style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
-        <Sparkles size={13} /> Narrative {countBadge(importantLastTurn.length)}
-      </Btn>
-      <Btn active={section === "transactions"} onClick={() => setSection("transactions")} title="Resource transfers between factions, and to the GM"
-        style={{ border: "none", borderRadius: 0, flex: isMobile ? 1 : "none", justifyContent: "center" }}>
-        <ArrowLeftRight size={13} /> Transactions
-      </Btn>
-    </div>
-  );
+  // shared underneath either one. Six entries is too many to cram into one
+  // row on a phone (even icon-only), so mobile collapses it into the same
+  // trigger + dropdown pattern as the player/faction rails below.
+  const SECTIONS = [
+    { id: "actions", label: "Agent Actions", icon: ClipboardList, title: "Agent action requests", badge: pendingTotal },
+    { id: "missions", label: "Squadron Missions", icon: Rocket, title: "Squadron mission requests", badge: pendingMissionTotal },
+    { id: "replenish", label: "Replenish", icon: PackagePlus, title: "Top up strike craft on carriers in friendly space", badge: stagedReplenTotal },
+    { id: "checks", label: "End of Turn Checks", icon: ListChecks, title: "Checks that resolve when the turn advances — the Ossite Surplus check", badge: ossitePassingTotal },
+    { id: "narrative", label: "Narrative", icon: Sparkles, title: "Generate a narration prompt from last turn's important events", badge: importantLastTurn.length },
+    { id: "transactions", label: "Transactions", icon: ArrowLeftRight, title: "Resource transfers between factions, and to the GM", badge: 0 },
+  ];
+  const activeSection = SECTIONS.find((s) => s.id === section) || SECTIONS[0];
+
+  const sectionBar = () => {
+    if (isMobile) {
+      return (
+        <div style={{ margin: "0 0 14px" }}>
+          <MobileTabRail label={activeSection.label} icon={<activeSection.icon size={15} />}>
+            {SECTIONS.map((s) => (
+              <button key={s.id} onClick={() => setSection(s.id)} title={s.title}
+                style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", width: "100%",
+                  border: `1px solid ${s.id === section ? T.accent : T.line}`, borderRadius: 2, padding: "9px 11px",
+                  background: s.id === section ? "rgba(159,194,58,.14)" : T.panel2, color: s.id === section ? T.accent : T.text,
+                  fontFamily: F.body, fontSize: 13, fontWeight: 600, letterSpacing: ".03em",
+                  textTransform: "uppercase" }}>
+                <s.icon size={15} />
+                <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
+                {countBadge(s.badge, true)}
+              </button>
+            ))}
+          </MobileTabRail>
+        </div>
+      );
+    }
+    return (
+      <div style={{ display: "flex", gap: 3, background: T.panel3, padding: 3, border: `1px solid ${T.line}`,
+        margin: "12px 12px 0", alignSelf: "flex-start" }}>
+        {SECTIONS.map((s) => (
+          <Btn key={s.id} active={section === s.id} onClick={() => setSection(s.id)} title={s.title}
+            style={{ border: "none", borderRadius: 0, flex: "none", justifyContent: "center" }}>
+            <s.icon size={13} /> {s.label} {countBadge(s.badge)}
+          </Btn>
+        ))}
+      </div>
+    );
+  };
 
   // Bulk "resolve the round" control: lands every committed fleet/agent move
   // order, then archives every *resolved* action request (still-pending ones
@@ -1084,7 +1101,7 @@ function ResolutionWithEdit({ action, editResolution }) {
   if (editing) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
+        <AutoTextarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
           placeholder="What happens as a result…"
           style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9,
             fontFamily: F.mono }} />

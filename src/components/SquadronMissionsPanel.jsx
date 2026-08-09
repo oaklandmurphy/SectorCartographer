@@ -8,6 +8,7 @@ import {
 } from "../lib/missionOdds.js";
 import { useConfirm } from "../hooks/useConfirm.jsx";
 import Btn from "./ui/Btn.jsx";
+import AutoTextarea from "./ui/AutoTextarea.jsx";
 import MissionResolution from "./ui/MissionResolution.jsx";
 import MobileTabRail from "./ui/MobileTabRail.jsx";
 
@@ -33,7 +34,7 @@ function MissionResolutionWithEdit({ mission, editResolution }) {
   if (editing) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
+        <AutoTextarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
           placeholder="What happens as a result…"
           style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9,
             fontFamily: F.mono }} />
@@ -566,7 +567,7 @@ export default function SquadronMissionsPanel({
 
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <span style={lbl}>Outcome text</span>
-              <textarea value={outcomeText} onChange={(e) => setOutcomeText(e.target.value)}
+              <AutoTextarea value={outcomeText} onChange={(e) => setOutcomeText(e.target.value)}
                 placeholder="What happens as a result…"
                 style={{ ...inputStyle, minHeight: 56, resize: "vertical", lineHeight: 1.6, fontSize: 12.5, padding: 9,
                   fontFamily: F.mono }} />

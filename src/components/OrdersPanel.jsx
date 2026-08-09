@@ -1,6 +1,7 @@
 import { Route, Undo2, Trash2, Check, MousePointerClick } from "lucide-react";
 import { T, cut, inputStyle, lbl, floatingPanel } from "../theme.js";
 import Btn from "./ui/Btn.jsx";
+import AutoTextarea from "./ui/AutoTextarea.jsx";
 
 // The floating console shown on the map while plotting move orders. With nothing
 // selected it just explains the mode; once a fleet or agent is picked it lists
@@ -60,7 +61,7 @@ export default function OrdersPanel({
 
           <div style={{ marginBottom: 10 }}>
             <div style={lbl}>Notes</div>
-            <textarea value={notes || ""} onChange={(e) => onNotesChange && onNotesChange(e.target.value)}
+            <AutoTextarea value={notes || ""} onChange={(e) => onNotesChange && onNotesChange(e.target.value)}
               placeholder="What should happen along the way, or once it arrives…"
               style={{ ...inputStyle, marginTop: 4, minHeight: 56, resize: "vertical", lineHeight: 1.5, fontSize: 12, padding: 8 }} />
           </div>
